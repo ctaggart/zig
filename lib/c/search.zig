@@ -6,6 +6,8 @@ comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&insque, "insque");
         symbol(&remque, "remque");
+        symbol(&tfind, "tfind");
+        symbol(&twalk, "twalk");
     }
 }
 
@@ -64,4 +66,44 @@ test "insque and remque" {
 
     remque(&second);
     try std.testing.expectEqual(@as(?*Node, null), first.next);
+}
+
+// AVL tree node structure matching musl's struct node in tsearch.h
+const TreeNode = extern struct {
+    key: *const anyopaque,
+    children: [2]*anyopaque,
+    h: c_int,
+};
+
+const CmpFn = *const fn (*const anyopaque, *const anyopaque) callconv(.c) c_int;
+
+fn tfind(key: *const anyopaque, rootp: ?*const ?*anyopaque, cmp: CmpFn) callconv(.c) ?*anyopaque {
+    const rp = rootp orelse return null;
+    var n: ?*TreeNode = @ptrCast(@alignCast(rp.*));
+    while (n) |node| {
+        const c = cmp(key, node.key);
+        if (c == 0) return @ptrCast(node);
+        n = @ptrCast(@alignCast(node.children[@intFromBool(c > 0)]));
+    }
+    return null;
+}
+
+const VISIT = enum(c_int) { preorder, postorder, endorder, leaf };
+const ActionFn = *const fn (*const anyopaque, VISIT, c_int) callconv(.c) void;
+
+fn walk(r: ?*const TreeNode, action: ActionFn, d: c_int) void {
+    const node = r orelse return;
+    if (node.h == 1) {
+        action(node, .leaf, d);
+    } else {
+        action(node, .preorder, d);
+        walk(@ptrCast(@alignCast(node.children[0])), action, d + 1);
+        action(node, .postorder, d);
+        walk(@ptrCast(@alignCast(node.children[1])), action, d + 1);
+        action(node, .endorder, d);
+    }
+}
+
+fn twalk(root: ?*const anyopaque, action: ActionFn) callconv(.c) void {
+    walk(@ptrCast(@alignCast(root)), action, 0);
 }

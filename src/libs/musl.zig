@@ -1824,7 +1824,6 @@ const src_files = [_][]const u8{
     "musl/src/unistd/setresgid.c",
     "musl/src/unistd/setresuid.c",
     "musl/src/unistd/setreuid.c",
-    "musl/src/unistd/setsid.c",
     "musl/src/unistd/setuid.c",
     "musl/src/unistd/setxid.c",
     "musl/src/unistd/sleep.c",

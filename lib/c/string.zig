@@ -54,6 +54,15 @@ comptime {
         symbol(&stpncpy, "__stpncpy");
         symbol(&strchrnul, "__strchrnul");
         symbol(&memrchr, "__memrchr");
+
+        symbol(&strverscmp, "strverscmp");
+
+        if (builtin.link_libc) {
+            // These functions depend on malloc, which requires libc.
+            symbol(&strdup, "strdup");
+            symbol(&strndup, "strndup");
+            symbol(&wcsdup, "wcsdup");
+        }
     }
 
     if (builtin.target.isMinGW()) {
@@ -296,4 +305,77 @@ test strncmp {
     try std.testing.expect(strncmp(@ptrCast("a"), @ptrCast("c"), 1) < 0);
     try std.testing.expect(strncmp(@ptrCast("b"), @ptrCast("a"), 1) > 0);
     try std.testing.expect(strncmp(@ptrCast("\xff"), @ptrCast("\x02"), 1) > 0);
+}
+
+fn strdup(s: [*:0]const c_char) callconv(.c) ?[*:0]c_char {
+    const src: [*:0]const u8 = @ptrCast(s);
+    const len = std.mem.len(src);
+    const d: [*]u8 = @ptrCast(std.c.malloc(len + 1) orelse return null);
+    @memcpy(d[0 .. len + 1], src[0 .. len + 1]);
+    return @ptrCast(d);
+}
+
+fn strndup(s: [*:0]const c_char, max: usize) callconv(.c) ?[*:0]c_char {
+    const src: [*]const u8 = @ptrCast(s);
+    const l = std.mem.findScalar(u8, src[0..max], 0) orelse max;
+    const d: [*]u8 = @ptrCast(std.c.malloc(l + 1) orelse return null);
+    @memcpy(d[0..l], src[0..l]);
+    d[l] = 0;
+    return @ptrCast(d);
+}
+
+fn strverscmp(l0: [*:0]const c_char, r0: [*:0]const c_char) callconv(.c) c_int {
+    const l: [*]const u8 = @ptrCast(l0);
+    const r: [*]const u8 = @ptrCast(r0);
+    var i: usize = 0;
+    var dp: usize = 0;
+    var z: bool = true;
+
+    // Find maximal matching prefix and track its maximal digit
+    // suffix and whether those digits are all zeros.
+    while (l[i] == r[i]) : (i += 1) {
+        if (l[i] == 0) return 0;
+        if (!std.ascii.isDigit(l[i])) {
+            dp = i + 1;
+            z = true;
+        } else if (l[i] != '0') {
+            z = false;
+        }
+    }
+
+    if (l[dp] -% '1' < 9 and r[dp] -% '1' < 9) {
+        // Non-degenerate digit sequences starting with nonzero digits:
+        // longest digit string is greater.
+        var j = i;
+        while (std.ascii.isDigit(l[j])) : (j += 1) {
+            if (!std.ascii.isDigit(r[j])) return 1;
+        }
+        if (std.ascii.isDigit(r[j])) return -1;
+    } else if (z and dp < i and (std.ascii.isDigit(l[i]) or std.ascii.isDigit(r[i]))) {
+        // Common prefix of digit sequence is all zeros:
+        // digits order less than non-digits.
+        return @as(c_int, l[i] -% '0') - @as(c_int, r[i] -% '0');
+    }
+
+    return @as(c_int, l[i]) - @as(c_int, r[i]);
+}
+
+const wchar_t = std.c.wchar_t;
+
+fn wcsdup(s: [*:0]const wchar_t) callconv(.c) ?[*:0]wchar_t {
+    const len = std.mem.len(s);
+    const byte_count = (len + 1) * @sizeOf(wchar_t);
+    const d: [*]wchar_t = @ptrCast(@alignCast(std.c.malloc(byte_count) orelse return null));
+    @memcpy(d[0 .. len + 1], s[0 .. len + 1]);
+    return @ptrCast(d);
+}
+
+test strverscmp {
+    const expectEqual = std.testing.expectEqual;
+    try expectEqual(@as(c_int, 0), strverscmp(@ptrCast(""), @ptrCast("")));
+    try expectEqual(@as(c_int, 0), strverscmp(@ptrCast("abc"), @ptrCast("abc")));
+    try std.testing.expect(strverscmp(@ptrCast("file1"), @ptrCast("file2")) < 0);
+    try std.testing.expect(strverscmp(@ptrCast("file2"), @ptrCast("file10")) < 0);
+    try std.testing.expect(strverscmp(@ptrCast("file10"), @ptrCast("file2")) > 0);
+    try std.testing.expect(strverscmp(@ptrCast("file01"), @ptrCast("file1")) < 0);
 }

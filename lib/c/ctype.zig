@@ -52,6 +52,15 @@ comptime {
 
         symbol(&isascii, "isascii");
         symbol(&toascii, "toascii");
+
+        symbol(&iswdigit, "iswdigit");
+        symbol(&iswxdigit, "iswxdigit");
+
+        symbol(&__iswdigit_l, "__iswdigit_l");
+        symbol(&__iswxdigit_l, "__iswxdigit_l");
+
+        symbol(&__iswdigit_l, "iswdigit_l");
+        symbol(&__iswxdigit_l, "iswxdigit_l");
     }
 }
 
@@ -189,4 +198,52 @@ fn isascii(c: c_int) callconv(.c) c_int {
 
 fn toascii(c: c_int) callconv(.c) c_int {
     return c & 0x7F;
+}
+
+const wint_t = std.c.wint_t;
+
+fn iswdigit(wc: wint_t) callconv(.c) c_int {
+    return @intFromBool(wc >= '0' and wc <= '9');
+}
+
+fn __iswdigit_l(wc: wint_t, locale: *anyopaque) callconv(.c) c_int {
+    _ = locale;
+    return iswdigit(wc);
+}
+
+fn iswxdigit(wc: wint_t) callconv(.c) c_int {
+    return @intFromBool((wc >= '0' and wc <= '9') or (wc >= 'A' and wc <= 'F') or (wc >= 'a' and wc <= 'f'));
+}
+
+fn __iswxdigit_l(wc: wint_t, locale: *anyopaque) callconv(.c) c_int {
+    _ = locale;
+    return iswxdigit(wc);
+}
+
+test iswdigit {
+    const expectEqual = std.testing.expectEqual;
+    try expectEqual(@as(c_int, 1), iswdigit('0'));
+    try expectEqual(@as(c_int, 1), iswdigit('5'));
+    try expectEqual(@as(c_int, 1), iswdigit('9'));
+    try expectEqual(@as(c_int, 0), iswdigit('a'));
+    try expectEqual(@as(c_int, 0), iswdigit('Z'));
+    try expectEqual(@as(c_int, 0), iswdigit(' '));
+    try expectEqual(@as(c_int, 0), iswdigit('/'));
+    try expectEqual(@as(c_int, 0), iswdigit(':'));
+    try expectEqual(@as(c_int, 0), iswdigit(0x0660)); // Arabic-Indic digit zero — not an ASCII digit
+}
+
+test iswxdigit {
+    const expectEqual = std.testing.expectEqual;
+    try expectEqual(@as(c_int, 1), iswxdigit('0'));
+    try expectEqual(@as(c_int, 1), iswxdigit('9'));
+    try expectEqual(@as(c_int, 1), iswxdigit('a'));
+    try expectEqual(@as(c_int, 1), iswxdigit('f'));
+    try expectEqual(@as(c_int, 1), iswxdigit('A'));
+    try expectEqual(@as(c_int, 1), iswxdigit('F'));
+    try expectEqual(@as(c_int, 0), iswxdigit('g'));
+    try expectEqual(@as(c_int, 0), iswxdigit('G'));
+    try expectEqual(@as(c_int, 0), iswxdigit('Z'));
+    try expectEqual(@as(c_int, 0), iswxdigit(' '));
+    try expectEqual(@as(c_int, 0), iswxdigit('@'));
 }

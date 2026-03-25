@@ -47,6 +47,10 @@ comptime {
         symbol(&unlinkatLinux, "unlinkat");
 
         symbol(&execveLinux, "execve");
+
+        symbol(&fdatasyncLinux, "fdatasync");
+        symbol(&fsyncLinux, "fsync");
+        symbol(&ftruncateLinux, "ftruncate");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&swab, "swab");
@@ -255,4 +259,16 @@ fn closeWasi(fd: std.c.fd_t) callconv(.c) c_int {
             return -1;
         },
     }
+}
+
+fn fdatasyncLinux(fd: c_int) callconv(.c) c_int {
+    return errno(linux.fdatasync(fd));
+}
+
+fn fsyncLinux(fd: c_int) callconv(.c) c_int {
+    return errno(linux.fsync(fd));
+}
+
+fn ftruncateLinux(fd: c_int, length: linux.off_t) callconv(.c) c_int {
+    return errno(linux.ftruncate(fd, length));
 }

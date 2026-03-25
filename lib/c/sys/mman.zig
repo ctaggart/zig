@@ -22,6 +22,10 @@ comptime {
         symbol(&munlockallLinux, "munlockall");
 
         symbol(&posix_madviseLinux, "posix_madvise");
+
+        symbol(&msyncLinux, "msync");
+        symbol(&munmapLinux, "munmap");
+        symbol(&munmapLinux, "__munmap");
     }
 }
 
@@ -59,4 +63,12 @@ fn munlockallLinux() callconv(.c) c_int {
 fn posix_madviseLinux(addr: *anyopaque, len: usize, advice: c_int) callconv(.c) c_int {
     if (advice == std.os.linux.MADV.DONTNEED) return 0;
     return @intCast(-@as(isize, @bitCast(std.os.linux.madvise(@ptrCast(addr), len, @bitCast(advice)))));
+}
+
+fn msyncLinux(addr: *const anyopaque, len: usize, flags: c_int) callconv(.c) c_int {
+    return errno(std.os.linux.msync(@ptrCast(addr), len, @bitCast(flags)));
+}
+
+fn munmapLinux(addr: *anyopaque, len: usize) callconv(.c) c_int {
+    return errno(std.os.linux.munmap(@ptrCast(addr), len));
 }

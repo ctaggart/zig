@@ -915,7 +915,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/stdio/vwscanf.c",
     "musl/src/stdio/wprintf.c",
     "musl/src/stdio/wscanf.c",
-    "musl/src/stdlib/atof.c",
     "musl/src/stdlib/ecvt.c",
     "musl/src/stdlib/fcvt.c",
     "musl/src/stdlib/gcvt.c",

@@ -44,6 +44,11 @@ comptime {
         symbol(&qsort, "qsort");
 
         symbol(&bsearch, "bsearch");
+
+        if (builtin.link_libc) {
+            // atof depends on strtod from the C library.
+            symbol(&atof, "atof");
+        }
     }
 }
 
@@ -393,4 +398,8 @@ test bsearch {
     for (items) |*value| {
         try std.testing.expectEqual(@as(*const anyopaque, value), bsearch(value, items.ptr, items.len, @sizeOf(u16), Comparison.compare));
     }
+}
+
+fn atof(s: [*:0]const u8) callconv(.c) f64 {
+    return std.c.strtod(s, null);
 }

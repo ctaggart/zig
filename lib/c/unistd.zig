@@ -47,6 +47,13 @@ comptime {
         symbol(&unlinkatLinux, "unlinkat");
 
         symbol(&execveLinux, "execve");
+
+        if (builtin.link_libc) {
+            // These depend on other C library functions (getenv, uname, strlen, strcpy).
+            symbol(&getloginLinux, "getlogin");
+            symbol(&getloginRLinux, "getlogin_r");
+            symbol(&gethostnameLinux, "gethostname");
+        }
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&swab, "swab");
@@ -191,6 +198,34 @@ fn unlinkatLinux(fd: c_int, path: [*:0]const c_char, flags: c_int) callconv(.c) 
 
 fn execveLinux(path: [*:0]const c_char, argv: [*:null]const ?[*:0]c_char, envp: [*:null]const ?[*:0]c_char) callconv(.c) c_int {
     return errno(linux.execve(@ptrCast(path), @ptrCast(argv), @ptrCast(envp)));
+}
+
+fn getloginLinux() callconv(.c) ?[*:0]c_char {
+    return std.c.getenv("LOGNAME");
+}
+
+fn getloginRLinux(name: [*]c_char, size: usize) callconv(.c) c_int {
+    const logname: [*:0]const u8 = @ptrCast(getloginLinux() orelse return @intFromEnum(linux.E.NXIO));
+    const len = std.mem.len(logname);
+    if (len >= size) return @intFromEnum(linux.E.RANGE);
+    @memcpy(@as([*]u8, @ptrCast(name))[0 .. len + 1], logname[0 .. len + 1]);
+    return 0;
+}
+
+fn gethostnameLinux(name: [*]c_char, len: usize) callconv(.c) c_int {
+    var uts: std.c.utsname = undefined;
+    if (std.c.uname(&uts) != 0) return -1;
+    const nodename: [*]const u8 = &uts.nodename;
+    const buf: [*]u8 = @ptrCast(name);
+    const max = @min(len, uts.nodename.len);
+    var i: usize = 0;
+    while (i < max and nodename[i] != 0) : (i += 1) buf[i] = nodename[i];
+    if (i > 0 and i == len) {
+        buf[i - 1] = 0;
+    } else if (i < len) {
+        buf[i] = 0;
+    }
+    return 0;
 }
 
 fn swab(noalias src_ptr: *const anyopaque, noalias dest_ptr: *anyopaque, n: isize) callconv(.c) void {

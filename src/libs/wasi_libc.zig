@@ -840,7 +840,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/regex/fnmatch.c",
     "musl/src/regex/regerror.c",
     "musl/src/search/hsearch.c",
-    "musl/src/search/lsearch.c",
     "musl/src/search/tdelete.c",
     "musl/src/search/tdestroy.c",
     "musl/src/search/tfind.c",

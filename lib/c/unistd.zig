@@ -47,6 +47,16 @@ comptime {
         symbol(&unlinkatLinux, "unlinkat");
 
         symbol(&execveLinux, "execve");
+
+        symbol(&dup2Linux, "dup2");
+        symbol(&dup3Linux, "dup3");
+        symbol(&dup3Linux, "__dup3");
+        symbol(&pipe2Linux, "pipe2");
+        symbol(&fchdirLinux, "fchdir");
+        symbol(&fchownLinux, "fchown");
+        symbol(&isattyLinux, "isatty");
+        symbol(&tcgetpgrpLinux, "tcgetpgrp");
+        symbol(&tcsetpgrpLinux, "tcsetpgrp");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&swab, "swab");
@@ -191,6 +201,45 @@ fn unlinkatLinux(fd: c_int, path: [*:0]const c_char, flags: c_int) callconv(.c) 
 
 fn execveLinux(path: [*:0]const c_char, argv: [*:null]const ?[*:0]c_char, envp: [*:null]const ?[*:0]c_char) callconv(.c) c_int {
     return errno(linux.execve(@ptrCast(path), @ptrCast(argv), @ptrCast(envp)));
+}
+
+fn dup2Linux(old: c_int, new: c_int) callconv(.c) c_int {
+    return errno(linux.dup2(old, new));
+}
+
+fn dup3Linux(old: c_int, new: c_int, flags: c_int) callconv(.c) c_int {
+    return errno(linux.dup3(old, new, @bitCast(flags)));
+}
+
+fn pipe2Linux(fd: *[2]c_int, flags: c_int) callconv(.c) c_int {
+    return errno(linux.pipe2(@ptrCast(fd), @bitCast(flags)));
+}
+
+fn fchdirLinux(fd: c_int) callconv(.c) c_int {
+    return errno(linux.fchdir(fd));
+}
+
+fn fchownLinux(fd: c_int, owner: linux.uid_t, group: linux.gid_t) callconv(.c) c_int {
+    return errno(linux.fchown(fd, owner, group));
+}
+
+fn isattyLinux(fd: c_int) callconv(.c) c_int {
+    var wsz: std.posix.winsize = undefined;
+    const rc: isize = @bitCast(linux.ioctl(fd, linux.T.IOCGWINSZ, @intFromPtr(&wsz)));
+    if (rc == 0) return 1;
+    const e = std.c._errno();
+    if (e.* != @intFromEnum(linux.E.BADF)) e.* = @intFromEnum(linux.E.NOTTY);
+    return 0;
+}
+
+fn tcgetpgrpLinux(fd: c_int) callconv(.c) linux.pid_t {
+    var pgrp: c_int = undefined;
+    const rc = errno(linux.tcgetpgrp(fd, &pgrp));
+    return if (rc < 0) -1 else pgrp;
+}
+
+fn tcsetpgrpLinux(fd: c_int, pgrp: linux.pid_t) callconv(.c) c_int {
+    return errno(linux.tcsetpgrp(fd, &pgrp));
 }
 
 fn swab(noalias src_ptr: *const anyopaque, noalias dest_ptr: *anyopaque, n: isize) callconv(.c) void {

@@ -47,6 +47,10 @@ comptime {
         symbol(&unlinkatLinux, "unlinkat");
 
         symbol(&execveLinux, "execve");
+
+        symbol(&pauseLinux, "pause");
+        symbol(&sleepLinux, "sleep");
+        symbol(&usleepLinux, "usleep");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&swab, "swab");
@@ -191,6 +195,25 @@ fn unlinkatLinux(fd: c_int, path: [*:0]const c_char, flags: c_int) callconv(.c) 
 
 fn execveLinux(path: [*:0]const c_char, argv: [*:null]const ?[*:0]c_char, envp: [*:null]const ?[*:0]c_char) callconv(.c) c_int {
     return errno(linux.execve(@ptrCast(path), @ptrCast(argv), @ptrCast(envp)));
+}
+
+fn pauseLinux() callconv(.c) c_int {
+    return errno(linux.pause());
+}
+
+fn sleepLinux(seconds: c_uint) callconv(.c) c_uint {
+    var tv: linux.timespec = .{ .sec = seconds, .nsec = 0 };
+    const rc: isize = @bitCast(linux.nanosleep(&tv, &tv));
+    if (rc != 0) return @intCast(tv.sec);
+    return 0;
+}
+
+fn usleepLinux(useconds: c_uint) callconv(.c) c_int {
+    var tv: linux.timespec = .{
+        .sec = useconds / 1_000_000,
+        .nsec = @as(isize, useconds % 1_000_000) * 1000,
+    };
+    return errno(linux.nanosleep(&tv, &tv));
 }
 
 fn swab(noalias src_ptr: *const anyopaque, noalias dest_ptr: *anyopaque, n: isize) callconv(.c) void {

@@ -5,6 +5,7 @@ const linux = std.os.linux;
 
 const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
+const errnoSize = @import("../c.zig").errnoSize;
 
 comptime {
     if (builtin.target.isMuslLibC()) {
@@ -47,6 +48,19 @@ comptime {
         symbol(&unlinkatLinux, "unlinkat");
 
         symbol(&execveLinux, "execve");
+
+        symbol(&readLinux, "read");
+        symbol(&writeLinux, "write");
+        symbol(&readvLinux, "readv");
+        symbol(&writevLinux, "writev");
+        symbol(&preadLinux, "pread");
+        symbol(&pwriteLinux, "pwrite");
+        symbol(&preadvLinux, "preadv");
+        symbol(&pwritevLinux, "pwritev");
+        symbol(&lseekLinux, "lseek");
+        symbol(&lseekLinux, "__lseek");
+        symbol(&readlinkLinux, "readlink");
+        symbol(&readlinkatLinux, "readlinkat");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&swab, "swab");
@@ -191,6 +205,52 @@ fn unlinkatLinux(fd: c_int, path: [*:0]const c_char, flags: c_int) callconv(.c) 
 
 fn execveLinux(path: [*:0]const c_char, argv: [*:null]const ?[*:0]c_char, envp: [*:null]const ?[*:0]c_char) callconv(.c) c_int {
     return errno(linux.execve(@ptrCast(path), @ptrCast(argv), @ptrCast(envp)));
+}
+
+fn readLinux(fd: c_int, buf: *anyopaque, count: usize) callconv(.c) isize {
+    return errnoSize(linux.read(fd, @ptrCast(buf), count));
+}
+
+fn writeLinux(fd: c_int, buf: *const anyopaque, count: usize) callconv(.c) isize {
+    return errnoSize(linux.write(fd, @ptrCast(buf), count));
+}
+
+fn readvLinux(fd: c_int, iov: [*]const linux.iovec, count: c_int) callconv(.c) isize {
+    return errnoSize(linux.readv(fd, iov, @intCast(count)));
+}
+
+fn writevLinux(fd: c_int, iov: [*]const linux.iovec_const, count: c_int) callconv(.c) isize {
+    return errnoSize(linux.writev(fd, iov, @intCast(count)));
+}
+
+fn preadLinux(fd: c_int, buf: *anyopaque, count: usize, offset: linux.off_t) callconv(.c) isize {
+    return errnoSize(linux.pread(fd, @ptrCast(buf), count, offset));
+}
+
+fn pwriteLinux(fd: c_int, buf: *const anyopaque, count: usize, offset: linux.off_t) callconv(.c) isize {
+    return errnoSize(linux.pwrite(fd, @ptrCast(buf), count, offset));
+}
+
+fn preadvLinux(fd: c_int, iov: [*]const linux.iovec, count: c_int, offset: linux.off_t) callconv(.c) isize {
+    return errnoSize(linux.preadv(fd, iov, @intCast(count), offset));
+}
+
+fn pwritevLinux(fd: c_int, iov: [*]const linux.iovec_const, count: c_int, offset: linux.off_t) callconv(.c) isize {
+    return errnoSize(linux.pwritev(fd, iov, @intCast(count), offset));
+}
+
+fn lseekLinux(fd: c_int, offset: linux.off_t, whence: c_uint) callconv(.c) linux.off_t {
+    return errnoSize(linux.lseek(fd, offset, whence));
+}
+
+fn readlinkLinux(noalias path: [*:0]const c_char, noalias buf: [*]u8, bufsize: usize) callconv(.c) isize {
+    if (bufsize == 0) return 0;
+    return errnoSize(linux.readlink(@ptrCast(path), buf, bufsize));
+}
+
+fn readlinkatLinux(fd: c_int, noalias path: [*:0]const c_char, noalias buf: [*]u8, bufsize: usize) callconv(.c) isize {
+    if (bufsize == 0) return 0;
+    return errnoSize(linux.readlinkat(fd, @ptrCast(path), buf, bufsize));
 }
 
 fn swab(noalias src_ptr: *const anyopaque, noalias dest_ptr: *anyopaque, n: isize) callconv(.c) void {

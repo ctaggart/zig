@@ -61,6 +61,23 @@ pub fn errno(syscall_return_value: usize) c_int {
     };
 }
 
+/// Like `errno` but returns `isize` for syscalls that return `ssize_t` or
+/// `off_t` (e.g., read, write, lseek).
+pub fn errnoSize(syscall_return_value: usize) isize {
+    return switch (builtin.os.tag) {
+        .linux => {
+            const signed: isize = @bitCast(syscall_return_value);
+            if (signed < 0) {
+                @branchHint(.unlikely);
+                std.c._errno().* = @intCast(-signed);
+                return -1;
+            }
+            return signed;
+        },
+        else => comptime unreachable,
+    };
+}
+
 comptime {
     _ = @import("c/ctype.zig");
     _ = @import("c/fcntl.zig");

@@ -6,6 +6,11 @@ comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&insque, "insque");
         symbol(&remque, "remque");
+
+        if (builtin.link_libc) {
+            // tdestroy depends on free().
+            symbol(&tdestroy, "tdestroy");
+        }
     }
 }
 
@@ -37,6 +42,23 @@ fn remque(element: *anyopaque) callconv(.c) void {
 
     if (e.next) |next| next.prev = e.prev;
     if (e.prev) |prev| prev.next = e.next;
+}
+
+// AVL tree node structure matching musl's struct node in tsearch.h
+const TreeNode = extern struct {
+    key: *const anyopaque,
+    children: [2]*anyopaque,
+    h: c_int,
+};
+
+const FreeKeyFn = ?*const fn (*anyopaque) callconv(.c) void;
+
+fn tdestroy(root: ?*anyopaque, freekey: FreeKeyFn) callconv(.c) void {
+    const r: *TreeNode = @ptrCast(@alignCast(root orelse return));
+    tdestroy(r.children[0], freekey);
+    tdestroy(r.children[1], freekey);
+    if (freekey) |fk| fk(@constCast(r.key));
+    std.c.free(root);
 }
 
 test "insque and remque" {

@@ -1279,7 +1279,6 @@ const src_files = [_][]const u8{
     "musl/src/search/hsearch.c",
     "musl/src/search/lsearch.c",
     "musl/src/search/tdelete.c",
-    "musl/src/search/tdestroy.c",
     "musl/src/search/tfind.c",
     "musl/src/search/tsearch.c",
     "musl/src/search/twalk.c",

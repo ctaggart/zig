@@ -1220,7 +1220,6 @@ const src_files = [_][]const u8{
     "musl/src/process/posix_spawnp.c",
     "musl/src/process/riscv64/vfork.s",
     "musl/src/process/s390x/vfork.s",
-    "musl/src/process/system.c",
     "musl/src/process/vfork.c",
     "musl/src/process/wait.c",
     "musl/src/process/waitid.c",

@@ -306,6 +306,41 @@ fn pwritevLinux(fd: c_int, iov: [*]const linux.iovec_const, count: c_int, offset
     return errnoSize(linux.pwritev(fd, iov, @intCast(@as(c_uint, @bitCast(count))), offset));
 }
 
+fn setuidLinux(uid: linux.uid_t) callconv(.c) c_int {
+    return errno(linux.setuid(uid));
+}
+
+fn setgidLinux(gid: linux.gid_t) callconv(.c) c_int {
+    return errno(linux.setgid(gid));
+}
+
+fn seteuidLinux(euid: linux.uid_t) callconv(.c) c_int {
+    return errno(linux.seteuid(euid));
+}
+
+fn setegidLinux(egid: linux.gid_t) callconv(.c) c_int {
+    return errno(linux.setegid(egid));
+}
+
+fn setreuidLinux(ruid: linux.uid_t, euid: linux.uid_t) callconv(.c) c_int {
+    return errno(linux.setreuid(ruid, euid));
+}
+
+fn setregidLinux(rgid: linux.gid_t, egid: linux.gid_t) callconv(.c) c_int {
+    return errno(linux.setregid(rgid, egid));
+}
+
+fn setresuidLinux(ruid: linux.uid_t, euid: linux.uid_t, suid: linux.uid_t) callconv(.c) c_int {
+    return errno(linux.setresuid(ruid, euid, suid));
+}
+
+fn setresgidLinux(rgid: linux.gid_t, egid: linux.gid_t, sgid: linux.gid_t) callconv(.c) c_int {
+    return errno(linux.setresgid(rgid, egid, sgid));
+}
+
+fn setsidLinux() callconv(.c) linux.pid_t {
+    return errno(linux.setsid());
+}
 fn swab(noalias src_ptr: *const anyopaque, noalias dest_ptr: *anyopaque, n: isize) callconv(.c) void {
     var src: [*]const u8 = @ptrCast(src_ptr);
     var dest: [*]u8 = @ptrCast(dest_ptr);

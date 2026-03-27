@@ -1131,7 +1131,6 @@ const src_files = [_][]const u8{
     "musl/src/network/dn_skipname.c",
     "musl/src/network/dns_parse.c",
     "musl/src/network/ent.c",
-    "musl/src/network/ether.c",
     "musl/src/network/freeaddrinfo.c",
     "musl/src/network/gai_strerror.c",
     "musl/src/network/getaddrinfo.c",

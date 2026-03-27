@@ -1176,7 +1176,6 @@ const src_files = [_][]const u8{
     "musl/src/network/ns_parse.c",
     "musl/src/network/ntohl.c",
     "musl/src/network/ntohs.c",
-    "musl/src/network/proto.c",
     "musl/src/network/recv.c",
     "musl/src/network/recvfrom.c",
     "musl/src/network/recvmmsg.c",

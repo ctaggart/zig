@@ -1163,7 +1163,6 @@ const src_files = [_][]const u8{
     "musl/src/network/in6addr_loopback.c",
     "musl/src/network/inet_addr.c",
     "musl/src/network/inet_aton.c",
-    "musl/src/network/inet_legacy.c",
     "musl/src/network/inet_ntoa.c",
     "musl/src/network/inet_ntop.c",
     "musl/src/network/inet_pton.c",

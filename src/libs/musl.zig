@@ -1036,6 +1036,7 @@ const src_files = [_][]const u8{
     "musl/src/misc/getresuid.c",
     "musl/src/misc/getrlimit.c",
     "musl/src/misc/getrusage.c",
+    "musl/src/misc/getsubopt.c",
     "musl/src/misc/initgroups.c",
     "musl/src/misc/ioctl.c",
     "musl/src/misc/issetugid.c",

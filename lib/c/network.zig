@@ -576,8 +576,136 @@ fn isSpace(ch: u8) bool {
 fn isDigit(ch: u8) bool {
     return ch >= '0' and ch <= '9';
 }
-fn res_msend_impl(_: c_int, _: [*]const [*]const u8, _: [*]const c_int, _: [*]const [*]u8, _: [*]c_int, _: c_int) callconv(.c) c_int { return -1; }
-fn res_msend_rc_impl(_: c_int, _: [*]const [*]const u8, _: [*]const c_int, _: [*]const [*]u8, _: [*]c_int, _: c_int, _: *const resolvconf) callconv(.c) c_int { return -1; }
+fn res_msend_impl(nqueries: c_int, queries: [*]const [*]const u8, qlens: [*]const c_int, answers: [*]const [*]u8, alens: [*]c_int, asize: c_int) callconv(.c) c_int {
+    var conf: resolvconf = undefined;
+    var search: [256]u8 = undefined;
+    if (get_resolv_conf_impl(&conf, &search, 0) < 0) return -1;
+    return res_msend_rc_impl(nqueries, queries, qlens, answers, alens, asize, &conf);
+}
+fn res_msend_rc_impl(nqueries: c_int, queries: [*]const [*]const u8, qlens: [*]const c_int, answers: [*]const [*]u8, alens: [*]c_int, asize: c_int, conf: *const resolvconf) callconv(.c) c_int {
+    const AF_INET: c_int = 2;
+    const AF_INET6: c_int = 10;
+    const SOCK_DGRAM: c_int = 2;
+    const SOCK_CLOEXEC: c_int = @as(c_int, @truncate(@as(u32, 0o2000000)));
+    const SOCK_NONBLOCK: c_int = @as(c_int, @truncate(@as(u32, 0o4000)));
+    const MSG_NOSIGNAL: c_int = 0x4000;
+    const nq: usize = @intCast(nqueries);
+
+    var cs: c_int = undefined;
+    _ = c.pthread_setcancelstate(1, &cs); // PTHREAD_CANCEL_DISABLE
+
+    const timeout: c_ulong = @as(c_ulong, conf.timeout) * 1000;
+    const attempts = conf.attempts;
+
+    // Build nameserver sockaddr array
+    var family: c_int = AF_INET;
+    var sl: linux.socklen_t = @sizeOf(linux.sockaddr.in);
+    var ns_storage: [MAXNS][28]u8 align(4) = [1][28]u8{[1]u8{0} ** 28} ** MAXNS;
+    var nns: usize = 0;
+
+    while (nns < conf.nns) : (nns += 1) {
+        const iplit = &conf.ns[nns];
+        if (iplit.family == AF_INET) {
+            const sin: *linux.sockaddr.in = @alignCast(@ptrCast(&ns_storage[nns]));
+            sin.family = .inet;
+            @memcpy(@as(*[4]u8, @ptrCast(&sin.addr)), iplit.addr[0..4]);
+            sin.port = c.htons(53);
+        } else {
+            sl = @sizeOf(linux.sockaddr.in6);
+            family = AF_INET6;
+            const sin6: *linux.sockaddr.in6 = @alignCast(@ptrCast(&ns_storage[nns]));
+            sin6.family = .inet6;
+            @memcpy(&sin6.addr, iplit.addr[0..16]);
+            sin6.port = c.htons(53);
+            sin6.scope_id = iplit.scopeid;
+        }
+    }
+
+    // Open UDP socket
+    var fd = c.socket_fn(family, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    if (fd < 0 and family == AF_INET6) {
+        fd = c.socket_fn(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+        family = AF_INET;
+        sl = @sizeOf(linux.sockaddr.in);
+    }
+
+    var sa_buf: [28]u8 align(4) = [1]u8{0} ** 28;
+    const sa_family: *u16 = @alignCast(@ptrCast(&sa_buf));
+    sa_family.* = @intCast(family);
+
+    if (fd < 0 or c.bind_fn(fd, @ptrCast(&sa_buf), sl) < 0) {
+        if (fd >= 0) _ = c.close_fn(fd);
+        _ = c.pthread_setcancelstate(cs, null);
+        return -1;
+    }
+
+    // Initialize answer lengths to 0
+    for (0..nq) |i| alens[i] = 0;
+
+    const retry_interval: c_ulong = timeout / @as(c_ulong, attempts);
+    const t0 = mtime();
+    var t1 = t0 -% retry_interval;
+
+    while (true) {
+        const t2 = mtime();
+        if (t2 -% t0 >= timeout) break;
+
+        // Check if all queries have answers
+        var all_done = true;
+        for (0..nq) |i| if (alens[i] == 0) {
+            all_done = false;
+            break;
+        };
+        if (all_done) break;
+
+        // Retry: send to all nameservers
+        if (t2 -% t1 >= retry_interval) {
+            for (0..nq) |i| {
+                if (alens[i] == 0) {
+                    for (0..nns) |j| {
+                        _ = c.sendto_fn(fd, @ptrCast(queries[i]), @intCast(qlens[i]), MSG_NOSIGNAL, @ptrCast(&ns_storage[j]), sl);
+                    }
+                }
+            }
+            t1 = t2;
+        }
+
+        // Poll for response
+        var pfd: [1]linux.pollfd = .{.{ .fd = fd, .events = 1, .revents = 0 }}; // POLLIN=1
+        _ = c.poll_fn(&pfd, 1, @intCast(t1 +% retry_interval -% t2));
+
+        // Read responses
+        while (true) {
+            var recv_buf: [512]u8 = undefined;
+            const rlen = c.recvfrom_fn(fd, @ptrCast(&recv_buf), @intCast(asize), 0, null, null);
+            if (rlen < 4) break;
+            const urlen: usize = @intCast(rlen);
+
+            // Match response to query by ID
+            for (0..nq) |i| {
+                if (alens[i] != 0) continue;
+                if (recv_buf[0] == queries[i][0] and recv_buf[1] == queries[i][1]) {
+                    const rcode = recv_buf[3] & 15;
+                    if (rcode == 0 or rcode == 3) {
+                        alens[i] = @intCast(rlen);
+                        _ = c.memcpy(@ptrCast(answers[i]), @ptrCast(&recv_buf), urlen);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    _ = c.close_fn(fd);
+    _ = c.pthread_setcancelstate(cs, null);
+    return 0;
+}
+
+fn mtime() c_ulong {
+    var ts: linux.timespec = undefined;
+    _ = c.clock_gettime_fn(1, &ts); // CLOCK_MONOTONIC
+    return @as(c_ulong, @intCast(ts.tv_sec)) * 1000 + @as(c_ulong, @intCast(ts.tv_nsec)) / 1000000;
+}
 fn getaddrinfo_impl(_: ?[*:0]const u8, _: ?[*:0]const u8, _: ?*const addrinfo, _: *?*addrinfo) callconv(.c) c_int { return -1; }
 fn getnameinfo_impl(_: *const anyopaque, _: linux.socklen_t, _: ?[*]u8, _: linux.socklen_t, _: ?[*]u8, _: linux.socklen_t, _: c_int) callconv(.c) c_int { return -1; }
 fn gethostbyname2_r_impl(_: [*:0]const u8, _: c_int, _: *anyopaque, _: [*]u8, _: usize, _: *?*anyopaque, _: *c_int) callconv(.c) c_int { return -1; }

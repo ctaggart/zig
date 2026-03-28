@@ -3651,10 +3651,12 @@ pub const Object = struct {
 
                 var fields: [3]Builder.Type = undefined;
                 var vals: [3]Builder.Constant = undefined;
-                vals[0] = try o.lowerValue(pt, switch (opt.val) {
-                    .none => try pt.intern(.{ .undef = payload_ty.toIntern() }),
-                    else => |payload| payload,
-                });
+                vals[0] = switch (opt.val) {
+                    // Zero-initialize the payload for null optionals so that
+                    // constant data in .rodata is deterministic (not 0xAA).
+                    .none => try o.builder.zeroInitConst(try o.lowerType(pt, payload_ty)),
+                    else => |payload| try o.lowerValue(pt, payload),
+                };
                 vals[1] = non_null_bit;
                 fields[0] = vals[0].typeOf(&o.builder);
                 fields[1] = vals[1].typeOf(&o.builder);

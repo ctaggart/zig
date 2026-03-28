@@ -456,10 +456,13 @@ pub fn generateSymbol(
             } else {
                 const padding = abi_size - (math.cast(usize, payload_type.abiSize(zcu)) orelse return error.Overflow) - 1;
                 if (payload_type.hasRuntimeBits(zcu)) {
-                    const value = payload_val orelse Value.fromInterned(try pt.intern(.{
-                        .undef = payload_type.toIntern(),
-                    }));
-                    try generateSymbol(bin_file, pt, src_loc, value, w, reloc_parent);
+                    if (payload_val) |value| {
+                        try generateSymbol(bin_file, pt, src_loc, value, w, reloc_parent);
+                    } else {
+                        // Zero-initialize the payload for null optionals so that
+                        // constant data is deterministic (not 0xAA).
+                        try w.splatByteAll(0, math.cast(usize, payload_type.abiSize(zcu)) orelse return error.Overflow);
+                    }
                 }
                 try w.writeByte(@intFromBool(payload_val != null));
                 try w.splatByteAll(0, padding);

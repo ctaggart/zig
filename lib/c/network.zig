@@ -155,6 +155,14 @@ const c = if (builtin.link_libc) struct {
     const res_mkquery_fn = @extern(*const fn (c_int, [*:0]const u8, c_int, c_int, ?*const anyopaque, c_int, ?*const anyopaque, [*]u8, c_int) callconv(.c) c_int, .{ .name = "__res_mkquery" });
     const res_send_fn = @extern(*const fn ([*]const u8, c_int, [*]u8, c_int) callconv(.c) c_int, .{ .name = "__res_send" });
     const rtnetlink_enumerate_fn = @extern(*const fn (c_int, c_int, *const fn (?*anyopaque, *nlmsghdr) callconv(.c) c_int, ?*anyopaque) callconv(.c) c_int, .{ .name = "__rtnetlink_enumerate" });
+    // File I/O
+    const fopen_rb_ca = @extern(*const fn ([*:0]const u8, *anyopaque, [*]u8, usize) callconv(.c) ?*anyopaque, .{ .name = "__fopen_rb_ca" });
+    const fclose_ca = @extern(*const fn (?*anyopaque) callconv(.c) void, .{ .name = "__fclose_ca" });
+    const fgets_fn = @extern(*const fn ([*]u8, c_int, ?*anyopaque) callconv(.c) ?[*]u8, .{ .name = "fgets" });
+    const feof_fn = @extern(*const fn (?*anyopaque) callconv(.c) c_int, .{ .name = "feof" });
+    const getc_fn = @extern(*const fn (?*anyopaque) callconv(.c) c_int, .{ .name = "getc" });
+    const strchr_fn = @extern(*const fn ([*:0]const u8, c_int) callconv(.c) ?[*:0]u8, .{ .name = "strchr" });
+    const strstr_fn = @extern(*const fn ([*:0]const u8, [*:0]const u8) callconv(.c) ?[*:0]u8, .{ .name = "strstr" });
 } else struct {};
 
 // ============================================================
@@ -471,7 +479,103 @@ fn netlink_enumerate(fd: c_int, seq: u32, msg_type: u16, af: u8, cb: *const fn (
 }
 fn lookup_serv_impl(_: [*]service, _: [*:0]const u8, _: c_int, _: c_int, _: c_int) callconv(.c) c_int { return -1; }
 fn lookup_name_impl(_: [*]address, _: [*]u8, _: [*:0]const u8, _: c_int, _: c_int) callconv(.c) c_int { return -1; }
-fn get_resolv_conf_impl(_: *resolvconf, _: [*]u8, _: usize) callconv(.c) c_int { return -1; }
+fn get_resolv_conf_impl(conf: *resolvconf, search: [*]u8, search_sz: usize) callconv(.c) c_int {
+    var nns: c_uint = 0;
+    conf.ndots = 1;
+    conf.timeout = 5;
+    conf.attempts = 2;
+    search[0] = 0;
+
+    var _buf: [256]u8 = undefined;
+    var _f: [256]u8 align(8) = undefined; // FILE placeholder
+    const f = c.fopen_rb_ca("/etc/resolv.conf", @ptrCast(&_f), &_buf, 256);
+    if (f == null) {
+        const e = std.c._errno().*;
+        if (e == @intFromEnum(linux.E.NOENT) or e == @intFromEnum(linux.E.NOTDIR) or e == @intFromEnum(linux.E.ACCES)) {
+            // Fall through to no_resolv_conf
+        } else return -1;
+    } else {
+        var line: [256]u8 = undefined;
+        while (c.fgets_fn(&line, 256, f) != null) {
+            // Check for unterminated line
+            if (c.strchr_fn(@ptrCast(&line), '\n') == null and c.feof_fn(f) == 0) {
+                while (true) {
+                    const ch = c.getc_fn(f);
+                    if (ch == '\n' or ch == -1) break;
+                }
+                continue;
+            }
+            if (c.strncmp(&line, "nameserver", 10) == 0 and isSpace(line[10])) {
+                if (nns >= MAXNS) continue;
+                // Skip spaces after "nameserver"
+                var p: usize = 11;
+                while (isSpace(line[p])) p += 1;
+                // Find end of address
+                var z: usize = p;
+                while (line[z] != 0 and !isSpace(line[z])) z += 1;
+                line[z] = 0;
+                if (lookup_ipliteral_impl(conf.ns[nns..].ptr, @ptrCast(line[p..].ptr), 0) > 0)
+                    nns += 1;
+                continue;
+            }
+            if (c.strncmp(&line, "options", 7) == 0 and isSpace(line[7])) {
+                if (c.strstr_fn(@ptrCast(&line), "ndots:")) |p_ptr| {
+                    const p: [*]u8 = @ptrCast(p_ptr);
+                    if (isDigit(p[6])) {
+                        var end: [*:0]u8 = undefined;
+                        const x = c.strtoul(@ptrCast(p + 6), @ptrCast(&end), 10);
+                        if (@intFromPtr(end) != @intFromPtr(p + 6))
+                            conf.ndots = @intCast(if (x > 15) 15 else x);
+                    }
+                }
+                if (c.strstr_fn(@ptrCast(&line), "attempts:")) |p_ptr| {
+                    const p: [*]u8 = @ptrCast(p_ptr);
+                    if (isDigit(p[9])) {
+                        var end: [*:0]u8 = undefined;
+                        const x = c.strtoul(@ptrCast(p + 9), @ptrCast(&end), 10);
+                        if (@intFromPtr(end) != @intFromPtr(p + 9))
+                            conf.attempts = @intCast(if (x > 10) 10 else x);
+                    }
+                }
+                if (c.strstr_fn(@ptrCast(&line), "timeout:")) |p_ptr| {
+                    const p: [*]u8 = @ptrCast(p_ptr);
+                    if (isDigit(p[8]) or p[8] == '.') {
+                        var end: [*:0]u8 = undefined;
+                        const x = c.strtoul(@ptrCast(p + 8), @ptrCast(&end), 10);
+                        if (@intFromPtr(end) != @intFromPtr(p + 8))
+                            conf.timeout = @intCast(if (x > 60) 60 else x);
+                    }
+                }
+                continue;
+            }
+            if ((c.strncmp(&line, "domain", 6) == 0 or c.strncmp(&line, "search", 6) == 0) and isSpace(line[6])) {
+                var p: usize = 7;
+                while (isSpace(line[p])) p += 1;
+                const l = c.strlen(@ptrCast(line[p..].ptr));
+                if (l < search_sz) {
+                    _ = c.memcpy(@ptrCast(search), @ptrCast(line[p..].ptr), l + 1);
+                }
+            }
+        }
+        c.fclose_ca(f);
+    }
+
+    // no_resolv_conf:
+    if (nns == 0) {
+        _ = lookup_ipliteral_impl(&conf.ns, "127.0.0.1", 0);
+        nns = 1;
+    }
+    conf.nns = nns;
+    return 0;
+}
+
+fn isSpace(ch: u8) bool {
+    return ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r' or ch == '\x0b' or ch == '\x0c';
+}
+
+fn isDigit(ch: u8) bool {
+    return ch >= '0' and ch <= '9';
+}
 fn res_msend_impl(_: c_int, _: [*]const [*]const u8, _: [*]const c_int, _: [*]const [*]u8, _: [*]c_int, _: c_int) callconv(.c) c_int { return -1; }
 fn res_msend_rc_impl(_: c_int, _: [*]const [*]const u8, _: [*]const c_int, _: [*]const [*]u8, _: [*]c_int, _: c_int, _: *const resolvconf) callconv(.c) c_int { return -1; }
 fn getaddrinfo_impl(_: ?[*:0]const u8, _: ?[*:0]const u8, _: ?*const addrinfo, _: *?*addrinfo) callconv(.c) c_int { return -1; }

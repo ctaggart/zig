@@ -671,7 +671,6 @@ fn lookup_serv_impl(buf: [*]service, name: [*:0]const u8, proto: c_int, socktype
     const IPPROTO_UDP: c_int = 17;
     const EAI_SERVICE: c_int = -8;
     const EAI_NONAME: c_int = -2;
-    const EAI_SYSTEM: c_int = -11;
     const AI_NUMERICSERV: c_int = 0x400;
 
     var p_proto = proto;
@@ -733,7 +732,7 @@ fn lookup_serv_impl(buf: [*]service, name: [*:0]const u8, proto: c_int, socktype
         const e = std.c._errno().*;
         if (e == @intFromEnum(linux.E.NOENT) or e == @intFromEnum(linux.E.NOTDIR) or e == @intFromEnum(linux.E.ACCES))
             return EAI_SERVICE;
-        return EAI_SYSTEM;
+        return -11; // EAI_SYSTEM
     }
 
     var line: [128]u8 = undefined;
@@ -790,7 +789,523 @@ fn lookup_serv_impl(buf: [*]service, name: [*:0]const u8, proto: c_int, socktype
     c.fclose_ca(f);
     return if (cnt > 0) @intCast(cnt) else EAI_SERVICE;
 }
-fn lookup_name_impl(_: [*]address, _: [*]u8, _: [*:0]const u8, _: c_int, _: c_int) callconv(.c) c_int { return -1; }
+fn lookup_name_impl(buf: [*]address, canon: [*]u8, name: [*:0]const u8, family: c_int, flags: c_int) callconv(.c) c_int {
+    const AF_INET: c_int = 2;
+    const AF_INET6: c_int = 10;
+    const SOCK_DGRAM: c_int = 2;
+    const SOCK_CLOEXEC: c_int = @as(c_int, @truncate(@as(u32, 0o2000000)));
+    const AI_V4MAPPED: c_int = 0x8;
+    const AI_ALL: c_int = 0x10;
+    const AI_NUMERICHOST: c_int = 0x4;
+    const IPPROTO_UDP: c_int = 17;
+    const EAI_NONAME: c_int = -2;
+
+    const DAS_USABLE: c_int = 0x40000000;
+    const DAS_MATCHINGSCOPE: c_int = 0x20000000;
+    const DAS_MATCHINGLABEL: c_int = 0x10000000;
+    const DAS_PREC_SHIFT: u5 = 20;
+    const DAS_SCOPE_SHIFT: u5 = 16;
+    const DAS_PREFIX_SHIFT: u5 = 8;
+    const DAS_ORDER_SHIFT: u5 = 0;
+
+    var fam = family;
+    var flg = flags;
+    var cnt: c_int = 0;
+
+    canon[0] = 0;
+    if (name[0] != 0) {
+        const l = c.strnlen(@ptrCast(name), 255);
+        if (l -% 1 >= 254) return EAI_NONAME;
+        _ = c.memcpy(@ptrCast(canon), @ptrCast(name), l + 1);
+    }
+
+    // AI_V4MAPPED: treat AF_INET6 as AF_UNSPEC, filter later
+    if ((flg & AI_V4MAPPED) != 0) {
+        if (fam == AF_INET6) {
+            fam = 0; // AF_UNSPEC
+        } else {
+            flg -= AI_V4MAPPED;
+        }
+    }
+
+    // Try each backend
+    cnt = nameFromNull(buf, name, fam, flg);
+    if (cnt == 0) cnt = lookup_ipliteral_impl(buf, name, fam);
+    if (cnt == 0 and (flg & AI_NUMERICHOST) == 0) {
+        cnt = nameFromHosts(buf, canon, name, fam);
+        if (cnt == 0) cnt = nameFromDnsSearch(buf, canon, name, fam);
+    }
+    if (cnt <= 0) return if (cnt != 0) cnt else EAI_NONAME;
+
+    // V4MAPPED filtering/translation
+    if ((flg & AI_V4MAPPED) != 0) {
+        if ((flg & AI_ALL) == 0) {
+            // If any v6 results exist, remove v4
+            var found_v6 = false;
+            {
+                var ii: usize = 0;
+                while (ii < @as(usize, @intCast(cnt))) : (ii += 1) {
+                    if (buf[ii].family == AF_INET6) {
+                        found_v6 = true;
+                        break;
+                    }
+                }
+            }
+            if (found_v6) {
+                var j: usize = 0;
+                var ii: usize = 0;
+                while (ii < @as(usize, @intCast(cnt))) : (ii += 1) {
+                    if (buf[ii].family == AF_INET6) {
+                        buf[j] = buf[ii];
+                        j += 1;
+                    }
+                }
+                cnt = @intCast(j);
+            }
+        }
+        // Translate remaining v4 to v6
+        {
+            var ii: usize = 0;
+            while (ii < @as(usize, @intCast(cnt))) : (ii += 1) {
+                if (buf[ii].family != AF_INET) continue;
+                _ = c.memcpy(@ptrCast(@as([*]u8, @ptrCast(&buf[ii].addr)) + 12), @ptrCast(&buf[ii].addr), 4);
+                _ = c.memcpy(@ptrCast(&buf[ii].addr), @ptrCast("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff"), 12);
+                buf[ii].family = AF_INET6;
+            }
+        }
+    }
+
+    // No further processing needed if <2 results or all IPv4
+    if (cnt < 2 or fam == AF_INET) return cnt;
+    {
+        var all_v4 = true;
+        var ii: usize = 0;
+        while (ii < @as(usize, @intCast(cnt))) : (ii += 1) {
+            if (buf[ii].family != AF_INET) {
+                all_v4 = false;
+                break;
+            }
+        }
+        if (all_v4) return cnt;
+    }
+
+    var cs: c_int = undefined;
+    _ = c.pthread_setcancelstate(1, &cs); // PTHREAD_CANCEL_DISABLE
+
+    // RFC 3484/6724 destination address selection
+    {
+        var i: usize = 0;
+        while (i < @as(usize, @intCast(cnt))) : (i += 1) {
+            const addr_family = buf[i].family;
+            var key: c_int = 0;
+            var sa6 = std.mem.zeroes(linux.sockaddr.in6);
+            var da6: linux.sockaddr.in6 = std.mem.zeroes(linux.sockaddr.in6);
+            da6.family = .inet6;
+            da6.scope_id = buf[i].scopeid;
+            da6.port = c.htons(65535);
+            var sa4 = std.mem.zeroes(linux.sockaddr.in);
+            var da4: linux.sockaddr.in = std.mem.zeroes(linux.sockaddr.in);
+            da4.family = .inet;
+            da4.port = c.htons(65535);
+
+            var sa_ptr: *anyopaque = undefined;
+            var da_ptr: *anyopaque = undefined;
+            var salen: linux.socklen_t = undefined;
+            var dalen: linux.socklen_t = undefined;
+            if (addr_family == AF_INET6) {
+                @memcpy(&da6.addr, buf[i].addr[0..16]);
+                da_ptr = @ptrCast(&da6);
+                dalen = @sizeOf(linux.sockaddr.in6);
+                sa_ptr = @ptrCast(&sa6);
+                salen = @sizeOf(linux.sockaddr.in6);
+            } else {
+                @memcpy(@as(*[12]u8, @ptrCast(&sa6.addr)), "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
+                @memcpy(@as(*[4]u8, @ptrCast(@as([*]u8, @ptrCast(&da6.addr)) + 12)), buf[i].addr[0..4]);
+                @memcpy(@as(*[12]u8, @ptrCast(&da6.addr)), "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff");
+                @memcpy(@as(*[4]u8, @ptrCast(@as([*]u8, @ptrCast(&da6.addr)) + 12)), buf[i].addr[0..4]);
+                @memcpy(@as(*[4]u8, @ptrCast(&da4.addr)), buf[i].addr[0..4]);
+                da_ptr = @ptrCast(&da4);
+                dalen = @sizeOf(linux.sockaddr.in);
+                sa_ptr = @ptrCast(&sa4);
+                salen = @sizeOf(linux.sockaddr.in);
+            }
+
+            const da6_addr_bytes: *const [16]u8 = @ptrCast(&da6.addr);
+            const dpolicy = policyof(da6_addr_bytes);
+            const dscope = scopeof(da6_addr_bytes);
+            const dlabel = dpolicy.label;
+            const dprec = dpolicy.prec;
+            var prefixlen: c_int = 0;
+
+            const fd = c.socket_fn(addr_family, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+            if (fd >= 0) {
+                if (c.connect_fn(fd, da_ptr, dalen) == 0) {
+                    key |= DAS_USABLE;
+                    if (c.getsockname_fn(fd, sa_ptr, &salen) == 0) {
+                        if (addr_family == AF_INET) {
+                            @memcpy(@as(*[4]u8, @ptrCast(@as([*]u8, @ptrCast(&sa6.addr)) + 12)), @as(*const [4]u8, @ptrCast(&sa4.addr)));
+                        }
+                        const sa6_addr_bytes: *const [16]u8 = @ptrCast(&sa6.addr);
+                        if (dscope == scopeof(sa6_addr_bytes))
+                            key |= DAS_MATCHINGSCOPE;
+                        if (dlabel == labelof(sa6_addr_bytes))
+                            key |= DAS_MATCHINGLABEL;
+                        prefixlen = prefixmatch(sa6_addr_bytes, da6_addr_bytes);
+                    }
+                }
+                _ = c.close_fn(fd);
+            }
+            key |= @as(c_int, @intCast(dprec)) << DAS_PREC_SHIFT;
+            key |= (15 - dscope) << DAS_SCOPE_SHIFT;
+            key |= prefixlen << DAS_PREFIX_SHIFT;
+            key |= @as(c_int, @intCast(MAXADDRS - @as(c_int, @intCast(i)))) << DAS_ORDER_SHIFT;
+            buf[i].sortkey = key;
+        }
+    }
+
+    c.qsort_fn(@ptrCast(buf), @intCast(cnt), @sizeOf(address), &addrcmp);
+
+    _ = c.pthread_setcancelstate(cs, null);
+
+    return cnt;
+}
+
+// --- lookup_name helpers (internal, no callconv(.c)) ---
+
+fn isAlnum(ch: u8) bool {
+    return (ch >= 'a' and ch <= 'z') or (ch >= 'A' and ch <= 'Z') or (ch >= '0' and ch <= '9');
+}
+
+fn isValidHostname(host: [*:0]const u8) bool {
+    const l = c.strnlen(@ptrCast(host), 255);
+    if (l -% 1 >= 254) return false;
+    var i: usize = 0;
+    while (host[i] >= 0x80 or host[i] == '.' or host[i] == '-' or isAlnum(host[i])) : (i += 1) {}
+    return host[i] == 0;
+}
+
+fn nameFromNull(buf: [*]address, name: [*:0]const u8, family: c_int, flags: c_int) c_int {
+    const AF_INET: c_int = 2;
+    const AF_INET6: c_int = 10;
+    const AI_PASSIVE: c_int = 0x1;
+    if (name[0] != 0) return 0;
+    var cnt: c_int = 0;
+    if ((flags & AI_PASSIVE) != 0) {
+        if (family != AF_INET6) {
+            buf[@intCast(cnt)] = std.mem.zeroes(address);
+            buf[@intCast(cnt)].family = AF_INET;
+            cnt += 1;
+        }
+        if (family != AF_INET) {
+            buf[@intCast(cnt)] = std.mem.zeroes(address);
+            buf[@intCast(cnt)].family = AF_INET6;
+            cnt += 1;
+        }
+    } else {
+        if (family != AF_INET6) {
+            buf[@intCast(cnt)] = std.mem.zeroes(address);
+            buf[@intCast(cnt)].family = AF_INET;
+            buf[@intCast(cnt)].addr[0] = 127;
+            buf[@intCast(cnt)].addr[3] = 1;
+            cnt += 1;
+        }
+        if (family != AF_INET) {
+            buf[@intCast(cnt)] = std.mem.zeroes(address);
+            buf[@intCast(cnt)].family = AF_INET6;
+            buf[@intCast(cnt)].addr[15] = 1;
+            cnt += 1;
+        }
+    }
+    return cnt;
+}
+
+fn nameFromHosts(buf: [*]address, canon: [*]u8, name: [*:0]const u8, family: c_int) c_int {
+    const l = c.strlen(name);
+    var cnt: c_int = 0;
+    var badfam: c_int = 0;
+    var have_canon: bool = false;
+
+    var _buf: [1032]u8 = undefined;
+    var _f: [256]u8 align(8) = undefined;
+    const f = c.fopen_rb_ca("/etc/hosts", @ptrCast(&_f), &_buf, 1032);
+    if (f == null) {
+        const e = std.c._errno().*;
+        if (e == @intFromEnum(linux.E.NOENT) or e == @intFromEnum(linux.E.NOTDIR) or e == @intFromEnum(linux.E.ACCES))
+            return 0;
+        return -11; // EAI_SYSTEM
+    }
+
+    var line: [512]u8 = undefined;
+    while (c.fgets_fn(&line, 512, f) != null and cnt < MAXADDRS) {
+        // Strip comments
+        if (c.strchr_fn(@ptrCast(&line), '#')) |hash| {
+            hash[0] = '\n';
+            (hash + 1)[0] = 0;
+        }
+
+        // Search for the name in the line (after the first token)
+        const found = blk: {
+            var p: [*:0]u8 = @ptrCast(@as([*]u8, @ptrCast(&line)) + 1);
+            while (c.strstr_fn(p, name)) |match| {
+                const mi = @intFromPtr(match);
+                if (!isSpace(@as([*]u8, @ptrCast(match))[0 -% 1]) or true) {
+                    // Check that char before match is space
+                    const prev_ptr: [*]u8 = @ptrCast(match - 1);
+                    if (!isSpace(prev_ptr[0])) {
+                        p = @ptrCast(match + 1);
+                        continue;
+                    }
+                }
+                _ = mi;
+                // Check that char after match is space or NUL
+                if (!isSpace(match[l]) and match[l] != 0) {
+                    p = @ptrCast(match + 1);
+                    continue;
+                }
+                break :blk true;
+            }
+            break :blk false;
+        };
+        if (!found) continue;
+
+        // Isolate IP address to parse
+        var pi: usize = 0;
+        while (line[pi] != 0 and !isSpace(line[pi])) pi += 1;
+        line[pi] = 0;
+        pi += 1;
+
+        const nr = lookup_ipliteral_impl(buf + @as(usize, @intCast(cnt)), @ptrCast(&line), family);
+        if (nr == 1) {
+            cnt += 1;
+        } else if (nr == 0) {
+            continue;
+        } else {
+            badfam = -5; // EAI_NODATA
+            continue;
+        }
+
+        if (have_canon) continue;
+
+        // Extract first name as canonical name
+        while (pi < line.len and isSpace(line[pi])) pi += 1;
+        var zi = pi;
+        while (zi < line.len and line[zi] != 0 and !isSpace(line[zi])) zi += 1;
+        line[zi] = 0;
+        if (isValidHostname(@ptrCast(line[pi..].ptr))) {
+            have_canon = true;
+            _ = c.memcpy(@ptrCast(canon), @ptrCast(line[pi..].ptr), zi - pi + 1);
+        }
+    }
+    c.fclose_ca(f);
+    return if (cnt != 0) cnt else badfam;
+}
+
+const DpcCtx = struct {
+    addrs: [*]address,
+    canon: [*]u8,
+    cnt: c_int,
+    rrtype: c_int,
+};
+
+const RR_A: c_int = 1;
+const RR_CNAME: c_int = 5;
+const RR_AAAA: c_int = 28;
+const ABUF_SIZE = 4800;
+
+fn dnsParseCallback(ctx_raw: ?*anyopaque, rr: c_int, data: *const anyopaque, len: c_int, packet: *const anyopaque, plen: c_int) callconv(.c) c_int {
+    const ctx: *DpcCtx = @ptrCast(@alignCast(ctx_raw));
+    if (rr == RR_CNAME) {
+        var tmp: [256]u8 = undefined;
+        if (c.dn_expand_fn(@ptrCast(packet), @ptrCast(@as([*]const u8, @ptrCast(packet)) + @as(usize, @intCast(plen))), @ptrCast(data), &tmp, 256) > 0 and isValidHostname(@ptrCast(&tmp))) {
+            _ = c.strcpy(ctx.canon, @ptrCast(&tmp));
+        }
+        return 0;
+    }
+    if (ctx.cnt >= MAXADDRS) return 0;
+    if (rr != ctx.rrtype) return 0;
+    var addr_family: c_int = undefined;
+    if (rr == RR_A) {
+        if (len != 4) return -1;
+        addr_family = 2; // AF_INET
+    } else if (rr == RR_AAAA) {
+        if (len != 16) return -1;
+        addr_family = 10; // AF_INET6
+    } else return 0;
+    const idx: usize = @intCast(ctx.cnt);
+    ctx.addrs[idx].family = addr_family;
+    ctx.addrs[idx].scopeid = 0;
+    _ = c.memcpy(@ptrCast(&ctx.addrs[idx].addr), data, @intCast(len));
+    ctx.cnt += 1;
+    return 0;
+}
+
+fn nameFromDns(buf: [*]address, canon: [*]u8, name: [*:0]const u8, family: c_int, conf: *const resolvconf) c_int {
+    const AF_INET: c_int = 2;
+    const AF_INET6: c_int = 10;
+    const EAI_AGAIN: c_int = -3;
+    const EAI_FAIL: c_int = -4;
+    const EAI_NODATA: c_int = -5;
+
+    const afrr = [2]struct { af: c_int, rr: c_int }{
+        .{ .af = AF_INET6, .rr = RR_A },
+        .{ .af = AF_INET, .rr = RR_AAAA },
+    };
+
+    var qbuf: [2][280]u8 = undefined;
+    var abuf: [2][ABUF_SIZE]u8 = undefined;
+    var qlens: [2]c_int = undefined;
+    var alens: [2]c_int = undefined;
+    var qtypes: [2]c_int = undefined;
+    var nq: usize = 0;
+
+    var ctx = DpcCtx{ .addrs = buf, .canon = canon, .cnt = 0, .rrtype = 0 };
+
+    for (0..2) |ii| {
+        if (family != afrr[ii].af) {
+            qlens[nq] = c.res_mkquery_fn(0, name, 1, afrr[ii].rr, null, 0, null, &qbuf[nq], 280);
+            if (qlens[nq] == -1) return 0;
+            qtypes[nq] = afrr[ii].rr;
+            qbuf[nq][3] = 0; // don't need AD flag
+            // Ensure query IDs are distinct
+            if (nq > 0 and qbuf[nq][0] == qbuf[0][0])
+                qbuf[nq][0] +%= 1;
+            nq += 1;
+        }
+    }
+
+    const qp = [2][*]const u8{ &qbuf[0], &qbuf[1] };
+    var ap = [2][*]u8{ &abuf[0], &abuf[1] };
+    if (c.res_msend_rc_fn(@intCast(nq), &qp, &qlens, &ap, &alens, ABUF_SIZE, conf) < 0)
+        return -11; // EAI_SYSTEM
+
+    for (0..nq) |ii| {
+        if (alens[ii] < 4 or (abuf[ii][3] & 15) == 2) return EAI_AGAIN;
+        if ((abuf[ii][3] & 15) == 3) return 0;
+        if ((abuf[ii][3] & 15) != 0) return EAI_FAIL;
+    }
+
+    // Parse in reverse order so A records come first
+    var ii: usize = nq;
+    while (ii > 0) {
+        ii -= 1;
+        ctx.rrtype = qtypes[ii];
+        if (alens[ii] > ABUF_SIZE) alens[ii] = ABUF_SIZE;
+        _ = c.dns_parse_fn(&abuf[ii], alens[ii], &dnsParseCallback, @ptrCast(&ctx));
+    }
+
+    if (ctx.cnt > 0) return ctx.cnt;
+    return EAI_NODATA;
+}
+
+fn nameFromDnsSearch(buf: [*]address, canon: [*]u8, name: [*:0]const u8, family: c_int) c_int {
+    const EAI_NONAME: c_int = -2;
+    var search: [256]u8 = undefined;
+    var conf: resolvconf = undefined;
+
+    if (c.get_resolv_conf_fn(&conf, &search, search.len) < 0) return -1;
+
+    // Count dots
+    var dots: usize = 0;
+    var l: usize = 0;
+    while (name[l] != 0) : (l += 1) {
+        if (name[l] == '.') dots += 1;
+    }
+    // Suppress search when >=ndots or name ends in dot
+    if (dots >= conf.ndots or (l > 0 and name[l - 1] == '.')) search[0] = 0;
+
+    // Strip final dot
+    if (l > 0 and name[l - 1] == '.') l -= 1;
+    if (l == 0 or name[l - 1] == '.') return EAI_NONAME;
+
+    if (l >= 256) return EAI_NONAME;
+
+    // Setup canon with name + '.' + search domain
+    _ = c.memcpy(@ptrCast(canon), @ptrCast(name), l);
+    canon[l] = '.';
+
+    // Try each search domain
+    var si: usize = 0;
+    while (si < search.len and search[si] != 0) {
+        // Skip leading spaces
+        while (si < search.len and search[si] != 0 and isSpace(search[si])) si += 1;
+        const start = si;
+        // Find end of domain
+        while (si < search.len and search[si] != 0 and !isSpace(search[si])) si += 1;
+        if (si == start) break;
+        const dom_len = si - start;
+        if (dom_len < 256 - l - 1) {
+            _ = c.memcpy(@ptrCast(canon + l + 1), @ptrCast(search[start..].ptr), dom_len);
+            canon[dom_len + 1 + l] = 0;
+            const r = nameFromDns(buf, canon, @ptrCast(canon), family, &conf);
+            if (r != 0) return r;
+        }
+    }
+
+    canon[l] = 0;
+    return nameFromDns(buf, canon, name, family, &conf);
+}
+
+const PolicyEntry = struct {
+    addr: [16]u8,
+    len: u8,
+    mask: u8,
+    prec: u8,
+    label: u8,
+};
+
+const defpolicy = [_]PolicyEntry{
+    .{ .addr = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, .len = 15, .mask = 0xff, .prec = 50, .label = 0 },
+    .{ .addr = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0, 0, 0 }, .len = 11, .mask = 0xff, .prec = 35, .label = 4 },
+    .{ .addr = .{ 0x20, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, .len = 1, .mask = 0xff, .prec = 30, .label = 2 },
+    .{ .addr = .{ 0x20, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, .len = 3, .mask = 0xff, .prec = 5, .label = 5 },
+    .{ .addr = .{ 0xfc, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, .len = 0, .mask = 0xfe, .prec = 3, .label = 13 },
+    // Last rule matches all addresses
+    .{ .addr = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, .len = 0, .mask = 0, .prec = 40, .label = 1 },
+};
+
+fn policyof(a: *const [16]u8) *const PolicyEntry {
+    for (&defpolicy) |*p| {
+        if (c.memcmp(@ptrCast(a), @ptrCast(&p.addr), p.len) != 0) continue;
+        if ((a[p.len] & p.mask) != p.addr[p.len]) continue;
+        return p;
+    }
+    unreachable;
+}
+
+fn labelof(a: *const [16]u8) u8 {
+    return policyof(a).label;
+}
+
+fn scopeof(a: *const [16]u8) c_int {
+    // IN6_IS_ADDR_MULTICAST: a[0] == 0xff
+    if (a[0] == 0xff) return a[1] & 15;
+    // IN6_IS_ADDR_LINKLOCAL: a[0]==0xfe, a[1]&0xc0==0x80
+    if (a[0] == 0xfe and (a[1] & 0xc0) == 0x80) return 2;
+    // IN6_IS_ADDR_LOOPBACK: all zero except a[15]==1
+    if (a[0] == 0 and a[1] == 0 and a[2] == 0 and a[3] == 0 and
+        a[4] == 0 and a[5] == 0 and a[6] == 0 and a[7] == 0 and
+        a[8] == 0 and a[9] == 0 and a[10] == 0 and a[11] == 0 and
+        a[12] == 0 and a[13] == 0 and a[14] == 0 and a[15] == 1) return 2;
+    // IN6_IS_ADDR_SITELOCAL: a[0]==0xfe, a[1]&0xc0==0xc0
+    if (a[0] == 0xfe and (a[1] & 0xc0) == 0xc0) return 5;
+    return 14;
+}
+
+fn prefixmatch(s: *const [16]u8, d: *const [16]u8) c_int {
+    var i: u32 = 0;
+    while (i < 128) : (i += 1) {
+        const byte_idx = i / 8;
+        const bit_shift: u3 = @intCast(7 - (i % 8));
+        if (((s[byte_idx] ^ d[byte_idx]) & (@as(u8, 1) << bit_shift)) != 0) break;
+    }
+    return @intCast(i);
+}
+
+fn addrcmp(a_raw: *const anyopaque, b_raw: *const anyopaque) callconv(.c) c_int {
+    const a: *const address = @ptrCast(@alignCast(a_raw));
+    const b: *const address = @ptrCast(@alignCast(b_raw));
+    return b.sortkey - a.sortkey;
+}
 fn get_resolv_conf_impl(conf: *resolvconf, search: [*]u8, search_sz: usize) callconv(.c) c_int {
     var nns: c_uint = 0;
     conf.ndots = 1;
@@ -1018,7 +1533,110 @@ fn mtime() c_ulong {
     _ = c.clock_gettime_fn(1, &ts); // CLOCK_MONOTONIC
     return @as(c_ulong, @intCast(ts.tv_sec)) * 1000 + @as(c_ulong, @intCast(ts.tv_nsec)) / 1000000;
 }
-fn getaddrinfo_impl(_: ?[*:0]const u8, _: ?[*:0]const u8, _: ?*const addrinfo, _: *?*addrinfo) callconv(.c) c_int { return -1; }
+fn getaddrinfo_impl(host: ?[*:0]const u8, serv: ?[*:0]const u8, hint: ?*const addrinfo, res: *?*addrinfo) callconv(.c) c_int {
+    const AF_INET: c_int = 2;
+    const AF_INET6: c_int = 10;
+    const AF_UNSPEC: c_int = 0;
+    const AI_PASSIVE: c_int = 0x1;
+    const AI_CANONNAME: c_int = 0x2;
+    const AI_NUMERICHOST: c_int = 0x4;
+    const AI_V4MAPPED: c_int = 0x8;
+    const AI_ALL: c_int = 0x10;
+    const AI_ADDRCONFIG: c_int = 0x20;
+    const AI_NUMERICSERV: c_int = 0x400;
+    const EAI_NONAME: c_int = -2;
+    const EAI_BADFLAGS: c_int = -1;
+    const EAI_FAMILY: c_int = -6;
+    const EAI_MEMORY: c_int = -10;
+    const EAI_NODATA: c_int = -5;
+    const SOCK_DGRAM: c_int = 2;
+    const SOCK_CLOEXEC: c_int = @as(c_int, @truncate(@as(u32, 0o2000000)));
+    const IPPROTO_UDP: c_int = 17;
+
+    if (host == null and serv == null) return EAI_NONAME;
+
+    var family: c_int = AF_UNSPEC;
+    var flags: c_int = 0;
+    var proto: c_int = 0;
+    var socktype: c_int = 0;
+    var no_family: bool = false;
+
+    if (hint) |h| {
+        family = h.ai_family;
+        flags = h.ai_flags;
+        proto = h.ai_protocol;
+        socktype = h.ai_socktype;
+        const mask = AI_PASSIVE | AI_CANONNAME | AI_NUMERICHOST | AI_V4MAPPED | AI_ALL | AI_ADDRCONFIG | AI_NUMERICSERV;
+        if ((flags & mask) != flags) return EAI_BADFLAGS;
+        if (family != AF_INET and family != AF_INET6 and family != AF_UNSPEC) return EAI_FAMILY;
+    }
+
+    if ((flags & AI_ADDRCONFIG) != 0) {
+        const tf = [2]c_int{ AF_INET, AF_INET6 };
+        for (0..2) |ii| {
+            if (family == tf[1 - ii]) continue;
+            const s = c.socket_fn(tf[ii], SOCK_CLOEXEC | SOCK_DGRAM, IPPROTO_UDP);
+            if (s >= 0) {
+                _ = c.close_fn(s);
+            } else {
+                if (family == tf[ii]) no_family = true;
+                family = tf[1 - ii];
+            }
+        }
+    }
+
+    var ports: [MAXSERVS]service = undefined;
+    const nservs = lookup_serv_impl(&ports, serv orelse "", proto, socktype, flags);
+    if (nservs < 0) return nservs;
+
+    var addrs: [MAXADDRS]address = undefined;
+    var canon: [256]u8 = undefined;
+    const naddrs = c.lookup_name_fn(&addrs, &canon, host orelse "", family, flags);
+    if (naddrs < 0) return naddrs;
+    if (no_family) return EAI_NODATA;
+
+    const nais: usize = @intCast(@as(c_int, nservs) * naddrs);
+    const canon_len = c.strlen(@ptrCast(&canon));
+    const alloc_size = nais * @sizeOf(aibuf) + canon_len + 1;
+
+    const out_ptr = c.calloc(1, alloc_size) orelse return EAI_MEMORY;
+    const out: [*]aibuf = @alignCast(@ptrCast(out_ptr));
+
+    var outcanon: ?[*:0]u8 = null;
+    if (canon_len > 0) {
+        outcanon = @ptrCast(@as([*]u8, @ptrCast(out_ptr)) + nais * @sizeOf(aibuf));
+        _ = c.memcpy(@ptrCast(outcanon), @ptrCast(&canon), canon_len + 1);
+    }
+
+    var k: usize = 0;
+    for (0..@intCast(naddrs)) |i| {
+        for (0..@intCast(nservs)) |j| {
+            out[k].slot = @intCast(k);
+            out[k].ai.ai_family = addrs[i].family;
+            out[k].ai.ai_socktype = ports[j].socktype;
+            out[k].ai.ai_protocol = ports[j].proto;
+            out[k].ai.ai_addrlen = if (addrs[i].family == AF_INET) @sizeOf(linux.sockaddr.in) else @sizeOf(linux.sockaddr.in6);
+            out[k].ai.ai_addr = @ptrCast(&out[k].sa);
+            out[k].ai.ai_canonname = outcanon;
+            if (k > 0) out[k - 1].ai.ai_next = &out[k].ai;
+
+            if (addrs[i].family == AF_INET) {
+                out[k].sa.sin.family = .inet;
+                out[k].sa.sin.port = c.htons(ports[j].port);
+                @memcpy(@as(*[4]u8, @ptrCast(&out[k].sa.sin.addr)), addrs[i].addr[0..4]);
+            } else {
+                out[k].sa.sin6.family = .inet6;
+                out[k].sa.sin6.port = c.htons(ports[j].port);
+                out[k].sa.sin6.scope_id = addrs[i].scopeid;
+                @memcpy(&out[k].sa.sin6.addr, addrs[i].addr[0..16]);
+            }
+            k += 1;
+        }
+    }
+    out[0].ref = @intCast(nais);
+    res.* = &out[0].ai;
+    return 0;
+}
 fn getnameinfo_impl(_: *const anyopaque, _: linux.socklen_t, _: ?[*]u8, _: linux.socklen_t, _: ?[*]u8, _: linux.socklen_t, _: c_int) callconv(.c) c_int { return -1; }
 fn gethostbyname2_r_impl(_: [*:0]const u8, _: c_int, _: *anyopaque, _: [*]u8, _: usize, _: *?*anyopaque, _: *c_int) callconv(.c) c_int { return -1; }
 fn gethostbyaddr_r_impl(_: *const anyopaque, _: linux.socklen_t, _: c_int, _: *anyopaque, _: [*]u8, _: usize, _: *?*anyopaque, _: *c_int) callconv(.c) c_int { return -1; }

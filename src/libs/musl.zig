@@ -582,7 +582,6 @@ const src_files = [_][]const u8{
     "musl/src/exit/assert.c",
     "musl/src/exit/atexit.c",
     "musl/src/exit/at_quick_exit.c",
-    "musl/src/exit/exit.c",
     "musl/src/exit/_Exit.c",
     "musl/src/exit/quick_exit.c",
     "musl/src/fcntl/creat.c",

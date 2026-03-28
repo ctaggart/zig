@@ -94,6 +94,34 @@ const if_nameindex_t = extern struct {
     if_name: ?[*:0]u8,
 };
 
+// ns_parse structs (from arpa/nameser.h)
+const NS_MAXDNAME = 1025;
+const NS_INT16SZ = 2;
+const NS_INT32SZ = 4;
+const ns_s_max = 4;
+const ns_s_qd = 0;
+
+const ns_msg = extern struct {
+    _msg: [*]const u8,
+    _eom: [*]const u8,
+    _id: u16,
+    _flags: u16,
+    _counts: [4]u16,
+    _sections: [4]?[*]const u8,
+    _sect: c_int,
+    _rrnum: c_int,
+    _msg_ptr: ?[*]const u8,
+};
+
+const ns_rr = extern struct {
+    name: [NS_MAXDNAME]u8,
+    rr_type: u16,
+    rr_class: u16,
+    ttl: u32,
+    rdlength: u16,
+    rdata: ?[*]const u8,
+};
+
 // ============================================================
 // C library function externs (only resolved when link_libc)
 // ============================================================
@@ -407,9 +435,168 @@ fn ns_get16_impl(cp: [*]const u8) callconv(.c) c_uint { return @as(c_uint, cp[0]
 fn ns_get32_impl(cp: [*]const u8) callconv(.c) c_ulong { return @as(c_ulong, cp[0]) << 24 | @as(c_ulong, cp[1]) << 16 | @as(c_ulong, cp[2]) << 8 | cp[3]; }
 fn ns_put16_impl(s: c_uint, cp: [*]u8) callconv(.c) void { cp[0] = @intCast(s >> 8); cp[1] = @intCast(s & 0xff); }
 fn ns_put32_impl(l: c_ulong, cp: [*]u8) callconv(.c) void { cp[0] = @intCast(l >> 24); cp[1] = @intCast((l >> 16) & 0xff); cp[2] = @intCast((l >> 8) & 0xff); cp[3] = @intCast(l & 0xff); }
-fn ns_initparse_impl(_: [*]const u8, _: c_int, _: *anyopaque) callconv(.c) c_int { return -1; }
-fn ns_skiprr_impl(_: [*]const u8, _: [*]const u8, _: c_int, _: c_int) callconv(.c) c_int { return -1; }
-fn ns_parserr_impl(_: *anyopaque, _: c_int, _: c_int, _: *anyopaque) callconv(.c) c_int { return -1; }
+// ns_parse helpers: read big-endian values and advance pointer
+fn nsGet16(p: *[*]const u8) u16 {
+    const cp = p.*;
+    const val: u16 = @as(u16, cp[0]) << 8 | cp[1];
+    p.* = cp + 2;
+    return val;
+}
+fn nsGet32(p: *[*]const u8) u32 {
+    const cp = p.*;
+    const val: u32 = @as(u32, cp[0]) << 24 | @as(u32, cp[1]) << 16 | @as(u32, cp[2]) << 8 | cp[3];
+    p.* = cp + 4;
+    return val;
+}
+
+fn ns_initparse_impl(msg_arg: [*]const u8, msglen: c_int, handle_raw: *anyopaque) callconv(.c) c_int {
+    const handle: *ns_msg = @ptrCast(@alignCast(handle_raw));
+    var msg = msg_arg;
+    handle._msg = msg_arg;
+    handle._eom = msg_arg + @as(usize, @intCast(msglen));
+    if (msglen < (2 + ns_s_max) * NS_INT16SZ) {
+        std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
+        return -1;
+    }
+    handle._id = nsGet16(&msg);
+    handle._flags = nsGet16(&msg);
+    for (0..4) |i| {
+        handle._counts[i] = nsGet16(&msg);
+    }
+    for (0..4) |i| {
+        if (handle._counts[i] != 0) {
+            handle._sections[i] = msg;
+            const r = ns_skiprr_impl(msg, handle._eom, @intCast(i), @intCast(handle._counts[i]));
+            if (r < 0) return -1;
+            msg += @as(usize, @intCast(r));
+        } else {
+            handle._sections[i] = null;
+        }
+    }
+    if (@intFromPtr(msg) != @intFromPtr(handle._eom)) {
+        std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
+        return -1;
+    }
+    handle._sect = ns_s_max;
+    handle._rrnum = -1;
+    handle._msg_ptr = null;
+    return 0;
+}
+
+fn ns_skiprr_impl(ptr: [*]const u8, eom: [*]const u8, section: c_int, count_arg: c_int) callconv(.c) c_int {
+    var p = ptr;
+    var count = count_arg;
+
+    while (count > 0) : (count -= 1) {
+        const r = c.dn_skipname_fn(p, eom);
+        if (r < 0) {
+            std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
+            return -1;
+        }
+        const r_u: usize = @intCast(r);
+        if (@intFromPtr(p) + r_u + 2 * NS_INT16SZ > @intFromPtr(eom)) {
+            std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
+            return -1;
+        }
+        p += r_u + 2 * NS_INT16SZ;
+        if (section != ns_s_qd) {
+            if (@intFromPtr(p) + NS_INT32SZ + NS_INT16SZ > @intFromPtr(eom)) {
+                std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
+                return -1;
+            }
+            p += NS_INT32SZ;
+            const rdlen: usize = @as(usize, p[0]) << 8 | p[1];
+            p += NS_INT16SZ;
+            if (@intFromPtr(p) + rdlen > @intFromPtr(eom)) {
+                std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
+                return -1;
+            }
+            p += rdlen;
+        }
+    }
+    return @intCast(@intFromPtr(p) - @intFromPtr(ptr));
+}
+
+fn ns_parserr_impl(handle_raw: *anyopaque, section: c_int, rrnum_arg: c_int, rr_raw: *anyopaque) callconv(.c) c_int {
+    const handle: *ns_msg = @ptrCast(@alignCast(handle_raw));
+    const rr: *ns_rr = @ptrCast(@alignCast(rr_raw));
+    var rrnum = rrnum_arg;
+
+    if (section < 0 or section >= ns_s_max) {
+        std.c._errno().* = @intFromEnum(linux.E.NODEV);
+        return -1;
+    }
+    const sect_u: usize = @intCast(section);
+
+    if (section != handle._sect) {
+        handle._sect = section;
+        handle._rrnum = 0;
+        handle._msg_ptr = handle._sections[sect_u];
+    }
+    if (rrnum == -1) rrnum = handle._rrnum;
+    if (rrnum < 0 or rrnum >= @as(c_int, @intCast(handle._counts[sect_u]))) {
+        std.c._errno().* = @intFromEnum(linux.E.NODEV);
+        return -1;
+    }
+    if (rrnum < handle._rrnum) {
+        handle._rrnum = 0;
+        handle._msg_ptr = handle._sections[sect_u];
+    }
+    if (rrnum > handle._rrnum) {
+        const r = ns_skiprr_impl(handle._msg_ptr.?, handle._eom, section, rrnum - handle._rrnum);
+        if (r < 0) return -1;
+        handle._msg_ptr = (handle._msg_ptr.?) + @as(usize, @intCast(r));
+        handle._rrnum = rrnum;
+    }
+
+    var msg_ptr = handle._msg_ptr orelse {
+        std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
+        return -1;
+    };
+
+    const r = ns_name_uncompress_impl(handle._msg, handle._eom, msg_ptr, &rr.name, NS_MAXDNAME);
+    if (r < 0) return -1;
+    msg_ptr += @as(usize, @intCast(r));
+
+    if (@intFromPtr(msg_ptr) + 2 * NS_INT16SZ > @intFromPtr(handle._eom)) {
+        std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
+        return -1;
+    }
+    rr.rr_type = nsGet16(&msg_ptr);
+    rr.rr_class = nsGet16(&msg_ptr);
+
+    if (section != ns_s_qd) {
+        if (@intFromPtr(msg_ptr) + NS_INT32SZ + NS_INT16SZ > @intFromPtr(handle._eom)) {
+            std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
+            return -1;
+        }
+        rr.ttl = nsGet32(&msg_ptr);
+        rr.rdlength = nsGet16(&msg_ptr);
+        if (@intFromPtr(msg_ptr) + rr.rdlength > @intFromPtr(handle._eom)) {
+            std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
+            return -1;
+        }
+        rr.rdata = msg_ptr;
+        msg_ptr += rr.rdlength;
+    } else {
+        rr.ttl = 0;
+        rr.rdlength = 0;
+        rr.rdata = null;
+    }
+
+    handle._msg_ptr = msg_ptr;
+    handle._rrnum += 1;
+    if (handle._rrnum > @as(c_int, @intCast(handle._counts[sect_u]))) {
+        handle._sect = section + 1;
+        if (handle._sect == ns_s_max) {
+            handle._rrnum = -1;
+            handle._msg_ptr = null;
+        } else {
+            handle._rrnum = 0;
+        }
+    }
+    return 0;
+}
 fn ns_name_uncompress_impl(msg: [*]const u8, eom: [*]const u8, src: [*]const u8, dst: [*]u8, dstsiz: usize) callconv(.c) c_int {
     const r = c.dn_expand_fn(msg, eom, src, dst, @intCast(dstsiz));
     if (r < 0) std.c._errno().* = @intFromEnum(linux.E.MSGSIZE);
@@ -477,7 +664,132 @@ fn netlink_enumerate(fd: c_int, seq: u32, msg_type: u16, af: u8, cb: *const fn (
         }
     }
 }
-fn lookup_serv_impl(_: [*]service, _: [*:0]const u8, _: c_int, _: c_int, _: c_int) callconv(.c) c_int { return -1; }
+fn lookup_serv_impl(buf: [*]service, name: [*:0]const u8, proto: c_int, socktype: c_int, flags: c_int) callconv(.c) c_int {
+    const SOCK_STREAM: c_int = 1;
+    const SOCK_DGRAM: c_int = 2;
+    const IPPROTO_TCP: c_int = 6;
+    const IPPROTO_UDP: c_int = 17;
+    const EAI_SERVICE: c_int = -8;
+    const EAI_NONAME: c_int = -2;
+    const EAI_SYSTEM: c_int = -11;
+    const AI_NUMERICSERV: c_int = 0x400;
+
+    var p_proto = proto;
+    var cnt: usize = 0;
+
+    switch (socktype) {
+        SOCK_STREAM => {
+            if (p_proto == 0) p_proto = IPPROTO_TCP;
+            if (p_proto != IPPROTO_TCP) return EAI_SERVICE;
+        },
+        SOCK_DGRAM => {
+            if (p_proto == 0) p_proto = IPPROTO_UDP;
+            if (p_proto != IPPROTO_UDP) return EAI_SERVICE;
+        },
+        0 => {},
+        else => {
+            if (name[0] != 0) return EAI_SERVICE;
+            buf[0].port = 0;
+            buf[0].proto = @intCast(p_proto);
+            buf[0].socktype = @intCast(socktype);
+            return 1;
+        },
+    }
+
+    // Try numeric port
+    var end: [*:0]u8 = undefined;
+    var port: c_ulong = 0;
+    if (name[0] != 0) {
+        port = c.strtoul(name, @ptrCast(&end), 10);
+    } else {
+        end = @ptrCast(@constCast(name));
+    }
+    if (end[0] == 0) {
+        if (port > 65535) return EAI_SERVICE;
+        if (p_proto != IPPROTO_UDP) {
+            buf[cnt].port = @intCast(port);
+            buf[cnt].socktype = @intCast(SOCK_STREAM);
+            buf[cnt].proto = @intCast(IPPROTO_TCP);
+            cnt += 1;
+        }
+        if (p_proto != IPPROTO_TCP) {
+            buf[cnt].port = @intCast(port);
+            buf[cnt].socktype = @intCast(SOCK_DGRAM);
+            buf[cnt].proto = @intCast(IPPROTO_UDP);
+            cnt += 1;
+        }
+        return @intCast(cnt);
+    }
+
+    if ((flags & AI_NUMERICSERV) != 0) return EAI_NONAME;
+
+    const l = c.strlen(name);
+
+    // Parse /etc/services
+    var _buf: [1032]u8 = undefined;
+    var _f: [256]u8 align(8) = undefined;
+    const f = c.fopen_rb_ca("/etc/services", @ptrCast(&_f), &_buf, 1032);
+    if (f == null) {
+        const e = std.c._errno().*;
+        if (e == @intFromEnum(linux.E.NOENT) or e == @intFromEnum(linux.E.NOTDIR) or e == @intFromEnum(linux.E.ACCES))
+            return EAI_SERVICE;
+        return EAI_SYSTEM;
+    }
+
+    var line: [128]u8 = undefined;
+    while (c.fgets_fn(&line, 128, f) != null and cnt < MAXSERVS) {
+        // Strip comments
+        if (c.strchr_fn(@ptrCast(&line), '#')) |p| {
+            p[0] = '\n';
+            (p + 1)[0] = 0;
+        }
+        // Search for service name in line
+        const found = blk: {
+            var sp: [*:0]u8 = @ptrCast(&line);
+            while (c.strstr_fn(sp, name)) |match| {
+                const mi = @intFromPtr(match);
+                const li = @intFromPtr(&line);
+                if (mi > li and !isSpace(@as([*]u8, @ptrCast(match - 1))[0])) {
+                    sp = @ptrCast(match + 1);
+                    continue;
+                }
+                if (match[l] != 0 and !isSpace(match[l])) {
+                    sp = @ptrCast(match + 1);
+                    continue;
+                }
+                break :blk true;
+            }
+            break :blk false;
+        };
+        if (!found) continue;
+
+        // Skip canonical name
+        var pi: usize = 0;
+        while (line[pi] != 0 and !isSpace(line[pi])) pi += 1;
+
+        var zz: [*:0]u8 = undefined;
+        const pt = c.strtoul(@ptrCast(line[pi..].ptr), @ptrCast(&zz), 10);
+        if (pt > 65535) continue;
+        if (c.strncmp(@ptrCast(zz), "/udp", 4) == 0) {
+            if (p_proto != IPPROTO_TCP) {
+                buf[cnt].port = @intCast(pt);
+                buf[cnt].socktype = @intCast(SOCK_DGRAM);
+                buf[cnt].proto = @intCast(IPPROTO_UDP);
+                cnt += 1;
+            }
+        }
+        if (c.strncmp(@ptrCast(zz), "/tcp", 4) == 0) {
+            if (p_proto != IPPROTO_UDP) {
+                buf[cnt].port = @intCast(pt);
+                buf[cnt].socktype = @intCast(SOCK_STREAM);
+                buf[cnt].proto = @intCast(IPPROTO_TCP);
+                cnt += 1;
+            }
+        }
+    }
+    c.fclose_ca(f);
+    return if (cnt > 0) @intCast(cnt) else EAI_SERVICE;
+}
 fn lookup_name_impl(_: [*]address, _: [*]u8, _: [*:0]const u8, _: c_int, _: c_int) callconv(.c) c_int { return -1; }
 fn get_resolv_conf_impl(conf: *resolvconf, search: [*]u8, search_sz: usize) callconv(.c) c_int {
     var nns: c_uint = 0;

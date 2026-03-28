@@ -404,7 +404,39 @@ fn lookup_ipliteral_impl(buf: [*]address, name: [*:0]const u8, family: c_int) ca
     @memcpy(buf[0].addr[0..16], &a6);
     return 1;
 }
-fn dn_comp_impl(_: [*:0]const u8, _: [*]u8, _: c_int, _: ?[*]?[*]u8, _: ?[*]?[*]u8) callconv(.c) c_int { return -1; }
+fn dn_comp_impl(src: [*:0]const u8, dst: [*]u8, space: c_int, dnptrs: ?[*]?[*]u8, lastdnptr: ?[*]?[*]u8) callconv(.c) c_int {
+    // Simplified dn_comp: encode without compression
+    _ = dnptrs;
+    _ = lastdnptr;
+    const l = c.strnlen(@ptrCast(src), 255);
+    if (l > 0 and src[l - 1] == '.') {
+        // Strip trailing dot handled below
+    }
+    const actual_l = if (l > 0 and src[l - 1] == '.') l - 1 else l;
+    if (actual_l > 253 or space <= 0) return -1;
+    if (actual_l == 0) {
+        dst[0] = 0;
+        return 1;
+    }
+    // Encode labels
+    var i: usize = 0;
+    var s: usize = 0;
+    while (s < actual_l) {
+        var e = s;
+        while (e < actual_l and src[e] != '.') e += 1;
+        const label_len = e - s;
+        if (label_len == 0 or label_len > 63) return -1;
+        if (i + label_len + 1 >= @as(usize, @intCast(space))) return -1;
+        dst[i] = @intCast(label_len);
+        i += 1;
+        @memcpy(dst[i..][0..label_len], src[s..][0..label_len]);
+        i += label_len;
+        s = e + 1;
+    }
+    if (i + 1 > @as(usize, @intCast(space))) return -1;
+    dst[i] = 0;
+    return @intCast(i + 1);
+}
 fn ns_get16_impl(cp: [*]const u8) callconv(.c) c_uint { return @as(c_uint, cp[0]) << 8 | cp[1]; }
 fn ns_get32_impl(cp: [*]const u8) callconv(.c) c_ulong { return @as(c_ulong, cp[0]) << 24 | @as(c_ulong, cp[1]) << 16 | @as(c_ulong, cp[2]) << 8 | cp[3]; }
 fn ns_put16_impl(s: c_uint, cp: [*]u8) callconv(.c) void { cp[0] = @intCast(s >> 8); cp[1] = @intCast(s & 0xff); }
@@ -1980,8 +2012,19 @@ fn getservbyport_r_impl(port: c_int, prots: ?[*:0]const u8, se: *servent, buf_pt
     res.* = se;
     return 0;
 }
-fn if_nameindex_impl() callconv(.c) ?*if_nameindex_t { return null; }
-fn getifaddrs_impl(_: *?*anyopaque) callconv(.c) c_int { return -1; }
+fn if_nameindex_impl() callconv(.c) ?*if_nameindex_t {
+    // Simplified: return empty list
+    const p = c.calloc(1, @sizeOf(if_nameindex_t)) orelse return null;
+    const result: *if_nameindex_t = @alignCast(@ptrCast(p));
+    result.if_index = 0;
+    result.if_name = null;
+    return result;
+}
+fn getifaddrs_impl(result: *?*anyopaque) callconv(.c) c_int {
+    result.* = null;
+    std.c._errno().* = @intFromEnum(linux.E.NOSYS);
+    return -1;
+}
 fn freeifaddrs_impl(p_init: ?*anyopaque) callconv(.c) void {
     var p: ?[*]u8 = @ptrCast(p_init);
     while (p) |ptr| {

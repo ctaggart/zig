@@ -198,37 +198,11 @@ const c = if (builtin.link_libc) struct {
 // ============================================================
 
 comptime {
+    // Subdirectory modules with real implementations
+    _ = @import("network/dns.zig");
+
     if (builtin.target.isMuslLibC()) {
         if (builtin.link_libc) {
-            // freeaddrinfo.c
-            symbol(&freeaddrinfo_impl, "freeaddrinfo");
-            // res_send.c
-            symbol(&res_send_impl, "__res_send");
-            symbol(&res_send_impl, "res_send");
-            // res_querydomain.c
-            symbol(&res_querydomain_impl, "res_querydomain");
-            // res_query.c
-            symbol(&res_query_impl, "res_query");
-            symbol(&res_query_impl, "res_search");
-            // res_mkquery.c
-            symbol(&res_mkquery_impl, "__res_mkquery");
-            symbol(&res_mkquery_impl, "res_mkquery");
-            // lookup_ipliteral.c
-            symbol(&lookup_ipliteral_impl, "__lookup_ipliteral");
-            // dn_comp.c
-            symbol(&dn_comp_impl, "dn_comp");
-            // ns_parse.c
-            symbol(&ns_get16_impl, "ns_get16");
-            symbol(&ns_get32_impl, "ns_get32");
-            symbol(&ns_put16_impl, "ns_put16");
-            symbol(&ns_put32_impl, "ns_put32");
-            symbol(&ns_initparse_impl, "ns_initparse");
-            symbol(&ns_skiprr_impl, "ns_skiprr");
-            symbol(&ns_parserr_impl, "ns_parserr");
-            symbol(&ns_name_uncompress_impl, "ns_name_uncompress");
-            symbol(&_ns_flagdata_sym, "_ns_flagdata");
-            // netlink.c
-            symbol(&rtnetlink_enumerate_impl, "__rtnetlink_enumerate");
             // lookup_serv.c
             symbol(&lookup_serv_impl, "__lookup_serv");
             // lookup_name.c
@@ -1638,10 +1612,243 @@ fn getaddrinfo_impl(host: ?[*:0]const u8, serv: ?[*:0]const u8, hint: ?*const ad
     return 0;
 }
 fn getnameinfo_impl(_: *const anyopaque, _: linux.socklen_t, _: ?[*]u8, _: linux.socklen_t, _: ?[*]u8, _: linux.socklen_t, _: c_int) callconv(.c) c_int { return -1; }
-fn gethostbyname2_r_impl(_: [*:0]const u8, _: c_int, _: *anyopaque, _: [*]u8, _: usize, _: *?*anyopaque, _: *c_int) callconv(.c) c_int { return -1; }
-fn gethostbyaddr_r_impl(_: *const anyopaque, _: linux.socklen_t, _: c_int, _: *anyopaque, _: [*]u8, _: usize, _: *?*anyopaque, _: *c_int) callconv(.c) c_int { return -1; }
-fn getservbyname_r_impl(_: [*:0]const u8, _: ?[*:0]const u8, _: *anyopaque, _: [*]u8, _: usize, _: *?*anyopaque) callconv(.c) c_int { return -1; }
-fn getservbyport_r_impl(_: c_int, _: ?[*:0]const u8, _: *anyopaque, _: [*]u8, _: usize, _: *?*anyopaque) callconv(.c) c_int { return -1; }
+fn gethostbyname2_r_impl(name: [*:0]const u8, af: c_int, h: *hostent, buf_ptr: [*]u8, buflen: usize, res: *?*hostent, err: *c_int) callconv(.c) c_int {
+    const AF_INET6: c_int = 10;
+    const HOST_NOT_FOUND: c_int = 1;
+    const TRY_AGAIN: c_int = 2;
+    const NO_RECOVERY: c_int = 3;
+    const NO_DATA: c_int = 4;
+    const EAI_NONAME: c_int = -2;
+    const EAI_AGAIN: c_int = -3;
+    const EAI_NODATA: c_int = -5;
+    const ERANGE: c_int = 34;
+    const EAGAIN: c_int = 11;
+    const EBADMSG: c_int = 74;
+    const AI_CANONNAME: c_int = 0x2;
+
+    res.* = null;
+    var addrs: [MAXADDRS]address = undefined;
+    var canon: [256]u8 = undefined;
+    const cnt = c.lookup_name_fn(&addrs, &canon, name, af, AI_CANONNAME);
+    if (cnt < 0) {
+        switch (cnt) {
+            EAI_NONAME => { err.* = HOST_NOT_FOUND; return 0; },
+            EAI_NODATA => { err.* = NO_DATA; return 0; },
+            EAI_AGAIN => { err.* = TRY_AGAIN; return EAGAIN; },
+            else => { err.* = NO_RECOVERY; return EBADMSG; },
+        }
+    }
+    const ucnt: usize = @intCast(cnt);
+    h.h_addrtype = af;
+    h.h_length = if (af == AF_INET6) 16 else 4;
+    const addr_len: usize = @intCast(h.h_length);
+    const ptr_size = @sizeOf(*anyopaque);
+
+    // Calculate alignment and needed space
+    const align_val = (@intFromPtr(buf_ptr)) & (ptr_size - 1);
+    const align_off = if (align_val == 0) 0 else ptr_size - align_val;
+    const name_len = c.strlen(name);
+    const canon_len = c.strlen(@ptrCast(&canon));
+    const need = 4 * ptr_size + (ucnt + 1) * (ptr_size + addr_len) + name_len + 1 + canon_len + 1 + align_off;
+    if (need > buflen) return ERANGE;
+
+    var buf = buf_ptr + align_off;
+    h.h_aliases = @ptrCast(@alignCast(buf));
+    buf += 3 * ptr_size;
+    h.h_addr_list = @ptrCast(@alignCast(buf));
+    buf += (ucnt + 1) * ptr_size;
+
+    for (0..ucnt) |i| {
+        h.h_addr_list.?[i] = @ptrCast(buf);
+        _ = c.memcpy(@ptrCast(buf), @ptrCast(&addrs[i].addr), addr_len);
+        buf += addr_len;
+    }
+    h.h_addr_list.?[ucnt] = null;
+
+    h.h_name = @ptrCast(buf);
+    h.h_aliases.?[0] = h.h_name;
+    _ = c.strcpy(buf, @ptrCast(&canon));
+    buf += c.strlen(@ptrCast(buf)) + 1;
+
+    if (c.strcmp(h.h_name orelse "", name) != 0) {
+        h.h_aliases.?[1] = @ptrCast(buf);
+        _ = c.strcpy(buf, name);
+        buf += c.strlen(@ptrCast(buf)) + 1;
+    } else {
+        h.h_aliases.?[1] = null;
+    }
+    h.h_aliases.?[2] = null;
+    res.* = h;
+    return 0;
+}
+fn gethostbyaddr_r_impl(a: *const anyopaque, l: linux.socklen_t, af: c_int, h: *hostent, buf_ptr: [*]u8, buflen: usize, res: *?*hostent, err: *c_int) callconv(.c) c_int {
+    const AF_INET: c_int = 2;
+    const AF_INET6: c_int = 10;
+    const HOST_NOT_FOUND: c_int = 1;
+    const TRY_AGAIN: c_int = 2;
+    const NO_RECOVERY: c_int = 3;
+    const ERANGE: c_int = 34;
+    const EAGAIN: c_int = 11;
+    const EBADMSG: c_int = 74;
+    const EINVAL: c_int = 22;
+    const ptr_size = @sizeOf(*anyopaque);
+    const ul: usize = @intCast(l);
+
+    res.* = null;
+
+    // Build sockaddr for getnameinfo
+    var sa_buf: [28]u8 align(4) = [1]u8{0} ** 28;
+    var sa_len: linux.socklen_t = undefined;
+    if (af == AF_INET6 and l == 16) {
+        const sin6: *linux.sockaddr.in6 = @alignCast(@ptrCast(&sa_buf));
+        sin6.family = .inet6;
+        _ = c.memcpy(@ptrCast(&sin6.addr), a, 16);
+        sa_len = @sizeOf(linux.sockaddr.in6);
+    } else if (af == AF_INET and l == 4) {
+        const sin: *linux.sockaddr.in = @alignCast(@ptrCast(&sa_buf));
+        sin.family = .inet;
+        _ = c.memcpy(@ptrCast(&sin.addr), a, 4);
+        sa_len = @sizeOf(linux.sockaddr.in);
+    } else {
+        err.* = NO_RECOVERY;
+        return EINVAL;
+    }
+
+    // Align buffer
+    var i = @intFromPtr(buf_ptr) & (ptr_size - 1);
+    if (i == 0) i = ptr_size;
+    if (buflen <= 5 * ptr_size - i + ul) return ERANGE;
+    var buf = buf_ptr + (ptr_size - i);
+    const remaining = buflen - (5 * ptr_size - i + ul);
+
+    h.h_addr_list = @ptrCast(@alignCast(buf));
+    buf += 2 * ptr_size;
+    h.h_aliases = @ptrCast(@alignCast(buf));
+    buf += 2 * ptr_size;
+
+    h.h_addr_list.?[0] = @ptrCast(buf);
+    _ = c.memcpy(@ptrCast(buf), a, ul);
+    buf += ul;
+    h.h_addr_list.?[1] = null;
+    h.h_aliases.?[0] = @ptrCast(buf);
+    h.h_aliases.?[1] = null;
+
+    switch (c.getnameinfo_fn(@ptrCast(&sa_buf), sa_len, @ptrCast(buf), @intCast(remaining), null, 0, 0)) {
+        -3 => { err.* = TRY_AGAIN; return EAGAIN; }, // EAI_AGAIN
+        -12 => return ERANGE, // EAI_OVERFLOW
+        -4 => { err.* = NO_RECOVERY; return EBADMSG; }, // EAI_FAIL
+        -11 => { err.* = NO_RECOVERY; return @intFromEnum(std.c._errno().*); }, // EAI_SYSTEM
+        0 => {},
+        else => { err.* = HOST_NOT_FOUND; return EBADMSG; },
+    }
+
+    h.h_addrtype = af;
+    h.h_length = @intCast(l);
+    h.h_name = h.h_aliases.?[0];
+    res.* = h;
+    return 0;
+}
+fn getservbyname_r_impl(name: [*:0]const u8, prots: ?[*:0]const u8, se: *servent, buf_ptr: [*]u8, buflen: usize, res: *?*servent) callconv(.c) c_int {
+    const IPPROTO_TCP: c_int = 6;
+    const IPPROTO_UDP: c_int = 17;
+    const ENOENT: c_int = 2;
+    const EINVAL: c_int = 22;
+    const ERANGE: c_int = 34;
+    const ptr_size = @sizeOf(*anyopaque);
+
+    res.* = null;
+
+    // Reject numeric port strings
+    var end: [*:0]u8 = undefined;
+    _ = c.strtoul(name, @ptrCast(&end), 10);
+    if (end[0] == 0) return ENOENT;
+
+    // Align buffer
+    const align_off = (ptr_size - (@intFromPtr(buf_ptr) & (ptr_size - 1))) & (ptr_size - 1);
+    if (buflen < 2 * ptr_size + align_off) return ERANGE;
+
+    var proto: c_int = 0;
+    if (prots) |p| {
+        if (c.strcmp(p, "tcp") == 0) {
+            proto = IPPROTO_TCP;
+        } else if (c.strcmp(p, "udp") == 0) {
+            proto = IPPROTO_UDP;
+        } else return EINVAL;
+    }
+
+    var servs: [MAXSERVS]service = undefined;
+    const cnt = lookup_serv_impl(&servs, name, proto, 0, 0);
+    if (cnt < 0) return ENOENT;
+
+    se.s_name = @ptrCast(@constCast(name));
+    se.s_aliases = @ptrCast(@alignCast(buf_ptr + align_off));
+    se.s_aliases.?[0] = se.s_name;
+    se.s_aliases.?[1] = null;
+    se.s_port = @intCast(c.htons(servs[0].port));
+    se.s_proto = if (servs[0].proto == IPPROTO_TCP) @ptrCast(@constCast("tcp")) else @ptrCast(@constCast("udp"));
+
+    res.* = se;
+    return 0;
+}
+fn getservbyport_r_impl(port: c_int, prots: ?[*:0]const u8, se: *servent, buf_ptr: [*]u8, buflen: usize, res: *?*servent) callconv(.c) c_int {
+    const ERANGE: c_int = 34;
+    const EINVAL: c_int = 22;
+    const ENOENT: c_int = 2;
+    const NI_DGRAM: c_int = 16;
+    const ptr_size = @sizeOf(*anyopaque);
+
+    if (prots == null) {
+        var r = getservbyport_r_impl(port, "tcp", se, buf_ptr, buflen, res);
+        if (r != 0) r = getservbyport_r_impl(port, "udp", se, buf_ptr, buflen, res);
+        return r;
+    }
+    res.* = null;
+
+    // Align buffer
+    var i = @intFromPtr(buf_ptr) & (ptr_size - 1);
+    if (i == 0) i = ptr_size;
+    if (buflen <= 3 * ptr_size - i) return ERANGE;
+    const buf = buf_ptr + (ptr_size - i);
+    const remaining = buflen - (ptr_size - i);
+
+    if (c.strcmp(prots.?, "tcp") != 0 and c.strcmp(prots.?, "udp") != 0) return EINVAL;
+
+    se.s_port = port;
+    se.s_proto = @ptrCast(@constCast(prots.?));
+    se.s_aliases = @ptrCast(@alignCast(buf));
+    const name_buf: [*]u8 = buf + 2 * ptr_size;
+    const name_buflen: linux.socklen_t = @intCast(remaining - 2 * ptr_size);
+
+    var sin: linux.sockaddr.in = std.mem.zeroes(linux.sockaddr.in);
+    sin.family = .inet;
+    sin.port = @bitCast(@as(u16, @intCast(port & 0xffff)));
+
+    const dgram_flag: c_int = if (c.strcmp(prots.?, "udp") == 0) NI_DGRAM else 0;
+    switch (c.getnameinfo_fn(@ptrCast(&sin), @sizeOf(linux.sockaddr.in), null, 0, @ptrCast(name_buf), name_buflen, dgram_flag)) {
+        -10, -11 => return @intFromEnum(linux.E.NOMEM), // EAI_MEMORY, EAI_SYSTEM
+        -12 => return ERANGE, // EAI_OVERFLOW
+        0 => {},
+        else => return ENOENT,
+    }
+
+    // Check if result is numeric (not a real service name)
+    if (c.strtol(@ptrCast(name_buf), null, 10) == c.ntohs(@intCast(port & 0xffff))) return ENOENT;
+
+    se.s_aliases.?[0] = @ptrCast(name_buf);
+    se.s_aliases.?[1] = null;
+    se.s_name = @ptrCast(name_buf);
+    res.* = se;
+    return 0;
+}
 fn if_nameindex_impl() callconv(.c) ?*if_nameindex_t { return null; }
 fn getifaddrs_impl(_: *?*anyopaque) callconv(.c) c_int { return -1; }
-fn freeifaddrs_impl(_: ?*anyopaque) callconv(.c) void {}
+fn freeifaddrs_impl(p_init: ?*anyopaque) callconv(.c) void {
+    var p: ?[*]u8 = @ptrCast(p_init);
+    while (p) |ptr| {
+        // First field of ifaddrs is ifa_next pointer
+        const next: *?[*]u8 = @alignCast(@ptrCast(ptr));
+        const n = next.*;
+        c.free(@ptrCast(ptr));
+        p = n;
+    }
+}

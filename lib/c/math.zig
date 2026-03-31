@@ -60,10 +60,19 @@ comptime {
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
         symbol(&hypot, "hypot");
+        symbol(&ldexp_, "ldexp");
+        symbol(&ldexpf_, "ldexpf");
+        symbol(&ldexpl_, "ldexpl");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&scalbln_, "scalbln");
+        symbol(&scalblnf_, "scalblnf");
+        symbol(&scalblnl_, "scalblnl");
+        symbol(&scalbn_, "scalbn");
+        symbol(&scalbnf_, "scalbnf");
+        symbol(&scalbnl_, "scalbnl");
         symbol(&tanh, "tanh");
     }
 
@@ -169,6 +178,23 @@ fn isnanf(x: f32) callconv(.c) c_int {
 
 fn isnanl(x: c_longdouble) callconv(.c) c_int {
     return if (math.isNan(x)) 1 else 0;
+}
+
+fn ldexp_(x: f64, n: c_int) callconv(.c) f64 {
+    return math.ldexp(x, n);
+}
+
+fn ldexpf_(x: f32, n: c_int) callconv(.c) f32 {
+    return math.ldexp(x, n);
+}
+
+fn ldexpl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
+    return math.ldexp(x, n);
+}
+
+test "ldexp" {
+    try expectEqual(@as(f64, 48.0), ldexp_(12.0, 2));
+    try expectEqual(@as(f32, 48.0), ldexpf_(12.0, 2));
 }
 
 fn modfGeneric(comptime T: type, x: T, iptr: *T) T {
@@ -338,6 +364,50 @@ test "rint" {
     // Exact half rounds to nearest even (banker's rounding)
     try expectEqual(@as(f64, 2.0), rint(2.5));
     try expectEqual(@as(f64, 4.0), rint(3.5));
+}
+
+fn scalbn_(x: f64, n: c_int) callconv(.c) f64 {
+    return math.scalbn(x, n);
+}
+
+fn scalbnf_(x: f32, n: c_int) callconv(.c) f32 {
+    return math.scalbn(x, n);
+}
+
+fn scalbnl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
+    return math.scalbn(x, n);
+}
+
+test "scalbn" {
+    try expectEqual(@as(f64, 48.0), scalbn_(12.0, 2));
+    try expectEqual(@as(f32, 48.0), scalbnf_(12.0, 2));
+}
+
+fn scalblnGeneric(comptime T: type, x: T, n: c_long) T {
+    const clamped: c_int = if (n > math.maxInt(c_int))
+        math.maxInt(c_int)
+    else if (n < math.minInt(c_int))
+        math.minInt(c_int)
+    else
+        @intCast(n);
+    return math.scalbn(x, clamped);
+}
+
+fn scalbln_(x: f64, n: c_long) callconv(.c) f64 {
+    return scalblnGeneric(f64, x, n);
+}
+
+fn scalblnf_(x: f32, n: c_long) callconv(.c) f32 {
+    return scalblnGeneric(f32, x, n);
+}
+
+fn scalblnl_(x: c_longdouble, n: c_long) callconv(.c) c_longdouble {
+    return scalblnGeneric(c_longdouble, x, n);
+}
+
+test "scalbln" {
+    try expectEqual(@as(f64, 48.0), scalbln_(12.0, 2));
+    try expectEqual(@as(f32, 48.0), scalblnf_(12.0, 2));
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

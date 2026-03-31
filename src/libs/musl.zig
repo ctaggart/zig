@@ -1616,9 +1616,9 @@ const src_files = [_][]const u8{
     //"musl/src/thread/pthread_cond_wait.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_create.c",
     "musl/src/thread/pthread_detach.c",
-    "musl/src/thread/pthread_equal.c",
+    //"musl/src/thread/pthread_equal.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_getattr_np.c",
-    "musl/src/thread/pthread_getconcurrency.c",
+    //"musl/src/thread/pthread_getconcurrency.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_getcpuclockid.c",
     "musl/src/thread/pthread_getname_np.c",
     "musl/src/thread/pthread_getschedparam.c",
@@ -1638,9 +1638,9 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_mutex_init.c",
     //"musl/src/thread/pthread_mutex_lock.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_mutex_setprioceiling.c",
-    "musl/src/thread/pthread_mutex_timedlock.c",
-    "musl/src/thread/pthread_mutex_trylock.c",
-    "musl/src/thread/pthread_mutex_unlock.c",
+    //"musl/src/thread/pthread_mutex_timedlock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_mutex_trylock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_mutex_unlock.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_once.c",
     "musl/src/thread/pthread_rwlockattr_destroy.c",
     "musl/src/thread/pthread_rwlockattr_init.c",
@@ -1658,17 +1658,17 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_setattr_default_np.c",
     "musl/src/thread/pthread_setcancelstate.c",
     "musl/src/thread/pthread_setcanceltype.c",
-    "musl/src/thread/pthread_setconcurrency.c",
+    //"musl/src/thread/pthread_setconcurrency.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_setname_np.c",
     "musl/src/thread/pthread_setschedparam.c",
     "musl/src/thread/pthread_setschedprio.c",
     "musl/src/thread/pthread_setspecific.c",
     "musl/src/thread/pthread_sigmask.c",
-    "musl/src/thread/pthread_spin_destroy.c",
-    "musl/src/thread/pthread_spin_init.c",
-    "musl/src/thread/pthread_spin_lock.c",
-    "musl/src/thread/pthread_spin_trylock.c",
-    "musl/src/thread/pthread_spin_unlock.c",
+    //"musl/src/thread/pthread_spin_destroy.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_spin_init.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_spin_lock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_spin_trylock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_spin_unlock.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_testcancel.c",
     "musl/src/thread/riscv32/clone.s",
     "musl/src/thread/riscv32/__set_thread_area.s",
@@ -1700,7 +1700,7 @@ const src_files = [_][]const u8{
     "musl/src/thread/thrd_exit.c",
     "musl/src/thread/thrd_join.c",
     "musl/src/thread/thrd_sleep.c",
-    "musl/src/thread/thrd_yield.c",
+    //"musl/src/thread/thrd_yield.c", // migrated to lib/c/thread.zig
     "musl/src/thread/__timedwait.c",
     //"musl/src/thread/tls.c", // empty file
     "musl/src/thread/__tls_get_addr.c",

@@ -59,7 +59,16 @@ comptime {
         symbol(&cosh, "cosh");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&frexp_, "frexp");
+        symbol(&frexpf_, "frexpf");
+        symbol(&frexpl, "frexpl");
         symbol(&hypot, "hypot");
+        symbol(&ilogb_, "ilogb");
+        symbol(&ilogbf_, "ilogbf");
+        symbol(&ilogbl_, "ilogbl");
+        symbol(&logb_, "logb");
+        symbol(&logbf_, "logbf");
+        symbol(&logbl, "logbl");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
@@ -338,6 +347,83 @@ test "rint" {
     // Exact half rounds to nearest even (banker's rounding)
     try expectEqual(@as(f64, 2.0), rint(2.5));
     try expectEqual(@as(f64, 4.0), rint(3.5));
+}
+
+fn frexpGeneric(comptime T: type, x: T, e: *c_int) T {
+    const result = math.frexp(x);
+    e.* = result.exponent;
+    return result.significand;
+}
+
+fn frexp_(x: f64, e: *c_int) callconv(.c) f64 {
+    return frexpGeneric(f64, x, e);
+}
+
+fn frexpf_(x: f32, e: *c_int) callconv(.c) f32 {
+    return frexpGeneric(f32, x, e);
+}
+
+fn frexpl(x: c_longdouble, e: *c_int) callconv(.c) c_longdouble {
+    return frexpGeneric(c_longdouble, x, e);
+}
+
+fn testFrexp(comptime T: type, frexpFn: anytype) !void {
+    var e: c_int = undefined;
+    const r = frexpFn(@as(T, 12.0), &e);
+    try expectEqual(@as(c_int, 4), e);
+    try expectEqual(@as(T, 0.75), r);
+    _ = frexpFn(@as(T, 0.0), &e);
+    try expectEqual(@as(c_int, 0), e);
+}
+
+test "frexp" {
+    try testFrexp(f32, frexpf_);
+    try testFrexp(f64, frexp_);
+    try testFrexp(c_longdouble, frexpl);
+}
+
+fn ilogb_(x: f64) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ilogbf_(x: f32) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ilogbl_(x: c_longdouble) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+test "ilogb" {
+    try expectEqual(@as(c_int, 3), ilogb_(12.0));
+    try expectEqual(@as(c_int, 3), ilogbf_(12.0));
+    try expectEqual(@as(c_int, 3), ilogbl_(12.0));
+}
+
+fn logbGeneric(comptime T: type, x: T) T {
+    if (!math.isFinite(x)) return x * x;
+    if (x == 0) return -1.0 / (x * x);
+    return @floatFromInt(math.ilogb(x));
+}
+
+fn logb_(x: f64) callconv(.c) f64 {
+    return logbGeneric(f64, x);
+}
+
+fn logbf_(x: f32) callconv(.c) f32 {
+    return logbGeneric(f32, x);
+}
+
+fn logbl(x: c_longdouble) callconv(.c) c_longdouble {
+    return logbGeneric(c_longdouble, x);
+}
+
+test "logb" {
+    try expectEqual(@as(f64, 3.0), logb_(12.0));
+    try expectEqual(@as(f32, 3.0), logbf_(12.0));
+    try expect(math.isPositiveInf(logb_(math.inf(f64))));
+    try expect(math.isNan(logb_(math.nan(f64))));
+    try expect(math.isNegativeInf(logb_(0.0)));
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

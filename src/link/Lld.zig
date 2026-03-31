@@ -1183,6 +1183,13 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             // libunwind dep
             if (comp.config.link_libunwind) {
                 try argv.append(try comp.libunwind_static_lib.?.full_object_path.toString(arena));
+                // Prevent libunwind's _Unwind_* symbols from being globally
+                // visible. Without this, the static libunwind symbols can
+                // shadow libgcc_s.so's versions, breaking C++ exception
+                // handling in mixed C++/Zig binaries linked with `zig cc`.
+                if (is_exe_or_dyn_lib) {
+                    try argv.append("--exclude-libs=libunwind.a");
+                }
             }
 
             // libc dep

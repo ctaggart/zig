@@ -61,6 +61,12 @@ comptime {
         symbol(&exp10f, "exp10f");
         symbol(&fdim, "fdim");
         symbol(&hypot, "hypot");
+        symbol(&llround_, "llround");
+        symbol(&llroundf_, "llroundf");
+        symbol(&llroundl_, "llroundl");
+        symbol(&lround_, "lround");
+        symbol(&lroundf_, "lroundf");
+        symbol(&lroundl_, "lroundl");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
@@ -352,6 +358,42 @@ test "rint" {
     // Exact half rounds to nearest even (banker's rounding)
     try expectEqual(@as(f64, 2.0), rint(2.5));
     try expectEqual(@as(f64, 4.0), rint(3.5));
+}
+
+fn lround_(x: f64) callconv(.c) c_long {
+    return @intFromFloat(@round(x));
+}
+
+fn lroundf_(x: f32) callconv(.c) c_long {
+    return @intFromFloat(@round(x));
+}
+
+fn lroundl_(x: c_longdouble) callconv(.c) c_long {
+    return @intFromFloat(@round(x));
+}
+
+fn llround_(x: f64) callconv(.c) c_longlong {
+    return @intFromFloat(@round(x));
+}
+
+fn llroundf_(x: f32) callconv(.c) c_longlong {
+    return @intFromFloat(@round(x));
+}
+
+fn llroundl_(x: c_longdouble) callconv(.c) c_longlong {
+    return @intFromFloat(@round(x));
+}
+
+test "lround" {
+    try expectEqual(@as(c_long, 3), lround_(2.5));
+    try expectEqual(@as(c_long, -3), lround_(-2.5));
+    try expectEqual(@as(c_long, 3), lroundf_(2.5));
+}
+
+test "llround" {
+    try expectEqual(@as(c_longlong, 3), llround_(2.5));
+    try expectEqual(@as(c_longlong, -3), llround_(-2.5));
+    try expectEqual(@as(c_longlong, 3), llroundf_(2.5));
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

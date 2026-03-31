@@ -1619,13 +1619,13 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_equal.c",
     "musl/src/thread/pthread_getattr_np.c",
     "musl/src/thread/pthread_getconcurrency.c",
-    "musl/src/thread/pthread_getcpuclockid.c",
+    //"musl/src/thread/pthread_getcpuclockid.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_getname_np.c",
     "musl/src/thread/pthread_getschedparam.c",
     "musl/src/thread/pthread_getspecific.c",
     "musl/src/thread/pthread_join.c",
     "musl/src/thread/pthread_key_create.c",
-    "musl/src/thread/pthread_kill.c",
+    //"musl/src/thread/pthread_kill.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_mutexattr_destroy.c",
     "musl/src/thread/pthread_mutexattr_init.c",
     "musl/src/thread/pthread_mutexattr_setprotocol.c",
@@ -1661,9 +1661,9 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_setconcurrency.c",
     "musl/src/thread/pthread_setname_np.c",
     "musl/src/thread/pthread_setschedparam.c",
-    "musl/src/thread/pthread_setschedprio.c",
+    //"musl/src/thread/pthread_setschedprio.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_setspecific.c",
-    "musl/src/thread/pthread_sigmask.c",
+    //"musl/src/thread/pthread_sigmask.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_spin_destroy.c",
     "musl/src/thread/pthread_spin_init.c",
     "musl/src/thread/pthread_spin_lock.c",
@@ -1696,10 +1696,10 @@ const src_files = [_][]const u8{
     "musl/src/thread/synccall.c",
     "musl/src/thread/__syscall_cp.c",
     "musl/src/thread/syscall_cp.c",
-    "musl/src/thread/thrd_create.c",
-    "musl/src/thread/thrd_exit.c",
-    "musl/src/thread/thrd_join.c",
-    "musl/src/thread/thrd_sleep.c",
+    //"musl/src/thread/thrd_create.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/thrd_exit.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/thrd_join.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/thrd_sleep.c", // migrated to lib/c/thread.zig
     "musl/src/thread/thrd_yield.c",
     "musl/src/thread/__timedwait.c",
     "musl/src/thread/tls.c",

@@ -59,11 +59,18 @@ comptime {
         symbol(&cosh, "cosh");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&fdim_, "fdim");
+        symbol(&fdimf, "fdimf");
+        symbol(&fdiml, "fdiml");
+        symbol(&finite_, "finite");
+        symbol(&finitef, "finitef");
         symbol(&hypot, "hypot");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&significand_, "significand");
+        symbol(&significandf, "significandf");
         symbol(&tanh, "tanh");
     }
 
@@ -338,6 +345,64 @@ test "rint" {
     // Exact half rounds to nearest even (banker's rounding)
     try expectEqual(@as(f64, 2.0), rint(2.5));
     try expectEqual(@as(f64, 4.0), rint(3.5));
+}
+
+fn fdimGeneric(comptime T: type, x: T, y: T) T {
+    if (math.isNan(x)) return math.nan(T);
+    if (math.isNan(y)) return math.nan(T);
+    return if (x > y) x - y else 0;
+}
+
+fn fdim_(x: f64, y: f64) callconv(.c) f64 {
+    return fdimGeneric(f64, x, y);
+}
+
+fn fdimf(x: f32, y: f32) callconv(.c) f32 {
+    return fdimGeneric(f32, x, y);
+}
+
+fn fdiml(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return fdimGeneric(c_longdouble, x, y);
+}
+
+test "fdim" {
+    try expectEqual(@as(f32, 3.0), fdimf(5.0, 2.0));
+    try expectEqual(@as(f32, 0.0), fdimf(2.0, 5.0));
+    try expect(math.isNan(fdimf(math.nan(f32), 1.0)));
+    try expect(math.isNan(fdimf(1.0, math.nan(f32))));
+    try expectEqual(@as(f64, 3.0), fdim_(5.0, 2.0));
+    try expectEqual(@as(f64, 0.0), fdim_(2.0, 5.0));
+    try expect(math.isNan(fdim_(math.nan(f64), 1.0)));
+}
+
+fn finite_(x: f64) callconv(.c) c_int {
+    return if (math.isFinite(x)) 1 else 0;
+}
+
+fn finitef(x: f32) callconv(.c) c_int {
+    return if (math.isFinite(x)) 1 else 0;
+}
+
+test "finite" {
+    try expectEqual(@as(c_int, 1), finite_(1.0));
+    try expectEqual(@as(c_int, 0), finite_(math.inf(f64)));
+    try expectEqual(@as(c_int, 0), finite_(-math.inf(f64)));
+    try expectEqual(@as(c_int, 0), finite_(math.nan(f64)));
+    try expectEqual(@as(c_int, 1), finitef(1.0));
+    try expectEqual(@as(c_int, 0), finitef(math.inf(f32)));
+}
+
+fn significand_(x: f64) callconv(.c) f64 {
+    return math.scalbn(x, -math.ilogb(x));
+}
+
+fn significandf(x: f32) callconv(.c) f32 {
+    return math.scalbn(x, -math.ilogb(x));
+}
+
+test "significand" {
+    try expectEqual(@as(f64, 1.5), significand_(12.0));
+    try expectEqual(@as(f32, 1.5), significandf(12.0));
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

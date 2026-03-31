@@ -830,11 +830,7 @@ const src_files = [_][]const u8{
     "musl/src/math/expm1l.c",
     "musl/src/math/__expo2.c",
     "musl/src/math/__expo2f.c",
-    "musl/src/math/fdim.c",
-    "musl/src/math/fdimf.c",
-    "musl/src/math/fdiml.c",
-    "musl/src/math/finite.c",
-    "musl/src/math/finitef.c",
+
     "musl/src/math/fma.c",
     "musl/src/math/fmaf.c",
     "musl/src/math/fmal.c",
@@ -991,8 +987,7 @@ const src_files = [_][]const u8{
     "musl/src/math/__signbitf.c",
     "musl/src/math/__signbitl.c",
     "musl/src/math/signgam.c",
-    "musl/src/math/significand.c",
-    "musl/src/math/significandf.c",
+
     "musl/src/math/__sin.c",
     "musl/src/math/sincosl.c",
     "musl/src/math/__sindf.c",

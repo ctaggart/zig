@@ -60,17 +60,34 @@ comptime {
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
         symbol(&hypot, "hypot");
+        symbol(&llrint_, "llrint");
+        symbol(&llrintf_, "llrintf");
+        symbol(&llrintl_, "llrintl");
+        symbol(&llround_, "llround");
+        symbol(&llroundf_, "llroundf");
+        symbol(&llroundl_, "llroundl");
+        symbol(&lrint_, "lrint");
+        symbol(&lrintf_, "lrintf");
+        symbol(&lrintl_, "lrintl");
+        symbol(&lround_, "lround");
+        symbol(&lroundf_, "lroundf");
+        symbol(&lroundl_, "lroundl");
         symbol(&modf, "modf");
+        symbol(&nearbyintl_, "nearbyintl");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&rintl_, "rintl");
         symbol(&tanh, "tanh");
     }
 
     if (builtin.target.isMuslLibC()) {
         symbol(&copysign, "copysign");
         symbol(&copysignf, "copysignf");
+        symbol(&nearbyint_, "nearbyint");
+        symbol(&nearbyintf_, "nearbyintf");
         symbol(&rint, "rint");
+        symbol(&rintf_, "rintf");
     }
 
     symbol(&copysignl, "copysignl");
@@ -169,6 +186,78 @@ fn isnanf(x: f32) callconv(.c) c_int {
 
 fn isnanl(x: c_longdouble) callconv(.c) c_int {
     return if (math.isNan(x)) 1 else 0;
+}
+
+// Float-to-int conversion with overflow handling matching C/x86 behavior.
+// Returns minInt on overflow/NaN (like x86 CVTSD2SI).
+fn intFromFloat(comptime I: type, x: anytype) I {
+    const F = @TypeOf(x);
+    if (math.isNan(x) or !math.isFinite(x)) return math.minInt(I);
+    const upper: F = @floatFromInt(@as(comptime_int, math.maxInt(I)) + 1);
+    const lower: F = @floatFromInt(math.minInt(I));
+    if (x >= upper or x < lower) return math.minInt(I);
+    return @intFromFloat(x);
+}
+
+fn llrint_(x: f64) callconv(.c) c_longlong {
+    return intFromFloat(c_longlong, rint(x));
+}
+
+fn llrintf_(x: f32) callconv(.c) c_longlong {
+    return intFromFloat(c_longlong, rintf_(x));
+}
+
+fn llrintl_(x: c_longdouble) callconv(.c) c_longlong {
+    return intFromFloat(c_longlong, rintl_(x));
+}
+
+fn llround_(x: f64) callconv(.c) c_longlong {
+    return intFromFloat(c_longlong, @round(x));
+}
+
+fn llroundf_(x: f32) callconv(.c) c_longlong {
+    return intFromFloat(c_longlong, @round(x));
+}
+
+fn llroundl_(x: c_longdouble) callconv(.c) c_longlong {
+    return intFromFloat(c_longlong, @round(x));
+}
+
+fn lrint_(x: f64) callconv(.c) c_long {
+    return intFromFloat(c_long, rint(x));
+}
+
+fn lrintf_(x: f32) callconv(.c) c_long {
+    return intFromFloat(c_long, rintf_(x));
+}
+
+fn lrintl_(x: c_longdouble) callconv(.c) c_long {
+    return intFromFloat(c_long, rintl_(x));
+}
+
+fn lround_(x: f64) callconv(.c) c_long {
+    return intFromFloat(c_long, @round(x));
+}
+
+fn lroundf_(x: f32) callconv(.c) c_long {
+    return intFromFloat(c_long, @round(x));
+}
+
+fn lroundl_(x: c_longdouble) callconv(.c) c_long {
+    return intFromFloat(c_long, @round(x));
+}
+
+test "lrint" {
+    try expectEqual(@as(c_long, 3), lrint_(@as(f64, 2.5)));
+    try expectEqual(@as(c_long, 4), lrint_(@as(f64, 3.5)));
+    try expectEqual(@as(c_long, -2), lrint_(@as(f64, -2.5)));
+    try expectEqual(@as(c_long, 0), lrint_(@as(f64, 0.0)));
+}
+
+test "lround" {
+    try expectEqual(@as(c_long, 3), lround_(@as(f64, 2.5)));
+    try expectEqual(@as(c_long, 4), lround_(@as(f64, 3.5)));
+    try expectEqual(@as(c_long, -3), lround_(@as(f64, -2.5)));
 }
 
 fn modfGeneric(comptime T: type, x: T, iptr: *T) T {
@@ -338,6 +427,44 @@ test "rint" {
     // Exact half rounds to nearest even (banker's rounding)
     try expectEqual(@as(f64, 2.0), rint(2.5));
     try expectEqual(@as(f64, 4.0), rint(3.5));
+}
+
+fn rintGeneric(comptime T: type, x: T) T {
+    const toint: T = 1.0 / math.floatEps(T);
+    if (@abs(x) >= toint) return x;
+    const s = math.signbit(x);
+    const y: T = if (s) x - toint + toint else x + toint - toint;
+    if (y == 0) return if (s) -@as(T, 0.0) else @as(T, 0.0);
+    return y;
+}
+
+fn rintf_(x: f32) callconv(.c) f32 {
+    return rintGeneric(f32, x);
+}
+
+fn rintl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return rintGeneric(c_longdouble, x);
+}
+
+test "rintf" {
+    try expectEqual(@as(f32, 42.0), rintf_(@as(f32, 42.2)));
+    try expectEqual(@as(f32, 42.0), rintf_(@as(f32, 41.8)));
+    try expectEqual(@as(f32, 2.0), rintf_(@as(f32, 2.5)));
+    try expectEqual(@as(f32, 4.0), rintf_(@as(f32, 3.5)));
+    try expect(math.isNan(rintf_(math.nan(f32))));
+    try expect(math.isPositiveInf(rintf_(math.inf(f32))));
+}
+
+fn nearbyint_(x: f64) callconv(.c) f64 {
+    return rint(x);
+}
+
+fn nearbyintf_(x: f32) callconv(.c) f32 {
+    return rintf_(x);
+}
+
+fn nearbyintl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return rintl_(x);
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

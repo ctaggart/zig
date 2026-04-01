@@ -64,6 +64,11 @@ comptime {
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&remainder64, "remainder");
+        symbol(&remainder64, "drem");
+        symbol(&remainder32, "remainderf");
+        symbol(&remainder32, "dremf");
+        symbol(&remainderl_, "remainderl");
         symbol(&tanh, "tanh");
     }
 
@@ -74,6 +79,34 @@ comptime {
     }
 
     symbol(&copysignl, "copysignl");
+}
+
+extern fn remquo(f64, f64, *c_int) callconv(.c) f64;
+extern fn remquof(f32, f32, *c_int) callconv(.c) f32;
+extern fn remquol(c_longdouble, c_longdouble, *c_int) callconv(.c) c_longdouble;
+
+fn remainder64(x: f64, y: f64) callconv(.c) f64 {
+    var q: c_int = undefined;
+    return remquo(x, y, &q);
+}
+
+fn remainder32(x: f32, y: f32) callconv(.c) f32 {
+    var q: c_int = undefined;
+    return remquof(x, y, &q);
+}
+
+fn remainderl_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    var q: c_int = undefined;
+    if (@typeInfo(c_longdouble).float.bits == 64) return @floatCast(remquo(@floatCast(x), @floatCast(y), &q));
+    return remquol(x, y, &q);
+}
+
+test "remainder" {
+    // Basic IEEE 754 remainder: x - round_to_nearest_even(x/y) * y
+    try expectEqual(@as(f64, -1.0), remainder64(7.0, 4.0));
+    try expectEqual(@as(f64, 2.0), remainder64(10.0, 4.0));
+    try expectEqual(@as(f32, -1.0), remainder32(7.0, 4.0));
+    try expectEqual(@as(f32, 2.0), remainder32(10.0, 4.0));
 }
 
 fn acos(x: f64) callconv(.c) f64 {

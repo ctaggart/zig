@@ -59,7 +59,11 @@ comptime {
         symbol(&cosh, "cosh");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&expm1_, "expm1");
+        symbol(&expm1f_, "expm1f");
         symbol(&hypot, "hypot");
+        symbol(&log1p_, "log1p");
+        symbol(&log1pf_, "log1pf");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
@@ -147,6 +151,14 @@ fn exp10f(x: f32) callconv(.c) f32 {
     return math.pow(f32, 10.0, x);
 }
 
+fn expm1_(x: f64) callconv(.c) f64 {
+    return math.expm1(x);
+}
+
+fn expm1f_(x: f32) callconv(.c) f32 {
+    return math.expm1(x);
+}
+
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
     return math.hypot(x, y);
 }
@@ -169,6 +181,14 @@ fn isnanf(x: f32) callconv(.c) c_int {
 
 fn isnanl(x: c_longdouble) callconv(.c) c_int {
     return if (math.isNan(x)) 1 else 0;
+}
+
+fn log1p_(x: f64) callconv(.c) f64 {
+    return math.log1p(x);
+}
+
+fn log1pf_(x: f32) callconv(.c) f32 {
+    return math.log1p(x);
 }
 
 fn modfGeneric(comptime T: type, x: T, iptr: *T) T {

@@ -2,6 +2,8 @@ const builtin = @import("builtin");
 
 const std = @import("std");
 const math = std.math;
+const maxInt = std.math.maxInt;
+const minInt = std.math.minInt;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectApproxEqAbs = std.testing.expectApproxEqAbs;
@@ -59,11 +61,31 @@ comptime {
         symbol(&cosh, "cosh");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&frexp_, "frexp");
+        symbol(&frexpf_, "frexpf");
+        symbol(&frexpl_, "frexpl");
         symbol(&hypot, "hypot");
+        symbol(&ilogb_, "ilogb");
+        symbol(&ilogbf_, "ilogbf");
+        symbol(&ilogbl_, "ilogbl");
+        symbol(&ldexp_, "ldexp");
+        symbol(&ldexpf_, "ldexpf");
+        symbol(&ldexpl_, "ldexpl");
+        symbol(&logb_, "logb");
+        symbol(&logbf_, "logbf");
+        symbol(&logbl_, "logbl");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&scalbln_, "scalbln");
+        symbol(&scalblnf_, "scalblnf");
+        symbol(&scalblnl_, "scalblnl");
+        symbol(&scalbn_, "scalbn");
+        symbol(&scalbnf_, "scalbnf");
+        symbol(&scalbnl_, "scalbnl");
+        symbol(&significand_, "significand");
+        symbol(&significandf_, "significandf");
         symbol(&tanh, "tanh");
     }
 
@@ -145,6 +167,101 @@ fn exp10(x: f64) callconv(.c) f64 {
 
 fn exp10f(x: f32) callconv(.c) f32 {
     return math.pow(f32, 10.0, x);
+}
+
+fn frexp_(x: f64, e: *c_int) callconv(.c) f64 {
+    const r = math.frexp(x);
+    e.* = r.exponent;
+    return r.significand;
+}
+
+fn frexpf_(x: f32, e: *c_int) callconv(.c) f32 {
+    const r = math.frexp(x);
+    e.* = r.exponent;
+    return r.significand;
+}
+
+fn frexpl_(x: c_longdouble, e: *c_int) callconv(.c) c_longdouble {
+    const r = math.frexp(x);
+    e.* = r.exponent;
+    return r.significand;
+}
+
+test "frexp" {
+    var e: c_int = undefined;
+    try expectEqual(@as(f64, 0.75), frexp_(1.5, &e));
+    try expectEqual(@as(c_int, 1), e);
+    try expectEqual(@as(f64, 0.5), frexp_(1.0, &e));
+    try expectEqual(@as(c_int, 1), e);
+    try expectEqual(@as(f32, 0.75), frexpf_(1.5, &e));
+    try expectEqual(@as(c_int, 1), e);
+}
+
+fn ilogb_(x: f64) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ilogbf_(x: f32) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ilogbl_(x: c_longdouble) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+test "ilogb" {
+    try expectEqual(@as(c_int, 0), ilogb_(1.0));
+    try expectEqual(@as(c_int, 3), ilogb_(10.0));
+    try expectEqual(@as(c_int, 0), ilogbf_(1.0));
+    try expectEqual(@as(c_int, 3), ilogbf_(10.0));
+}
+
+fn ldexp_(x: f64, n: c_int) callconv(.c) f64 {
+    return math.ldexp(x, n);
+}
+
+fn ldexpf_(x: f32, n: c_int) callconv(.c) f32 {
+    return math.ldexp(x, n);
+}
+
+fn ldexpl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
+    return math.ldexp(x, n);
+}
+
+test "ldexp" {
+    try expectEqual(@as(f64, 8.0), ldexp_(1.0, 3));
+    try expectEqual(@as(f64, 0.5), ldexp_(1.0, -1));
+    try expectEqual(@as(f32, 8.0), ldexpf_(1.0, 3));
+}
+
+fn logbGeneric(comptime T: type, x: T) T {
+    if (math.isNan(x)) return x;
+    if (math.isInf(x)) return math.inf(T);
+    if (x == 0) {
+        return -1.0 / @as(T, 0.0);
+    }
+    return @floatFromInt(math.ilogb(x));
+}
+
+fn logb_(x: f64) callconv(.c) f64 {
+    return logbGeneric(f64, x);
+}
+
+fn logbf_(x: f32) callconv(.c) f32 {
+    return logbGeneric(f32, x);
+}
+
+fn logbl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return logbGeneric(c_longdouble, x);
+}
+
+test "logb" {
+    try expectEqual(@as(f64, 0.0), logb_(1.0));
+    try expectEqual(@as(f64, 3.0), logb_(10.0));
+    try expectEqual(math.inf(f64), logb_(math.inf(f64)));
+    try expect(math.isNan(logb_(math.nan(f64))));
+    try expectEqual(@as(f32, 0.0), logbf_(1.0));
+    try expectEqual(@as(f32, 3.0), logbf_(10.0));
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
@@ -338,6 +455,59 @@ test "rint" {
     // Exact half rounds to nearest even (banker's rounding)
     try expectEqual(@as(f64, 2.0), rint(2.5));
     try expectEqual(@as(f64, 4.0), rint(3.5));
+}
+
+fn scalbln_(x: f64, n: c_long) callconv(.c) f64 {
+    const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
+    return math.scalbn(x, ni);
+}
+
+fn scalblnf_(x: f32, n: c_long) callconv(.c) f32 {
+    const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
+    return math.scalbn(x, ni);
+}
+
+fn scalblnl_(x: c_longdouble, n: c_long) callconv(.c) c_longdouble {
+    const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
+    return math.scalbn(x, ni);
+}
+
+test "scalbln" {
+    try expectEqual(@as(f64, 8.0), scalbln_(1.0, 3));
+    try expectEqual(@as(f64, 0.5), scalbln_(1.0, -1));
+    try expectEqual(@as(f32, 8.0), scalblnf_(1.0, 3));
+}
+
+fn scalbn_(x: f64, n: c_int) callconv(.c) f64 {
+    return math.scalbn(x, n);
+}
+
+fn scalbnf_(x: f32, n: c_int) callconv(.c) f32 {
+    return math.scalbn(x, n);
+}
+
+fn scalbnl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
+    return math.scalbn(x, n);
+}
+
+test "scalbn" {
+    try expectEqual(@as(f64, 8.0), scalbn_(1.0, 3));
+    try expectEqual(@as(f64, 0.5), scalbn_(1.0, -1));
+    try expectEqual(@as(f32, 8.0), scalbnf_(1.0, 3));
+}
+
+fn significand_(x: f64) callconv(.c) f64 {
+    return math.scalbn(x, -math.ilogb(x));
+}
+
+fn significandf_(x: f32) callconv(.c) f32 {
+    return math.scalbn(x, -math.ilogb(x));
+}
+
+test "significand" {
+    try expectEqual(@as(f64, 1.5), significand_(3.0));
+    try expectEqual(@as(f64, 1.25), significand_(10.0));
+    try expectEqual(@as(f32, 1.5), significandf_(3.0));
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

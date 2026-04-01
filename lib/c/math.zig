@@ -49,10 +49,15 @@ comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&acos, "acos");
         symbol(&acosf, "acosf");
+        symbol(&acosh, "acosh");
         symbol(&acoshf, "acoshf");
         symbol(&asin, "asin");
+        symbol(&asinh, "asinh");
+        symbol(&asinhf, "asinhf");
         symbol(&atan, "atan");
         symbol(&atanf, "atanf");
+        symbol(&atanh, "atanh");
+        symbol(&atanhf, "atanhf");
         symbol(&atanl, "atanl");
         symbol(&cbrt, "cbrt");
         symbol(&cbrtf, "cbrtf");
@@ -64,6 +69,8 @@ comptime {
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&sinh, "sinh");
+        symbol(&sinhf, "sinhf");
         symbol(&tanh, "tanh");
     }
 
@@ -84,12 +91,24 @@ fn acosf(x: f32) callconv(.c) f32 {
     return math.acos(x);
 }
 
+fn acosh(x: f64) callconv(.c) f64 {
+    return math.acosh(x);
+}
+
 fn acoshf(x: f32) callconv(.c) f32 {
     return math.acosh(x);
 }
 
 fn asin(x: f64) callconv(.c) f64 {
     return math.asin(x);
+}
+
+fn asinh(x: f64) callconv(.c) f64 {
+    return math.asinh(x);
+}
+
+fn asinhf(x: f32) callconv(.c) f32 {
+    return math.asinh(x);
 }
 
 fn atan(x: f64) callconv(.c) f64 {
@@ -109,6 +128,14 @@ fn atanl(x: c_longdouble) callconv(.c) c_longdouble {
         128 => math.atan(@as(f128, @floatCast(x))),
         else => unreachable,
     };
+}
+
+fn atanh(x: f64) callconv(.c) f64 {
+    return math.atanh(x);
+}
+
+fn atanhf(x: f32) callconv(.c) f32 {
+    return math.atanh(x);
 }
 
 fn cbrt(x: f64) callconv(.c) f64 {
@@ -338,6 +365,14 @@ test "rint" {
     // Exact half rounds to nearest even (banker's rounding)
     try expectEqual(@as(f64, 2.0), rint(2.5));
     try expectEqual(@as(f64, 4.0), rint(3.5));
+}
+
+fn sinh(x: f64) callconv(.c) f64 {
+    return math.sinh(x);
+}
+
+fn sinhf(x: f32) callconv(.c) f32 {
+    return math.sinh(x);
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

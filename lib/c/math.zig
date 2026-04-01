@@ -59,18 +59,38 @@ comptime {
         symbol(&cosh, "cosh");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&fdim_, "fdim");
+        symbol(&fdimf_, "fdimf");
+        symbol(&fdiml_, "fdiml");
+        symbol(&finite_, "finite");
+        symbol(&finitef_, "finitef");
         symbol(&hypot, "hypot");
+        symbol(&ldexp_, "ldexp");
+        symbol(&ldexpf_, "ldexpf");
+        symbol(&ldexpl_, "ldexpl");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&scalbln_, "scalbln");
+        symbol(&scalblnf_, "scalblnf");
+        symbol(&scalblnl_, "scalblnl");
+        symbol(&scalbn_, "scalbn");
+        symbol(&scalbnf_, "scalbnf");
+        symbol(&scalbnl_, "scalbnl");
         symbol(&tanh, "tanh");
     }
 
     if (builtin.target.isMuslLibC()) {
         symbol(&copysign, "copysign");
         symbol(&copysignf, "copysignf");
+        symbol(&fpclassify_, "__fpclassify");
+        symbol(&fpclassifyf_, "__fpclassifyf");
+        symbol(&fpclassifyl_, "__fpclassifyl");
         symbol(&rint, "rint");
+        symbol(&signbit_, "__signbit");
+        symbol(&signbitf_, "__signbitf");
+        symbol(&signbitl_, "__signbitl");
     }
 
     symbol(&copysignl, "copysignl");
@@ -139,12 +159,100 @@ fn coshf(x: f32) callconv(.c) f32 {
     return math.cosh(x);
 }
 
+// FP classification constants matching musl math.h
+const FP_NAN: c_int = 0;
+const FP_INFINITE: c_int = 1;
+const FP_ZERO: c_int = 2;
+const FP_SUBNORMAL: c_int = 3;
+const FP_NORMAL: c_int = 4;
+
+fn fpclassifyGeneric(comptime T: type, x: T) c_int {
+    if (math.isNan(x)) return FP_NAN;
+    if (math.isInf(x)) return FP_INFINITE;
+    if (x == 0) return FP_ZERO;
+    if (!math.isNormal(x)) return FP_SUBNORMAL;
+    return FP_NORMAL;
+}
+
+fn fpclassify_(x: f64) callconv(.c) c_int {
+    return fpclassifyGeneric(f64, x);
+}
+
+fn fpclassifyf_(x: f32) callconv(.c) c_int {
+    return fpclassifyGeneric(f32, x);
+}
+
+fn fpclassifyl_(x: c_longdouble) callconv(.c) c_int {
+    return fpclassifyGeneric(c_longdouble, x);
+}
+
+test "fpclassify" {
+    try expectEqual(FP_ZERO, fpclassifyGeneric(f64, @as(f64, 0.0)));
+    try expectEqual(FP_ZERO, fpclassifyGeneric(f64, @as(f64, -0.0)));
+    try expectEqual(FP_NORMAL, fpclassifyGeneric(f64, @as(f64, 1.0)));
+    try expectEqual(FP_NORMAL, fpclassifyGeneric(f64, @as(f64, -1.0)));
+    try expectEqual(FP_INFINITE, fpclassifyGeneric(f64, math.inf(f64)));
+    try expectEqual(FP_INFINITE, fpclassifyGeneric(f64, -math.inf(f64)));
+    try expectEqual(FP_NAN, fpclassifyGeneric(f64, math.nan(f64)));
+    try expectEqual(FP_SUBNORMAL, fpclassifyGeneric(f64, math.floatTrueMin(f64)));
+    try expectEqual(FP_SUBNORMAL, fpclassifyGeneric(f64, -math.floatTrueMin(f64)));
+
+    try expectEqual(FP_ZERO, fpclassifyGeneric(f32, @as(f32, 0.0)));
+    try expectEqual(FP_NORMAL, fpclassifyGeneric(f32, @as(f32, 1.0)));
+    try expectEqual(FP_INFINITE, fpclassifyGeneric(f32, math.inf(f32)));
+    try expectEqual(FP_NAN, fpclassifyGeneric(f32, math.nan(f32)));
+    try expectEqual(FP_SUBNORMAL, fpclassifyGeneric(f32, math.floatTrueMin(f32)));
+}
+
 fn exp10(x: f64) callconv(.c) f64 {
     return math.pow(f64, 10.0, x);
 }
 
 fn exp10f(x: f32) callconv(.c) f32 {
     return math.pow(f32, 10.0, x);
+}
+
+fn fdimGeneric(comptime T: type, x: T, y: T) T {
+    if (math.isNan(x)) return x;
+    if (math.isNan(y)) return y;
+    return if (x > y) x - y else @as(T, 0.0);
+}
+
+fn fdim_(x: f64, y: f64) callconv(.c) f64 {
+    return fdimGeneric(f64, x, y);
+}
+
+fn fdimf_(x: f32, y: f32) callconv(.c) f32 {
+    return fdimGeneric(f32, x, y);
+}
+
+fn fdiml_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return fdimGeneric(c_longdouble, x, y);
+}
+
+test "fdim" {
+    try expectEqual(@as(f64, 3.0), fdim_(@as(f64, 5.0), @as(f64, 2.0)));
+    try expectEqual(@as(f64, 0.0), fdim_(@as(f64, 2.0), @as(f64, 5.0)));
+    try expect(math.isNan(fdim_(math.nan(f64), @as(f64, 1.0))));
+    try expect(math.isNan(fdim_(@as(f64, 1.0), math.nan(f64))));
+    try expectEqual(@as(f32, 3.0), fdimf_(@as(f32, 5.0), @as(f32, 2.0)));
+    try expectEqual(@as(f32, 0.0), fdimf_(@as(f32, 2.0), @as(f32, 5.0)));
+}
+
+fn finite_(x: f64) callconv(.c) c_int {
+    return if (math.isFinite(x)) 1 else 0;
+}
+
+fn finitef_(x: f32) callconv(.c) c_int {
+    return if (math.isFinite(x)) 1 else 0;
+}
+
+test "finite" {
+    try expectEqual(@as(c_int, 1), finite_(@as(f64, 1.0)));
+    try expectEqual(@as(c_int, 1), finite_(@as(f64, 0.0)));
+    try expectEqual(@as(c_int, 0), finite_(math.inf(f64)));
+    try expectEqual(@as(c_int, 0), finite_(-math.inf(f64)));
+    try expectEqual(@as(c_int, 0), finite_(math.nan(f64)));
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
@@ -260,6 +368,29 @@ test "modf" {
     try testModf(c_longdouble);
 }
 
+fn ldexp_(x: f64, n: c_int) callconv(.c) f64 {
+    return math.ldexp(x, n);
+}
+
+fn ldexpf_(x: f32, n: c_int) callconv(.c) f32 {
+    return math.ldexp(x, n);
+}
+
+fn ldexpl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
+    return math.ldexp(x, n);
+}
+
+test "ldexp" {
+    try expectEqual(@as(f64, 4.0), ldexp_(@as(f64, 1.0), 2));
+    try expectEqual(@as(f64, 0.5), ldexp_(@as(f64, 1.0), -1));
+    try expectEqual(@as(f64, 0.0), ldexp_(@as(f64, 0.0), 10));
+    try expect(math.isNan(ldexp_(math.nan(f64), 0)));
+    try expect(math.isPositiveInf(ldexp_(math.inf(f64), 1)));
+
+    try expectEqual(@as(f32, 4.0), ldexpf_(@as(f32, 1.0), 2));
+    try expectEqual(@as(f32, 0.5), ldexpf_(@as(f32, 1.0), -1));
+}
+
 fn nan(_: [*:0]const c_char) callconv(.c) f64 {
     return math.nan(f64);
 }
@@ -282,6 +413,68 @@ fn pow10(x: f64) callconv(.c) f64 {
 
 fn pow10f(x: f32) callconv(.c) f32 {
     return exp10f(x);
+}
+
+fn scalblnGeneric(comptime T: type, x: T, n: c_long) T {
+    const clamped: i32 = if (n > math.maxInt(i32))
+        math.maxInt(i32)
+    else if (n < math.minInt(i32))
+        math.minInt(i32)
+    else
+        @intCast(n);
+    return math.ldexp(x, clamped);
+}
+
+fn scalbln_(x: f64, n: c_long) callconv(.c) f64 {
+    return scalblnGeneric(f64, x, n);
+}
+
+fn scalblnf_(x: f32, n: c_long) callconv(.c) f32 {
+    return scalblnGeneric(f32, x, n);
+}
+
+fn scalblnl_(x: c_longdouble, n: c_long) callconv(.c) c_longdouble {
+    return scalblnGeneric(c_longdouble, x, n);
+}
+
+fn scalbn_(x: f64, n: c_int) callconv(.c) f64 {
+    return math.ldexp(x, n);
+}
+
+fn scalbnf_(x: f32, n: c_int) callconv(.c) f32 {
+    return math.ldexp(x, n);
+}
+
+fn scalbnl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
+    return math.ldexp(x, n);
+}
+
+test "scalbn" {
+    try expectEqual(@as(f64, 24.0), scalbn_(@as(f64, 1.5), 4));
+    try expectEqual(@as(f32, 24.0), scalbnf_(@as(f32, 1.5), 4));
+    try expectEqual(@as(f64, 24.0), scalbln_(@as(f64, 1.5), 4));
+    try expectEqual(@as(f32, 24.0), scalblnf_(@as(f32, 1.5), 4));
+}
+
+fn signbit_(x: f64) callconv(.c) c_int {
+    return @intFromBool(math.signbit(x));
+}
+
+fn signbitf_(x: f32) callconv(.c) c_int {
+    return @intFromBool(math.signbit(x));
+}
+
+fn signbitl_(x: c_longdouble) callconv(.c) c_int {
+    return @intFromBool(math.signbit(x));
+}
+
+test "signbit" {
+    try expectEqual(@as(c_int, 0), signbit_(@as(f64, 1.0)));
+    try expectEqual(@as(c_int, 1), signbit_(@as(f64, -1.0)));
+    try expectEqual(@as(c_int, 0), signbit_(@as(f64, 0.0)));
+    try expectEqual(@as(c_int, 1), signbit_(@as(f64, -0.0)));
+    try expectEqual(@as(c_int, 0), signbitf_(@as(f32, 1.0)));
+    try expectEqual(@as(c_int, 1), signbitf_(@as(f32, -1.0)));
 }
 
 fn rint(x: f64) callconv(.c) f64 {

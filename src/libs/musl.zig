@@ -953,8 +953,6 @@ const src_files = [_][]const u8{
     "musl/src/math/powerpc64/lroundf.c",
     "musl/src/math/powerpc/fma.c",
     "musl/src/math/powerpc/fmaf.c",
-    "musl/src/math/powf.c",
-    "musl/src/math/powf_data.c",
     "musl/src/math/powl.c",
     "musl/src/math/remainder.c",
     "musl/src/math/remainderf.c",

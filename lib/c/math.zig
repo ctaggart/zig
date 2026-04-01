@@ -64,6 +64,7 @@ comptime {
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&powf, "powf");
         symbol(&tanh, "tanh");
     }
 
@@ -274,6 +275,10 @@ fn nanl(_: [*:0]const c_char) callconv(.c) c_longdouble {
 
 fn pow(x: f64, y: f64) callconv(.c) f64 {
     return math.pow(f64, x, y);
+}
+
+fn powf(x: f32, y: f32) callconv(.c) f32 {
+    return math.pow(f32, x, y);
 }
 
 fn pow10(x: f64) callconv(.c) f64 {

@@ -214,9 +214,10 @@ comptime {
         symbol(&vswscanf_impl, "vswscanf");
         symbol(&vswscanf_impl, "__isoc99_vswscanf");
 
-        // Internal helpers (__fmodeflags.c, __fclose_ca.c)
+        // Internal helpers (__fmodeflags.c, __fclose_ca.c, __fopen_rb_ca.c)
         symbol(&fmodeflags_impl, "__fmodeflags");
         symbol(&fclose_ca_impl, "__fclose_ca");
+        symbol(&fopen_rb_ca_impl, "__fopen_rb_ca");
 
         // BSD extension (fgetln.c)
         symbol(&fgetln_impl, "fgetln");
@@ -615,7 +616,7 @@ fn __fseeko_unlocked(f: *FILE, off_arg: i64, whence: c_int) callconv(.c) c_int {
 
     // Flush write buffer, and report error on failure.
     if (f.wpos != f.wbase) {
-        f.write_fn.?(f, @ptrCast(&[0]u8{}), 0);
+        _ = f.write_fn.?(f, @ptrCast(&[0]u8{}), 0);
         if (f.wpos == null) return -1;
     }
 
@@ -908,7 +909,7 @@ fn remove_fn(path: [*:0]const u8) callconv(.c) c_int {
 
 /// rename.c: int rename(const char *old, const char *new)
 fn rename_fn(old: [*:0]const u8, new: [*:0]const u8) callconv(.c) c_int {
-    return c_errno(linux.renameat2(linux.AT.FDCWD, @ptrCast(old), linux.AT.FDCWD, @ptrCast(new), 0));
+    return c_errno(linux.renameat2(linux.AT.FDCWD, @ptrCast(old), linux.AT.FDCWD, @ptrCast(new), .{}));
 }
 
 // --- Formatting wrappers (fprintf.c, printf.c, snprintf.c, sprintf.c, asprintf.c, dprintf.c) ---
@@ -1044,6 +1045,32 @@ fn fmodeflags_impl(mode: [*:0]const u8) callconv(.c) c_int {
 /// __fclose_ca.c: int __fclose_ca(FILE *f)
 fn fclose_ca_impl(f: *FILE) callconv(.c) c_int {
     return f.close_fn.?(f);
+}
+
+// --- Internal helper (__fopen_rb_ca.c) ---
+
+const F_PERM: c_uint = 1;
+
+/// __fopen_rb_ca.c: FILE *__fopen_rb_ca(const char *filename, FILE *f, unsigned char *buf, size_t len)
+fn fopen_rb_ca_impl(filename: [*:0]const u8, f: *FILE, buf: [*]u8, len: usize) callconv(.c) ?*FILE {
+    f.* = std.mem.zeroes(FILE);
+    const O = linux.O;
+    var o = O{};
+    o.ACCMODE = .RDONLY;
+    o.CLOEXEC = true;
+    const fd_raw: isize = @bitCast(linux.openat(linux.AT.FDCWD, @ptrCast(filename), o, 0));
+    if (fd_raw < 0) return null;
+    const fd: c_int = @intCast(fd_raw);
+    _ = linux.fcntl(fd, linux.F.SETFD, @as(usize, linux.FD_CLOEXEC));
+    f.flags = F_NOWR | F_PERM;
+    f.buf = buf + UNGET;
+    f.buf_size = len - UNGET;
+    f.read_fn = stdio_read_ext;
+    f.seek_fn = stdio_seek_ext;
+    f.close_fn = stdio_close_ext;
+    f.fd = fd;
+    f.lock = -1;
+    return f;
 }
 
 // --- BSD extension (fgetln.c) ---
@@ -1490,3 +1517,6 @@ const realloc_fn = @extern(*const fn (?*anyopaque, usize) callconv(.c) ?*anyopaq
 const stdio_write_ext = @extern(*const fn (*FILE, [*]const u8, usize) callconv(.c) usize, .{ .name = "__stdio_write" });
 const mbtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize) callconv(.c) c_int, .{ .name = "mbtowc" });
 const wcsrtombs_fn = @extern(*const fn (?[*]u8, *?[*:0]const wchar_t, usize, ?*anyopaque) callconv(.c) usize, .{ .name = "wcsrtombs" });
+const stdio_read_ext = @extern(*const fn (*FILE, [*]u8, usize) callconv(.c) usize, .{ .name = "__stdio_read" });
+const stdio_seek_ext = @extern(*const fn (*FILE, i64, c_int) callconv(.c) i64, .{ .name = "__stdio_seek" });
+const stdio_close_ext = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__stdio_close" });

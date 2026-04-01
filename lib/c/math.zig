@@ -59,11 +59,30 @@ comptime {
         symbol(&cosh, "cosh");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&frexp_, "frexp");
+        symbol(&frexpf_, "frexpf");
+        symbol(&frexpl_, "frexpl");
         symbol(&hypot, "hypot");
+        symbol(&ilogb_, "ilogb");
+        symbol(&ilogbf_, "ilogbf");
+        symbol(&ilogbl_, "ilogbl");
+        symbol(&logb_, "logb");
+        symbol(&logbf_, "logbf");
+        symbol(&logbl_, "logbl");
         symbol(&modf, "modf");
+        symbol(&nextafter_, "nextafter");
+        symbol(&nextafterf_, "nextafterf");
+        symbol(&nextafterl_, "nextafterl");
+        symbol(&nexttoward_, "nexttoward");
+        symbol(&nexttowardf_, "nexttowardf");
+        symbol(&nexttowardl_, "nexttowardl");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&scalb_, "scalb");
+        symbol(&scalbf_, "scalbf");
+        symbol(&significand_, "significand");
+        symbol(&significandf_, "significandf");
         symbol(&tanh, "tanh");
     }
 
@@ -147,6 +166,24 @@ fn exp10f(x: f32) callconv(.c) f32 {
     return math.pow(f32, 10.0, x);
 }
 
+fn frexp_(x: f64, exp: *c_int) callconv(.c) f64 {
+    const result = math.frexp(x);
+    exp.* = result.exponent;
+    return result.fraction;
+}
+
+fn frexpf_(x: f32, exp: *c_int) callconv(.c) f32 {
+    const result = math.frexp(x);
+    exp.* = result.exponent;
+    return result.fraction;
+}
+
+fn frexpl_(x: c_longdouble, exp: *c_int) callconv(.c) c_longdouble {
+    const result = math.frexp(x);
+    exp.* = result.exponent;
+    return result.fraction;
+}
+
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
     return math.hypot(x, y);
 }
@@ -159,6 +196,18 @@ fn hypotl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
     return math.hypot(x, y);
 }
 
+fn ilogb_(x: f64) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ilogbf_(x: f32) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ilogbl_(x: c_longdouble) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
 fn isnan(x: f64) callconv(.c) c_int {
     return if (math.isNan(x)) 1 else 0;
 }
@@ -169,6 +218,24 @@ fn isnanf(x: f32) callconv(.c) c_int {
 
 fn isnanl(x: c_longdouble) callconv(.c) c_int {
     return if (math.isNan(x)) 1 else 0;
+}
+
+fn logbGeneric(comptime T: type, x: T) T {
+    if (!math.isFinite(x)) return x * x;
+    if (x == 0) return -1.0 / (x * x);
+    return @floatFromInt(math.ilogb(x));
+}
+
+fn logb_(x: f64) callconv(.c) f64 {
+    return logbGeneric(f64, x);
+}
+
+fn logbf_(x: f32) callconv(.c) f32 {
+    return logbGeneric(f32, x);
+}
+
+fn logbl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return logbGeneric(c_longdouble, x);
 }
 
 fn modfGeneric(comptime T: type, x: T, iptr: *T) T {
@@ -272,6 +339,36 @@ fn nanl(_: [*:0]const c_char) callconv(.c) c_longdouble {
     return math.nan(c_longdouble);
 }
 
+fn nextafter_(x: f64, y: f64) callconv(.c) f64 {
+    return math.nextAfter(f64, x, y);
+}
+
+fn nextafterf_(x: f32, y: f32) callconv(.c) f32 {
+    return math.nextAfter(f32, x, y);
+}
+
+fn nextafterl_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return math.nextAfter(c_longdouble, x, y);
+}
+
+fn nexttoward_(x: f64, y: c_longdouble) callconv(.c) f64 {
+    const xl: c_longdouble = x;
+    if (math.isNan(xl) or math.isNan(y)) return @floatCast(xl + y);
+    if (xl == y) return @floatCast(y);
+    return math.nextAfter(f64, x, if (xl < y) math.inf(f64) else -math.inf(f64));
+}
+
+fn nexttowardf_(x: f32, y: c_longdouble) callconv(.c) f32 {
+    const xl: c_longdouble = x;
+    if (math.isNan(xl) or math.isNan(y)) return @floatCast(xl + y);
+    if (xl == y) return @floatCast(y);
+    return math.nextAfter(f32, x, if (xl < y) math.inf(f32) else -math.inf(f32));
+}
+
+fn nexttowardl_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return math.nextAfter(c_longdouble, x, y);
+}
+
 fn pow(x: f64, y: f64) callconv(.c) f64 {
     return math.pow(f64, x, y);
 }
@@ -340,10 +437,73 @@ test "rint" {
     try expectEqual(@as(f64, 4.0), rint(3.5));
 }
 
+fn scalbGeneric(comptime T: type, x: T, n: T) T {
+    if (math.isNan(x) or math.isNan(n)) return math.nan(T);
+    if (!math.isFinite(n)) {
+        if (n > 0) return x * math.inf(T);
+        return x / math.inf(T);
+    }
+    if (!math.isFinite(x)) return x;
+    const ni: i32 = if (@abs(n) > @as(T, @floatFromInt(math.maxInt(i32))))
+        if (n > 0) math.maxInt(i32) else math.minInt(i32)
+    else
+        @intFromFloat(n);
+    return math.ldexp(x, ni);
+}
+
+fn scalb_(x: f64, n: f64) callconv(.c) f64 {
+    return scalbGeneric(f64, x, n);
+}
+
+fn scalbf_(x: f32, n: f32) callconv(.c) f32 {
+    return scalbGeneric(f32, x, n);
+}
+
+fn significandGeneric(comptime T: type, x: T) T {
+    if (math.isNan(x) or !math.isFinite(x) or x == 0) return x;
+    return math.ldexp(x, -math.ilogb(x));
+}
+
+fn significand_(x: f64) callconv(.c) f64 {
+    return significandGeneric(f64, x);
+}
+
+fn significandf_(x: f32) callconv(.c) f32 {
+    return significandGeneric(f32, x);
+}
+
 fn tanh(x: f64) callconv(.c) f64 {
     return math.tanh(x);
 }
 
 fn tanhf(x: f32) callconv(.c) f32 {
     return math.tanh(x);
+}
+
+test "frexp" {
+    var exp: c_int = undefined;
+    try expectEqual(@as(f64, 0.5), frexp_(@as(f64, 1.0), &exp));
+    try expectEqual(@as(c_int, 1), exp);
+    try expectEqual(@as(f64, 0.75), frexp_(@as(f64, 3.0), &exp));
+    try expectEqual(@as(c_int, 2), exp);
+}
+
+test "ilogb" {
+    try expectEqual(@as(c_int, 0), ilogb_(@as(f64, 1.0)));
+    try expectEqual(@as(c_int, 3), ilogb_(@as(f64, 8.0)));
+    try expectEqual(@as(c_int, 0), ilogbf_(@as(f32, 1.0)));
+}
+
+test "logb" {
+    try expectEqual(@as(f64, 0.0), logb_(@as(f64, 1.0)));
+    try expectEqual(@as(f64, 3.0), logb_(@as(f64, 8.0)));
+    try expect(math.isNan(logb_(math.nan(f64))));
+    try expect(math.isPositiveInf(logb_(math.inf(f64))));
+    try expect(math.isNegativeInf(logb_(@as(f64, 0.0))));
+}
+
+test "nextafter" {
+    const smallest = math.floatTrueMin(f64);
+    try expectEqual(smallest, nextafter_(@as(f64, 0.0), @as(f64, 1.0)));
+    try expect(math.isNan(nextafter_(math.nan(f64), @as(f64, 1.0))));
 }

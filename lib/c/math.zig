@@ -64,6 +64,8 @@ comptime {
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&scalb_, "scalb");
+        symbol(&scalbf_, "scalbf");
         symbol(&tanh, "tanh");
     }
 
@@ -74,6 +76,38 @@ comptime {
     }
 
     symbol(&copysignl, "copysignl");
+}
+
+fn scalbGeneric(comptime T: type, x: T, n: T) T {
+    if (math.isNan(x) or math.isNan(n)) return x * n;
+    if (!math.isFinite(n)) {
+        if (n > 0) return x * n;
+        return x / (-n);
+    }
+    if (@trunc(n) != n) return math.nan(T);
+    if (n > 65000) return math.scalbn(x, 65000);
+    if (-n > 65000) return math.scalbn(x, -65000);
+    return math.scalbn(x, @intFromFloat(n));
+}
+
+fn scalb_(x: f64, n: f64) callconv(.c) f64 {
+    return scalbGeneric(f64, x, n);
+}
+
+fn scalbf_(x: f32, n: f32) callconv(.c) f32 {
+    return scalbGeneric(f32, x, n);
+}
+
+test "scalb" {
+    try expectEqual(@as(f64, 8.0), scalb_(1.0, 3.0));
+    try expectEqual(@as(f64, 0.5), scalb_(1.0, -1.0));
+    try expect(math.isNan(scalb_(1.0, 1.5)));
+    try expect(math.isNan(scalb_(math.nan(f64), 1.0)));
+    try expectEqual(math.inf(f64), scalb_(1.0, math.inf(f64)));
+
+    try expectEqual(@as(f32, 8.0), scalbf_(1.0, 3.0));
+    try expectEqual(@as(f32, 0.5), scalbf_(1.0, -1.0));
+    try expect(math.isNan(scalbf_(1.0, 1.5)));
 }
 
 fn acos(x: f64) callconv(.c) f64 {

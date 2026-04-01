@@ -979,8 +979,6 @@ const src_files = [_][]const u8{
     "musl/src/math/s390x/nearbyintl.c",
     "musl/src/math/s390x/rintf.c",
     "musl/src/math/s390x/rintl.c",
-    "musl/src/math/scalb.c",
-    "musl/src/math/scalbf.c",
     "musl/src/math/scalbln.c",
     "musl/src/math/scalblnf.c",
     "musl/src/math/scalblnl.c",

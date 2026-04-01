@@ -59,11 +59,17 @@ comptime {
         symbol(&cosh, "cosh");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&fpclassify64, "__fpclassify");
+        symbol(&fpclassify32, "__fpclassifyf");
+        symbol(&fpclassifyl, "__fpclassifyl");
         symbol(&hypot, "hypot");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&signbit64, "__signbit");
+        symbol(&signbit32, "__signbitf");
+        symbol(&signbitl, "__signbitl");
         symbol(&tanh, "tanh");
     }
 
@@ -74,6 +80,114 @@ comptime {
     }
 
     symbol(&copysignl, "copysignl");
+}
+
+// FP classification constants (matching musl math.h)
+const FP_NAN: c_int = 0;
+const FP_INFINITE: c_int = 1;
+const FP_ZERO: c_int = 2;
+const FP_SUBNORMAL: c_int = 3;
+const FP_NORMAL: c_int = 4;
+
+fn fpclassify64(x: f64) callconv(.c) c_int {
+    const bits: u64 = @bitCast(x);
+    const e = (bits >> 52) & 0x7ff;
+    if (e == 0) return if ((bits << 1) != 0) FP_SUBNORMAL else FP_ZERO;
+    if (e == 0x7ff) return if ((bits << 12) != 0) FP_NAN else FP_INFINITE;
+    return FP_NORMAL;
+}
+
+fn fpclassify32(x: f32) callconv(.c) c_int {
+    const bits: u32 = @bitCast(x);
+    const e = (bits >> 23) & 0xff;
+    if (e == 0) return if ((bits << 1) != 0) FP_SUBNORMAL else FP_ZERO;
+    if (e == 0xff) return if ((bits << 9) != 0) FP_NAN else FP_INFINITE;
+    return FP_NORMAL;
+}
+
+fn fpclassifyl(x: c_longdouble) callconv(.c) c_int {
+    const float_bits = @typeInfo(c_longdouble).float.bits;
+    if (float_bits == 64) return fpclassify64(@floatCast(x));
+    if (float_bits == 80) {
+        const bits: u80 = @bitCast(x);
+        const exp: u16 = @truncate(bits >> 64);
+        const e = exp & 0x7fff;
+        const m: u64 = @truncate(bits);
+        const msb: u1 = @truncate(m >> 63);
+        if (e == 0 and msb == 0)
+            return if (m != 0) FP_SUBNORMAL else FP_ZERO;
+        if (e == 0x7fff) {
+            if (builtin.target.cpu.arch.endian() == .little and msb == 0)
+                return FP_NAN;
+            return if ((m << 1) != 0) FP_NAN else FP_INFINITE;
+        }
+        if (msb == 0) return FP_NAN;
+        return FP_NORMAL;
+    }
+    if (float_bits == 128) {
+        const bits: u128 = @bitCast(x);
+        const exp: u16 = @truncate(bits >> 112);
+        const e = exp & 0x7fff;
+        const mantissa = bits & ((@as(u128, 1) << 112) - 1);
+        if (e == 0) return if (mantissa != 0) FP_SUBNORMAL else FP_ZERO;
+        if (e == 0x7fff) return if (mantissa != 0) FP_NAN else FP_INFINITE;
+        return FP_NORMAL;
+    }
+    unreachable;
+}
+
+test "fpclassify" {
+    try expectEqual(FP_NORMAL, fpclassify64(1.0));
+    try expectEqual(FP_NORMAL, fpclassify64(-1.0));
+    try expectEqual(FP_ZERO, fpclassify64(0.0));
+    try expectEqual(FP_ZERO, fpclassify64(-0.0));
+    try expectEqual(FP_INFINITE, fpclassify64(math.inf(f64)));
+    try expectEqual(FP_INFINITE, fpclassify64(-math.inf(f64)));
+    try expectEqual(FP_NAN, fpclassify64(math.nan(f64)));
+    try expectEqual(FP_SUBNORMAL, fpclassify64(math.floatTrueMin(f64)));
+
+    try expectEqual(FP_NORMAL, fpclassify32(1.0));
+    try expectEqual(FP_ZERO, fpclassify32(0.0));
+    try expectEqual(FP_INFINITE, fpclassify32(math.inf(f32)));
+    try expectEqual(FP_NAN, fpclassify32(math.nan(f32)));
+    try expectEqual(FP_SUBNORMAL, fpclassify32(math.floatTrueMin(f32)));
+
+    try expectEqual(FP_NORMAL, fpclassifyl(@as(c_longdouble, 1.0)));
+    try expectEqual(FP_ZERO, fpclassifyl(@as(c_longdouble, 0.0)));
+    try expectEqual(FP_INFINITE, fpclassifyl(math.inf(c_longdouble)));
+    try expectEqual(FP_NAN, fpclassifyl(math.nan(c_longdouble)));
+    try expectEqual(FP_SUBNORMAL, fpclassifyl(math.floatTrueMin(c_longdouble)));
+}
+
+fn signbit64(x: f64) callconv(.c) c_int {
+    return @intFromBool(math.signbit(x));
+}
+
+fn signbit32(x: f32) callconv(.c) c_int {
+    return @intFromBool(math.signbit(x));
+}
+
+fn signbitl(x: c_longdouble) callconv(.c) c_int {
+    return @intFromBool(math.signbit(x));
+}
+
+test "signbit" {
+    try expectEqual(@as(c_int, 0), signbit64(1.0));
+    try expectEqual(@as(c_int, 1), signbit64(-1.0));
+    try expectEqual(@as(c_int, 0), signbit64(0.0));
+    try expectEqual(@as(c_int, 1), signbit64(-0.0));
+    try expectEqual(@as(c_int, 0), signbit64(math.inf(f64)));
+    try expectEqual(@as(c_int, 1), signbit64(-math.inf(f64)));
+
+    try expectEqual(@as(c_int, 0), signbit32(1.0));
+    try expectEqual(@as(c_int, 1), signbit32(-1.0));
+    try expectEqual(@as(c_int, 0), signbit32(0.0));
+    try expectEqual(@as(c_int, 1), signbit32(-0.0));
+
+    try expectEqual(@as(c_int, 0), signbitl(@as(c_longdouble, 1.0)));
+    try expectEqual(@as(c_int, 1), signbitl(@as(c_longdouble, -1.0)));
+    try expectEqual(@as(c_int, 0), signbitl(@as(c_longdouble, 0.0)));
+    try expectEqual(@as(c_int, 1), signbitl(-@as(c_longdouble, 0.0)));
 }
 
 fn acos(x: f64) callconv(.c) f64 {

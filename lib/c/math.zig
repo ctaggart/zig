@@ -61,6 +61,12 @@ comptime {
         symbol(&exp10f, "exp10f");
         symbol(&hypot, "hypot");
         symbol(&modf, "modf");
+        symbol(&nextafter64, "nextafter");
+        symbol(&nextafter32, "nextafterf");
+        symbol(&nextafterl_, "nextafterl");
+        symbol(&nexttoward64, "nexttoward");
+        symbol(&nexttoward32, "nexttowardf");
+        symbol(&nexttowardl_, "nexttowardl");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
@@ -74,6 +80,167 @@ comptime {
     }
 
     symbol(&copysignl, "copysignl");
+}
+
+/// Generic nextafter for types with implicit integer bit (f32, f64, f128, c_longdouble when not f80).
+fn nextafterGeneric(comptime T: type, x: T, y: T) T {
+    const bits_count = @typeInfo(T).float.bits;
+    const Int = std.meta.Int(.unsigned, bits_count);
+    const sign_mask: Int = @as(Int, 1) << (bits_count - 1);
+    const abs_mask: Int = sign_mask - 1;
+
+    var ux: Int = @bitCast(x);
+    const uy: Int = @bitCast(y);
+
+    if (math.isNan(x) or math.isNan(y)) return x + y;
+    if (ux == uy) return y;
+
+    const ax = ux & abs_mask;
+    const ay = uy & abs_mask;
+
+    if (ax == 0) {
+        if (ay == 0) return y;
+        ux = (uy & sign_mask) | 1;
+    } else if (ax > ay or ((ux ^ uy) & sign_mask) != 0) {
+        ux -= 1;
+    } else {
+        ux += 1;
+    }
+    return @bitCast(ux);
+}
+
+/// nextafter for f80 (explicit integer bit requires special mantissa/exponent handling).
+fn nextafter80(x: c_longdouble, y: c_longdouble) c_longdouble {
+    if (math.isNan(x) or math.isNan(y)) return x + y;
+    if (x == y) return y;
+
+    const bits: u80 = @bitCast(x);
+    var se: u16 = @truncate(bits >> 64);
+    var m: u64 = @truncate(bits);
+
+    if (x == 0) {
+        const ybits: u80 = @bitCast(y);
+        const yse: u16 = @truncate(ybits >> 64);
+        m = 1;
+        se = yse & 0x8000;
+    } else if ((x < y) == ((se & 0x8000) == 0)) {
+        m +%= 1;
+        if ((m << 1) == 0) {
+            m = @as(u64, 1) << 63;
+            se +%= 1;
+        }
+    } else {
+        if ((m << 1) == 0) {
+            se -%= 1;
+            if (se != 0) m = 0;
+        }
+        m -%= 1;
+    }
+    return @bitCast(@as(u80, se) << 64 | @as(u80, m));
+}
+
+fn nextafter64(x: f64, y: f64) callconv(.c) f64 {
+    return nextafterGeneric(f64, x, y);
+}
+
+fn nextafter32(x: f32, y: f32) callconv(.c) f32 {
+    return nextafterGeneric(f32, x, y);
+}
+
+fn nextafterl_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    if (@typeInfo(c_longdouble).float.bits == 80) return nextafter80(x, y);
+    return nextafterGeneric(c_longdouble, x, y);
+}
+
+/// Generic nexttoward: x is T (f32/f64), y is c_longdouble (may be wider).
+fn nexttowardGeneric(comptime T: type, x: T, y: c_longdouble) T {
+    const bits_count = @typeInfo(T).float.bits;
+    const Int = std.meta.Int(.unsigned, bits_count);
+    const sign_mask: Int = @as(Int, 1) << (bits_count - 1);
+
+    if (math.isNan(x)) return x;
+    if (math.isNan(y)) return math.nan(T);
+
+    const xl: c_longdouble = @floatCast(x);
+    if (xl == y) return @floatCast(y);
+
+    var ux: Int = @bitCast(x);
+    if (x == 0) {
+        ux = 1;
+        if (math.signbit(y)) ux |= sign_mask;
+    } else if (xl < y) {
+        if (math.signbit(x)) {
+            ux -= 1;
+        } else {
+            ux += 1;
+        }
+    } else {
+        if (math.signbit(x)) {
+            ux += 1;
+        } else {
+            ux -= 1;
+        }
+    }
+    return @bitCast(ux);
+}
+
+fn nexttoward64(x: f64, y: c_longdouble) callconv(.c) f64 {
+    if (@typeInfo(c_longdouble).float.bits == 64)
+        return nextafterGeneric(f64, x, @floatCast(y));
+    return nexttowardGeneric(f64, x, y);
+}
+
+fn nexttoward32(x: f32, y: c_longdouble) callconv(.c) f32 {
+    return nexttowardGeneric(f32, x, y);
+}
+
+fn nexttowardl_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return nextafterl_(x, y);
+}
+
+test "nextafter" {
+    // Basic stepping
+    const one: f64 = 1.0;
+    const next_one = nextafter64(one, 2.0);
+    try expect(next_one > one);
+    try expect(nextafter64(next_one, 0.0) == one);
+
+    // Step from zero
+    try expectEqual(math.floatTrueMin(f64), nextafter64(0.0, 1.0));
+    try expectEqual(-math.floatTrueMin(f64), nextafter64(0.0, -1.0));
+
+    // NaN propagation
+    try expect(math.isNan(nextafter64(math.nan(f64), 1.0)));
+    try expect(math.isNan(nextafter64(1.0, math.nan(f64))));
+
+    // Equal returns y
+    try expectEqual(@as(f64, 1.0), nextafter64(1.0, 1.0));
+
+    // f32
+    const one32: f32 = 1.0;
+    const next32 = nextafter32(one32, 2.0);
+    try expect(next32 > one32);
+    try expect(nextafter32(next32, 0.0) == one32);
+    try expectEqual(math.floatTrueMin(f32), nextafter32(0.0, 1.0));
+
+    // c_longdouble
+    const onel: c_longdouble = 1.0;
+    const nextl = nextafterl_(onel, 2.0);
+    try expect(nextl > onel);
+}
+
+test "nexttoward" {
+    try expectEqual(math.floatTrueMin(f64), nexttoward64(0.0, @as(c_longdouble, 1.0)));
+
+    // NaN
+    try expect(math.isNan(nexttoward64(math.nan(f64), @as(c_longdouble, 1.0))));
+    try expect(math.isNan(nexttoward64(1.0, math.nan(c_longdouble))));
+
+    // Equal
+    try expectEqual(@as(f64, 1.0), nexttoward64(1.0, @as(c_longdouble, 1.0)));
+
+    // f32
+    try expectEqual(math.floatTrueMin(f32), nexttoward32(0.0, @as(c_longdouble, 1.0)));
 }
 
 fn acos(x: f64) callconv(.c) f64 {

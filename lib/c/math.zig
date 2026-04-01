@@ -49,22 +49,47 @@ comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&acos, "acos");
         symbol(&acosf, "acosf");
+        symbol(&acosh_, "acosh");
         symbol(&acoshf, "acoshf");
+        symbol(&acoshl_, "acoshl");
+        symbol(&acosl_, "acosl");
         symbol(&asin, "asin");
+        symbol(&asinf_, "asinf");
+        symbol(&asinh_, "asinh");
+        symbol(&asinhf_, "asinhf");
+        symbol(&asinhl_, "asinhl");
+        symbol(&asinl_, "asinl");
         symbol(&atan, "atan");
+        symbol(&atan2_, "atan2");
+        symbol(&atan2f_, "atan2f");
+        symbol(&atan2l_, "atan2l");
         symbol(&atanf, "atanf");
+        symbol(&atanh_, "atanh");
+        symbol(&atanhf_, "atanhf");
+        symbol(&atanhl_, "atanhl");
         symbol(&atanl, "atanl");
         symbol(&cbrt, "cbrt");
         symbol(&cbrtf, "cbrtf");
         symbol(&cosh, "cosh");
+        symbol(&coshl_, "coshl");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&expm1_, "expm1");
+        symbol(&expm1f_, "expm1f");
+        symbol(&expm1l_, "expm1l");
         symbol(&hypot, "hypot");
+        symbol(&log1p_, "log1p");
+        symbol(&log1pf_, "log1pf");
+        symbol(&log1pl_, "log1pl");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&sinh_, "sinh");
+        symbol(&sinhf_, "sinhf");
+        symbol(&sinhl_, "sinhl");
         symbol(&tanh, "tanh");
+        symbol(&tanhl_, "tanhl");
     }
 
     if (builtin.target.isMuslLibC()) {
@@ -84,20 +109,118 @@ fn acosf(x: f32) callconv(.c) f32 {
     return math.acos(x);
 }
 
+fn acosh_(x: f64) callconv(.c) f64 {
+    return math.acosh(x);
+}
+
 fn acoshf(x: f32) callconv(.c) f32 {
     return math.acosh(x);
+}
+
+fn acoshl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.acosh(@as(f16, @floatCast(x))),
+        32 => math.acosh(@as(f32, @floatCast(x))),
+        64 => math.acosh(@as(f64, @floatCast(x))),
+        80 => math.acosh(@as(f80, @floatCast(x))),
+        128 => math.acosh(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
+}
+
+fn acosl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.acos(@as(f16, @floatCast(x))),
+        32 => math.acos(@as(f32, @floatCast(x))),
+        64 => math.acos(@as(f64, @floatCast(x))),
+        80 => math.acos(@as(f80, @floatCast(x))),
+        128 => math.acos(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
 }
 
 fn asin(x: f64) callconv(.c) f64 {
     return math.asin(x);
 }
 
+fn asinf_(x: f32) callconv(.c) f32 {
+    return math.asin(x);
+}
+
+fn asinh_(x: f64) callconv(.c) f64 {
+    return math.asinh(x);
+}
+
+fn asinhf_(x: f32) callconv(.c) f32 {
+    return math.asinh(x);
+}
+
+fn asinhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.asinh(@as(f16, @floatCast(x))),
+        32 => math.asinh(@as(f32, @floatCast(x))),
+        64 => math.asinh(@as(f64, @floatCast(x))),
+        80 => math.asinh(@as(f80, @floatCast(x))),
+        128 => math.asinh(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
+}
+
+fn asinl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.asin(@as(f16, @floatCast(x))),
+        32 => math.asin(@as(f32, @floatCast(x))),
+        64 => math.asin(@as(f64, @floatCast(x))),
+        80 => math.asin(@as(f80, @floatCast(x))),
+        128 => math.asin(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
+}
+
 fn atan(x: f64) callconv(.c) f64 {
     return math.atan(x);
 }
 
+fn atan2_(x: f64, y: f64) callconv(.c) f64 {
+    return math.atan2(x, y);
+}
+
+fn atan2f_(x: f32, y: f32) callconv(.c) f32 {
+    return math.atan2(x, y);
+}
+
+fn atan2l_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.atan2(@as(f16, @floatCast(x)), @as(f16, @floatCast(y))),
+        32 => math.atan2(@as(f32, @floatCast(x)), @as(f32, @floatCast(y))),
+        64 => math.atan2(@as(f64, @floatCast(x)), @as(f64, @floatCast(y))),
+        80 => math.atan2(@as(f80, @floatCast(x)), @as(f80, @floatCast(y))),
+        128 => math.atan2(@as(f128, @floatCast(x)), @as(f128, @floatCast(y))),
+        else => unreachable,
+    };
+}
+
 fn atanf(x: f32) callconv(.c) f32 {
     return math.atan(x);
+}
+
+fn atanh_(x: f64) callconv(.c) f64 {
+    return math.atanh(x);
+}
+
+fn atanhf_(x: f32) callconv(.c) f32 {
+    return math.atanh(x);
+}
+
+fn atanhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.atanh(@as(f16, @floatCast(x))),
+        32 => math.atanh(@as(f32, @floatCast(x))),
+        64 => math.atanh(@as(f64, @floatCast(x))),
+        80 => math.atanh(@as(f80, @floatCast(x))),
+        128 => math.atanh(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
 }
 
 fn atanl(x: c_longdouble) callconv(.c) c_longdouble {
@@ -139,12 +262,42 @@ fn coshf(x: f32) callconv(.c) f32 {
     return math.cosh(x);
 }
 
+fn coshl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.cosh(@as(f16, @floatCast(x))),
+        32 => math.cosh(@as(f32, @floatCast(x))),
+        64 => math.cosh(@as(f64, @floatCast(x))),
+        80 => math.cosh(@as(f80, @floatCast(x))),
+        128 => math.cosh(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
+}
+
 fn exp10(x: f64) callconv(.c) f64 {
     return math.pow(f64, 10.0, x);
 }
 
 fn exp10f(x: f32) callconv(.c) f32 {
     return math.pow(f32, 10.0, x);
+}
+
+fn expm1_(x: f64) callconv(.c) f64 {
+    return math.expm1(x);
+}
+
+fn expm1f_(x: f32) callconv(.c) f32 {
+    return math.expm1(x);
+}
+
+fn expm1l_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.expm1(@as(f16, @floatCast(x))),
+        32 => math.expm1(@as(f32, @floatCast(x))),
+        64 => math.expm1(@as(f64, @floatCast(x))),
+        80 => math.expm1(@as(f80, @floatCast(x))),
+        128 => math.expm1(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
@@ -169,6 +322,25 @@ fn isnanf(x: f32) callconv(.c) c_int {
 
 fn isnanl(x: c_longdouble) callconv(.c) c_int {
     return if (math.isNan(x)) 1 else 0;
+}
+
+fn log1p_(x: f64) callconv(.c) f64 {
+    return math.log1p(x);
+}
+
+fn log1pf_(x: f32) callconv(.c) f32 {
+    return math.log1p(x);
+}
+
+fn log1pl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.log1p(@as(f16, @floatCast(x))),
+        32 => math.log1p(@as(f32, @floatCast(x))),
+        64 => math.log1p(@as(f64, @floatCast(x))),
+        80 => math.log1p(@as(f80, @floatCast(x))),
+        128 => math.log1p(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
 }
 
 fn modfGeneric(comptime T: type, x: T, iptr: *T) T {
@@ -340,10 +512,40 @@ test "rint" {
     try expectEqual(@as(f64, 4.0), rint(3.5));
 }
 
+fn sinh_(x: f64) callconv(.c) f64 {
+    return math.sinh(x);
+}
+
+fn sinhf_(x: f32) callconv(.c) f32 {
+    return math.sinh(x);
+}
+
+fn sinhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.sinh(@as(f16, @floatCast(x))),
+        32 => math.sinh(@as(f32, @floatCast(x))),
+        64 => math.sinh(@as(f64, @floatCast(x))),
+        80 => math.sinh(@as(f80, @floatCast(x))),
+        128 => math.sinh(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
+}
+
 fn tanh(x: f64) callconv(.c) f64 {
     return math.tanh(x);
 }
 
 fn tanhf(x: f32) callconv(.c) f32 {
     return math.tanh(x);
+}
+
+fn tanhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.tanh(@as(f16, @floatCast(x))),
+        32 => math.tanh(@as(f32, @floatCast(x))),
+        64 => math.tanh(@as(f64, @floatCast(x))),
+        80 => math.tanh(@as(f80, @floatCast(x))),
+        128 => math.tanh(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
 }

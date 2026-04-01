@@ -65,6 +65,8 @@ comptime {
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
         symbol(&tanh, "tanh");
+        symbol(&tgamma, "tgamma");
+        symbol(&tgammaf, "tgammaf");
     }
 
     if (builtin.target.isMuslLibC()) {
@@ -338,6 +340,14 @@ test "rint" {
     // Exact half rounds to nearest even (banker's rounding)
     try expectEqual(@as(f64, 2.0), rint(2.5));
     try expectEqual(@as(f64, 4.0), rint(3.5));
+}
+
+fn tgamma(x: f64) callconv(.c) f64 {
+    return math.gamma(f64, x);
+}
+
+fn tgammaf(x: f32) callconv(.c) f32 {
+    return math.gamma(f32, x);
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

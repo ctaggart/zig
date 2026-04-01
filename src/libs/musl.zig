@@ -1006,8 +1006,6 @@ const src_files = [_][]const u8{
     "musl/src/math/tanhl.c",
     "musl/src/math/__tanl.c",
     "musl/src/math/tanl.c",
-    "musl/src/math/tgamma.c",
-    "musl/src/math/tgammaf.c",
     "musl/src/math/tgammal.c",
     "musl/src/math/x32/acosl.s",
     "musl/src/math/x32/asinl.s",

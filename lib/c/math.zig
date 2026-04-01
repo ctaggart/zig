@@ -347,3 +347,5 @@ fn tanh(x: f64) callconv(.c) f64 {
 fn tanhf(x: f32) callconv(.c) f32 {
     return math.tanh(x);
 }
+
+_ = @import("bessel.zig");

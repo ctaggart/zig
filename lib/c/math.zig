@@ -51,7 +51,10 @@ comptime {
         symbol(&acosf, "acosf");
         symbol(&acoshf, "acoshf");
         symbol(&asin, "asin");
+        symbol(&asinf, "asinf");
         symbol(&atan, "atan");
+        symbol(&atan2_, "atan2");
+        symbol(&atan2f_, "atan2f");
         symbol(&atanf, "atanf");
         symbol(&atanl, "atanl");
         symbol(&cbrt, "cbrt");
@@ -92,8 +95,20 @@ fn asin(x: f64) callconv(.c) f64 {
     return math.asin(x);
 }
 
+fn asinf(x: f32) callconv(.c) f32 {
+    return math.asin(x);
+}
+
 fn atan(x: f64) callconv(.c) f64 {
     return math.atan(x);
+}
+
+fn atan2_(x: f64, y: f64) callconv(.c) f64 {
+    return math.atan2(x, y);
+}
+
+fn atan2f_(x: f32, y: f32) callconv(.c) f32 {
+    return math.atan2(x, y);
 }
 
 fn atanf(x: f32) callconv(.c) f32 {

@@ -49,22 +49,39 @@ comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&acos, "acos");
         symbol(&acosf, "acosf");
+        symbol(&acosh_, "acosh");
         symbol(&acoshf, "acoshf");
+        symbol(&acoshl_, "acoshl");
         symbol(&asin, "asin");
+        symbol(&asinh_, "asinh");
+        symbol(&asinhf_, "asinhf");
+        symbol(&asinhl_, "asinhl");
         symbol(&atan, "atan");
         symbol(&atanf, "atanf");
+        symbol(&atanh_, "atanh");
+        symbol(&atanhf_, "atanhf");
+        symbol(&atanhl_, "atanhl");
         symbol(&atanl, "atanl");
         symbol(&cbrt, "cbrt");
         symbol(&cbrtf, "cbrtf");
         symbol(&cosh, "cosh");
+        symbol(&coshl_, "coshl");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&expm1_, "expm1");
+        symbol(&expm1f_, "expm1f");
         symbol(&hypot, "hypot");
+        symbol(&log1p_, "log1p");
+        symbol(&log1pf_, "log1pf");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&sinh_, "sinh");
+        symbol(&sinhf_, "sinhf");
+        symbol(&sinhl_, "sinhl");
         symbol(&tanh, "tanh");
+        symbol(&tanhl_, "tanhl");
     }
 
     if (builtin.target.isMuslLibC()) {
@@ -84,12 +101,38 @@ fn acosf(x: f32) callconv(.c) f32 {
     return math.acos(x);
 }
 
+fn acosh_(x: f64) callconv(.c) f64 {
+    return math.acosh(x);
+}
+
 fn acoshf(x: f32) callconv(.c) f32 {
     return math.acosh(x);
 }
 
+fn acoshl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => math.acosh(@as(f64, @bitCast(x))),
+        else => @floatCast(math.acosh(@as(f64, @floatCast(x)))),
+    };
+}
+
 fn asin(x: f64) callconv(.c) f64 {
     return math.asin(x);
+}
+
+fn asinh_(x: f64) callconv(.c) f64 {
+    return math.asinh(x);
+}
+
+fn asinhf_(x: f32) callconv(.c) f32 {
+    return math.asinh(x);
+}
+
+fn asinhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => math.asinh(@as(f64, @bitCast(x))),
+        else => @floatCast(math.asinh(@as(f64, @floatCast(x)))),
+    };
 }
 
 fn atan(x: f64) callconv(.c) f64 {
@@ -98,6 +141,21 @@ fn atan(x: f64) callconv(.c) f64 {
 
 fn atanf(x: f32) callconv(.c) f32 {
     return math.atan(x);
+}
+
+fn atanh_(x: f64) callconv(.c) f64 {
+    return math.atanh(x);
+}
+
+fn atanhf_(x: f32) callconv(.c) f32 {
+    return math.atanh(x);
+}
+
+fn atanhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => math.atanh(@as(f64, @bitCast(x))),
+        else => @floatCast(math.atanh(@as(f64, @floatCast(x)))),
+    };
 }
 
 fn atanl(x: c_longdouble) callconv(.c) c_longdouble {
@@ -139,12 +197,47 @@ fn coshf(x: f32) callconv(.c) f32 {
     return math.cosh(x);
 }
 
+fn coshl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => math.cosh(@as(f64, @bitCast(x))),
+        else => @floatCast(math.cosh(@as(f64, @floatCast(x)))),
+    };
+}
+
 fn exp10(x: f64) callconv(.c) f64 {
     return math.pow(f64, 10.0, x);
 }
 
 fn exp10f(x: f32) callconv(.c) f32 {
     return math.pow(f32, 10.0, x);
+}
+
+fn expm1_(x: f64) callconv(.c) f64 {
+    return math.expm1(x);
+}
+
+fn expm1f_(x: f32) callconv(.c) f32 {
+    return math.expm1(x);
+}
+
+test "expm1" {
+    try expectApproxEqAbs(@as(f64, 0.0), expm1_(0.0), 1e-15);
+    try expectApproxEqRel(@as(f64, 1.71828182845904523536), expm1_(1.0), 1e-15);
+    try expectApproxEqAbs(@as(f32, 0.0), expm1f_(0.0), 1e-6);
+}
+
+fn log1p_(x: f64) callconv(.c) f64 {
+    return math.log1p(x);
+}
+
+fn log1pf_(x: f32) callconv(.c) f32 {
+    return math.log1p(x);
+}
+
+test "log1p" {
+    try expectApproxEqAbs(@as(f64, 0.0), log1p_(0.0), 1e-15);
+    try expectApproxEqRel(@as(f64, 0.69314718055994530942), log1p_(1.0), 1e-15);
+    try expectApproxEqAbs(@as(f32, 0.0), log1pf_(0.0), 1e-6);
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
@@ -340,10 +433,47 @@ test "rint" {
     try expectEqual(@as(f64, 4.0), rint(3.5));
 }
 
+fn sinh_(x: f64) callconv(.c) f64 {
+    return math.sinh(x);
+}
+
+fn sinhf_(x: f32) callconv(.c) f32 {
+    return math.sinh(x);
+}
+
+fn sinhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => math.sinh(@as(f64, @bitCast(x))),
+        else => @floatCast(math.sinh(@as(f64, @floatCast(x)))),
+    };
+}
+
+test "sinh" {
+    try expectApproxEqAbs(@as(f64, 0.0), sinh_(0.0), 1e-15);
+    try expectApproxEqRel(@as(f64, 1.17520119364380145688), sinh_(1.0), 1e-15);
+    try expectApproxEqAbs(@as(f32, 0.0), sinhf_(0.0), 1e-6);
+}
+
 fn tanh(x: f64) callconv(.c) f64 {
     return math.tanh(x);
 }
 
 fn tanhf(x: f32) callconv(.c) f32 {
     return math.tanh(x);
+}
+
+fn tanhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => math.tanh(@as(f64, @bitCast(x))),
+        else => @floatCast(math.tanh(@as(f64, @floatCast(x)))),
+    };
+}
+
+test "hyperbolic" {
+    try expectApproxEqRel(@as(f64, 0.0), acosh_(1.0), 1e-15);
+    try expectApproxEqRel(@as(f64, 1.31695789692481670862), acosh_(2.0), 1e-15);
+    try expectApproxEqAbs(@as(f64, 0.0), asinh_(0.0), 1e-15);
+    try expectApproxEqRel(@as(f64, 0.88137358701954302519), asinh_(1.0), 1e-15);
+    try expectApproxEqAbs(@as(f64, 0.0), atanh_(0.0), 1e-15);
+    try expectApproxEqRel(@as(f64, 0.54930614433405484570), atanh_(0.5), 1e-15);
 }

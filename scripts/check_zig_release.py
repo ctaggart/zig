@@ -70,8 +70,8 @@ def main() -> None:
             # Older releases use the key as the version
             version = key
 
-        # Skip if it looks like "master" and has no real version
-        if version == "master":
+        # Skip dev builds (the index key is "master" for the latest dev build)
+        if key == "master":
             continue
 
         # For stable releases, tag as "v0.15.2"; for dev builds, "v0.16.0-dev.2962+08416b44f"

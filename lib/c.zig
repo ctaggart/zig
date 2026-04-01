@@ -68,6 +68,7 @@ comptime {
     if (!builtin.target.isMinGW()) {
         _ = @import("c/malloc.zig");
     }
+    _ = @import("c/erf.zig");
     _ = @import("c/math.zig");
     _ = @import("c/search.zig");
     _ = @import("c/stdlib.zig");

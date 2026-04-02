@@ -278,6 +278,7 @@ fn pow(x: f64, y: f64) callconv(.c) f64 {
 }
 
 fn powf(x: f32, y: f32) callconv(.c) f32 {
+    if (@as(u32, @bitCast(y)) == @as(u32, @bitCast(@as(f32, 1.0)))) return x;
     return math.pow(f32, x, y);
 }
 

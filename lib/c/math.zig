@@ -59,11 +59,15 @@ comptime {
         symbol(&cosh, "cosh");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&fmal, "fmal");
         symbol(&hypot, "hypot");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
+        symbol(&powl, "powl");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&sinh, "sinh");
+        symbol(&sinhf, "sinhf");
         symbol(&tanh, "tanh");
     }
 
@@ -145,6 +149,10 @@ fn exp10(x: f64) callconv(.c) f64 {
 
 fn exp10f(x: f32) callconv(.c) f32 {
     return math.pow(f32, 10.0, x);
+}
+
+fn fmal(x: c_longdouble, y: c_longdouble, z: c_longdouble) callconv(.c) c_longdouble {
+    return @mulAdd(c_longdouble, x, y, z);
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
@@ -276,6 +284,10 @@ fn pow(x: f64, y: f64) callconv(.c) f64 {
     return math.pow(f64, x, y);
 }
 
+fn powl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return math.pow(c_longdouble, x, y);
+}
+
 fn pow10(x: f64) callconv(.c) f64 {
     return exp10(x);
 }
@@ -338,6 +350,14 @@ test "rint" {
     // Exact half rounds to nearest even (banker's rounding)
     try expectEqual(@as(f64, 2.0), rint(2.5));
     try expectEqual(@as(f64, 4.0), rint(3.5));
+}
+
+fn sinh(x: f64) callconv(.c) f64 {
+    return math.sinh(x);
+}
+
+fn sinhf(x: f32) callconv(.c) f32 {
+    return math.sinh(x);
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

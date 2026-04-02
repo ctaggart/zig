@@ -81,5 +81,6 @@ comptime {
     _ = @import("c/sys/utsname.zig");
 
     _ = @import("c/unistd.zig");
+    _ = @import("c/wasi_cloudlibc.zig");
     _ = @import("c/wchar.zig");
 }

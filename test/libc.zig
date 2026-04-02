@@ -242,9 +242,9 @@ pub fn addCases(cases: *tests.LibcContext) void {
     // cases.addLibcTestCase("math/lgammaf_r.c", true, .{});
     // cases.addLibcTestCase("math/lgammal.c", true, .{});
     cases.addLibcTestCase("math/lgammal_r.c", true, .{});
-    // cases.addLibcTestCase("math/llrint.c", true, .{});
-    // cases.addLibcTestCase("math/llrintf.c", true, .{});
-    // cases.addLibcTestCase("math/llrintl.c", true, .{});
+    cases.addLibcTestCase("math/llrint.c", true, .{});
+    cases.addLibcTestCase("math/llrintf.c", true, .{});
+    cases.addLibcTestCase("math/llrintl.c", true, .{});
     // cases.addLibcTestCase("math/llround.c", true, .{});
     // cases.addLibcTestCase("math/llroundf.c", true, .{});
     // cases.addLibcTestCase("math/llroundl.c", true, .{});

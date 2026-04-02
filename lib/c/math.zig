@@ -281,6 +281,89 @@ fn powf(x: f32, y: f32) callconv(.c) f32 {
     return math.pow(f32, x, y);
 }
 
+test "powf" {
+    const epsilon = 1e-4;
+    const inf = math.inf(f32);
+    const f32_nan = math.nan(f32);
+
+    // Basic values (from std.math.pow tests)
+    try expect(math.approxEqAbs(f32, powf(0.0, 3.3), 0.0, epsilon));
+    try expect(math.approxEqAbs(f32, powf(0.8923, 3.3), 0.686572, epsilon));
+    try expect(math.approxEqAbs(f32, powf(0.2, 3.3), 0.004936, epsilon));
+    try expect(math.approxEqAbs(f32, powf(1.5, 3.3), 3.811546, epsilon));
+    try expect(math.approxEqAbs(f32, powf(37.45, 3.3), 155736.703125, epsilon));
+    try expect(math.approxEqAbs(f32, powf(89.123, 3.3), 2722489.5, epsilon));
+    try expect(math.approxEqAbs(f32, powf(-1.0, 1e10), 1.0, epsilon));
+
+    // x^±0 = 1 for any x, even NaN
+    try expect(powf(4, 0.0) == 1.0);
+    try expect(powf(7, -0.0) == 1.0);
+    try expect(powf(f32_nan, -0.0) == 1.0);
+
+    // 1^y = 1 for any y, even ±inf or NaN
+    try expect(powf(1.0, 4) == 1.0);
+    try expect(powf(1.0, -inf) == 1.0);
+    try expect(powf(1.0, f32_nan) == 1.0);
+
+    // x^1 = x for any x
+    try expect(powf(45, 1.0) == 45);
+    try expect(powf(-45, 1.0) == -45);
+    try expect(math.isPositiveZero(powf(0.0, 1.0)));
+    try expect(math.isNegativeZero(powf(-0.0, 1.0)));
+    try expect(math.isPositiveInf(powf(inf, 1.0)));
+    try expect(math.isNan(powf(f32_nan, 1.0)));
+
+    // NaN propagation
+    try expect(math.isNan(powf(f32_nan, 5.0)));
+    try expect(math.isNan(powf(5.0, f32_nan)));
+
+    // ±0 raised to negative odd integer → ±inf
+    try expect(math.isPositiveInf(powf(0.0, -1.0)));
+    try expect(math.isNegativeInf(powf(-0.0, -5.0)));
+
+    // ±0 raised to -inf → +inf
+    try expect(math.isPositiveInf(powf(0.0, -inf)));
+    try expect(math.isPositiveInf(powf(-0.0, -inf)));
+
+    // ±0 raised to +inf → +0
+    try expect(math.isPositiveZero(powf(0.0, inf)));
+    try expect(math.isPositiveZero(powf(-0.0, inf)));
+
+    // ±0 raised to negative even/non-integer → +inf
+    try expect(math.isPositiveInf(powf(0.0, -2.0)));
+    try expect(math.isPositiveInf(powf(-0.0, -2.0)));
+    try expect(math.isPositiveInf(powf(0.0, -5.2)));
+
+    // ±0 raised to positive odd integer → ±0
+    try expect(math.isPositiveZero(powf(0.0, 3.0)));
+    try expect(math.isNegativeZero(powf(-0.0, 5.0)));
+
+    // ±0 raised to positive even/non-integer → +0
+    try expect(math.isPositiveZero(powf(0.0, 2.0)));
+    try expect(math.isPositiveZero(powf(-0.0, 2.0)));
+    try expect(math.isPositiveZero(powf(-0.0, 0.5)));
+
+    // (-1)^±inf = 1
+    try expect(powf(-1.0, inf) == 1.0);
+    try expect(powf(-1.0, -inf) == 1.0);
+
+    // |x|>1 raised to ±inf
+    try expect(math.isPositiveInf(powf(1.2, inf)));
+    try expect(math.isPositiveZero(powf(1.2, -inf)));
+
+    // |x|<1 raised to ±inf
+    try expect(math.isPositiveZero(powf(0.2, inf)));
+    try expect(math.isPositiveInf(powf(0.2, -inf)));
+
+    // +inf raised to positive/negative
+    try expect(math.isPositiveInf(powf(inf, 2.0)));
+    try expect(math.isPositiveZero(powf(inf, -2.0)));
+
+    // Negative base with non-integer exponent → NaN
+    try expect(math.isNan(powf(-1.0, 1.2)));
+    try expect(math.isNan(powf(-12.4, -78.5)));
+}
+
 fn pow10(x: f64) callconv(.c) f64 {
     return exp10(x);
 }

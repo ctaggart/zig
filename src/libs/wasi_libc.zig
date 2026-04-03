@@ -763,8 +763,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/nexttowardl.c",
     "musl/src/math/__polevll.c",
     "musl/src/math/pow_data.c",
-    "musl/src/math/powf.c",
-    "musl/src/math/powf_data.c",
     "musl/src/math/remainder.c",
     "musl/src/math/remainderf.c",
     "musl/src/math/remainderl.c",

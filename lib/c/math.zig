@@ -53,9 +53,7 @@ comptime {
         symbol(&acoshf, "acoshf");
         symbol(&acoshl_, "acoshl");
         symbol(&asin, "asin");
-        symbol(&asinh_, "asinh");
         symbol(&asinhf_, "asinhf");
-        symbol(&asinhl_, "asinhl");
         symbol(&atan, "atan");
         symbol(&atanf, "atanf");
         symbol(&atanh_, "atanh");
@@ -78,9 +76,6 @@ comptime {
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
         symbol(&rintl, "rintl");
-        symbol(&sinh_, "sinh");
-        symbol(&sinhf_, "sinhf");
-        symbol(&sinhl_, "sinhl");
         symbol(&tanh, "tanh");
         symbol(&tanhl_, "tanhl");
     }
@@ -122,19 +117,8 @@ fn asin(x: f64) callconv(.c) f64 {
     return math.asin(x);
 }
 
-fn asinh_(x: f64) callconv(.c) f64 {
-    return math.asinh(x);
-}
-
 fn asinhf_(x: f32) callconv(.c) f32 {
     return math.asinh(x);
-}
-
-fn asinhl_(x: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(c_longdouble).float.bits) {
-        64 => math.asinh(@as(f64, @bitCast(x))),
-        else => @floatCast(math.asinh(@as(f64, @floatCast(x)))),
-    };
 }
 
 fn atan(x: f64) callconv(.c) f64 {
@@ -480,27 +464,6 @@ fn rintl(x: c_longdouble) callconv(.c) c_longdouble {
     return y;
 }
 
-fn sinh_(x: f64) callconv(.c) f64 {
-    return math.sinh(x);
-}
-
-fn sinhf_(x: f32) callconv(.c) f32 {
-    return math.sinh(x);
-}
-
-fn sinhl_(x: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(c_longdouble).float.bits) {
-        64 => math.sinh(@as(f64, @bitCast(x))),
-        else => @floatCast(math.sinh(@as(f64, @floatCast(x)))),
-    };
-}
-
-test "sinh" {
-    try expectApproxEqAbs(@as(f64, 0.0), sinh_(0.0), 1e-15);
-    try expectApproxEqRel(@as(f64, 1.17520119364380145688), sinh_(1.0), 1e-15);
-    try expectApproxEqAbs(@as(f32, 0.0), sinhf_(0.0), 1e-6);
-}
-
 fn tanh(x: f64) callconv(.c) f64 {
     return math.tanh(x);
 }
@@ -519,8 +482,8 @@ fn tanhl_(x: c_longdouble) callconv(.c) c_longdouble {
 test "hyperbolic" {
     try expectApproxEqRel(@as(f64, 0.0), acosh_(1.0), 1e-15);
     try expectApproxEqRel(@as(f64, 1.31695789692481670862), acosh_(2.0), 1e-15);
-    try expectApproxEqAbs(@as(f64, 0.0), asinh_(0.0), 1e-15);
-    try expectApproxEqRel(@as(f64, 0.88137358701954302519), asinh_(1.0), 1e-15);
+    try expectApproxEqAbs(@as(f32, 0.0), asinhf_(0.0), 1e-6);
+    try expectApproxEqRel(@as(f32, 0.88137358), asinhf_(1.0), 1e-6);
     try expectApproxEqAbs(@as(f64, 0.0), atanh_(0.0), 1e-15);
     try expectApproxEqRel(@as(f64, 0.54930614433405484570), atanh_(0.5), 1e-15);
 }

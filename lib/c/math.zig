@@ -69,8 +69,7 @@ comptime {
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
         symbol(&tanh, "tanh");
-        symbol(&tgamma_, "tgamma");
-        symbol(&tgammaf_, "tgammaf");
+
     }
 
     if (builtin.target.isMuslLibC()) {
@@ -353,16 +352,6 @@ fn tanh(x: f64) callconv(.c) f64 {
 fn tanhf(x: f32) callconv(.c) f32 {
     return math.tanh(x);
 }
-
-// Gamma function implementations
-fn tgamma_(x: f64) callconv(.c) f64 {
-    return math.gamma(f64, x);
-}
-
-fn tgammaf_(x: f32) callconv(.c) f32 {
-    return math.gamma(f32, x);
-}
-
 
 // Error function implementations - ported from musl erf.c, erff.c
 

@@ -888,7 +888,7 @@ const src_files = [_][]const u8{
     "musl/src/math/ilogbf.c",
     "musl/src/math/ilogbl.c",
     "musl/src/math/__invtrigl.c",
-    "musl/src/math/j0.c",
+    // j0.c (j0+y0 f64) ported to Zig in lib/c/bessel.zig
     "musl/src/math/j0f.c",
     "musl/src/math/j1.c",
     "musl/src/math/j1f.c",

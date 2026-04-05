@@ -121,36 +121,81 @@ fn asinhf_(x: f32) callconv(.c) f32 {
     return math.asinh(x);
 }
 
-/// Port of musl asinh.c with @mulAdd improvement for x*x+1 computation.
-/// Reduces ULP error below 1.5 in [0.125,0.5] range (musl C has up to 1.6).
-fn asinh_(x: f64) callconv(.c) f64 {
+/// Compute log(1+x) accurately using the Kahan/Goldberg trick.
+/// Used for types where std.math.log1p is not available (f80, f128).
+fn log1p_wide(comptime T: type, x: T) T {
+    const u = @as(T, 1.0) + x;
+    if (u == @as(T, 1.0)) return x;
+    return @log(u) * x / (u - @as(T, 1.0));
+}
+
+/// Compute exp(x)-1 accurately using the Kahan/Goldberg trick.
+/// Used for types where std.math.expm1 is not available (f80, f128).
+fn expm1_wide(comptime T: type, x: T) T {
+    const u = @exp(x);
+    const t = u - @as(T, 1.0);
+    if (t == @as(T, 0.0)) return x;
+    if (!math.isFinite(t)) return t;
+    return t * x / @log(u);
+}
+
+/// Port of musl asinh.c using f80 intermediates for < 1.5 ULP accuracy.
+/// The 18 extra mantissa bits of f80 eliminate the log1p precision issue
+/// that causes 1.5+ ULP errors in the f64 [0.125,0.5] range.
+fn asinh_(x_: f64) callconv(.c) f64 {
     @setFloatMode(.strict);
-    const u: u64 = @bitCast(x);
+    const u: u64 = @bitCast(x_);
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;
-    var rx: f64 = @bitCast(u & (std.math.maxInt(u64) >> 1)); // |x|
+    const x: f80 = @floatCast(@as(f64, @bitCast(u & (std.math.maxInt(u64) >> 1))));
 
     if (e >= 0x3FF + 26) {
         // |x| >= 0x1p26 or inf or nan
-        rx = @log(rx) + 0.693147180559945309417232121458176568;
+        const r: f64 = @floatCast(@log(x) + @as(f80, 0.693147180559945309417232121458176568));
+        return if (s != 0) -r else r;
     } else if (e >= 0x3FF + 1) {
         // |x| >= 2
-        rx = @log(2 * rx + 1 / (@sqrt(@mulAdd(f64, rx, rx, 1)) + rx));
+        const r: f64 = @floatCast(@log(2 * x + 1 / (@sqrt(x * x + 1) + x)));
+        return if (s != 0) -r else r;
     } else if (e >= 0x3FF - 26) {
-        // |x| >= 0x1p-26: use @mulAdd for x*x+1 to get < 1.5 ULP
-        rx = math.log1p(rx + rx * rx / (@sqrt(@mulAdd(f64, rx, rx, 1)) + 1));
+        // |x| >= 0x1p-26: compute in f80 to avoid log1p precision loss
+        const y = x + x * x / (@sqrt(x * x + 1) + 1);
+        const r: f64 = @floatCast(log1p_wide(f80, y));
+        return if (s != 0) -r else r;
     } else {
         // |x| < 0x1p-26, raise inexact if x != 0
-        std.mem.doNotOptimizeAway(rx + 0x1p120);
+        std.mem.doNotOptimizeAway(x + @as(f80, 0x1p120));
+        return x_;
     }
-    return if (s != 0) -rx else rx;
 }
 
 fn asinhl_(x: c_longdouble) callconv(.c) c_longdouble {
     return switch (@typeInfo(c_longdouble).float.bits) {
         64 => @bitCast(asinh_(@bitCast(x))),
-        else => @floatCast(asinh_(@floatCast(x))),
+        else => asinhl_impl(c_longdouble, x),
     };
+}
+
+/// Native long double asinh (port of musl asinhl.c).
+fn asinhl_impl(comptime T: type, x_: T) T {
+    @setFloatMode(.strict);
+    const ax = @abs(x_);
+
+    if (ax >= 0x1p32) {
+        const r = @log(ax) + @as(T, 0.693147180559945309417232121458176568);
+        return if (math.signbit(x_)) -r else r;
+    } else if (ax >= 2.0) {
+        const r = @log(2 * ax + 1 / (@sqrt(ax * ax + 1) + ax));
+        return if (math.signbit(x_)) -r else r;
+    } else if (ax >= 0x1p-32) {
+        const y = ax + ax * ax / (@sqrt(ax * ax + 1) + 1);
+        const r = log1p_wide(T, y);
+        return if (math.signbit(x_)) -r else r;
+    } else {
+        // |x| < 0x1p-32, raise inexact if x != 0
+        std.mem.doNotOptimizeAway(ax + @as(T, 0x1p120));
+        return x_;
+    }
 }
 
 fn atan(x: f64) callconv(.c) f64 {
@@ -222,38 +267,63 @@ fn coshl_(x: c_longdouble) callconv(.c) c_longdouble {
     };
 }
 
-/// Port of musl sinh.c with direct exp(x/2) overflow handling
-/// instead of __expo2, avoiding the intermediate overflow issue.
-fn sinh_(x: f64) callconv(.c) f64 {
+/// Port of musl sinh.c using f80 intermediates.
+/// f80 exp handles values up to ~11356 without overflow, so the
+/// overflow path (|x| > log(DBL_MAX) ≈ 710) works without the
+/// exp(x/2)² trick that causes directed rounding errors.
+fn sinh_(x_: f64) callconv(.c) f64 {
     @setFloatMode(.strict);
-    const u: u64 = @bitCast(x);
-    const w: u32 = @intCast(u >> 32);
-    const absx: f64 = @bitCast(u & (std.math.maxInt(u64) >> 1));
-    var h: f64 = 0.5;
+    const u: u64 = @bitCast(x_);
+    const absu = u & (std.math.maxInt(u64) >> 1);
+    const w: u32 = @intCast(absu >> 32);
+    const absx: f80 = @abs(@as(f80, @floatCast(x_)));
+    var h: f80 = 0.5;
     if (u >> 63 != 0) h = -h;
 
     // |x| < log(DBL_MAX)
     if (w < 0x40862e42) {
-        const t = math.expm1(absx);
+        const t: f80 = expm1_wide(f80, absx);
         if (w < 0x3ff00000) {
             if (w < 0x3ff00000 - (26 << 20))
-                // avoid spurious underflow
-                return x;
-            return h * (2 * t - t * t / (t + 1));
+                return x_;
+            return @floatCast(h * (2 * t - t * t / (t + 1)));
         }
-        return h * (t + t / (t + 1));
+        return @floatCast(h * (t + t / (t + 1)));
     }
 
-    // |x| > log(DBL_MAX) or nan: use exp(x/2) trick to avoid overflow
-    const t = @exp(0.5 * absx);
-    return h * t * t;
+    // |x| > log(DBL_MAX) or nan: f80 exp won't overflow here
+    const t: f80 = @exp(absx);
+    return @floatCast(h * t);
 }
 
 fn sinhl_(x: c_longdouble) callconv(.c) c_longdouble {
     return switch (@typeInfo(c_longdouble).float.bits) {
         64 => @bitCast(sinh_(@bitCast(x))),
-        else => @floatCast(sinh_(@as(f64, @floatCast(x)))),
+        else => sinhl_impl(c_longdouble, x),
     };
+}
+
+/// Native long double sinh (port of musl sinhl.c).
+fn sinhl_impl(comptime T: type, x_: T) T {
+    @setFloatMode(.strict);
+    const absx = @abs(x_);
+    var h: T = 0.5;
+    if (math.signbit(x_)) h = -h;
+
+    // |x| < log(FLT_MAX) for f80/f128 (≈ 11356.52)
+    if (absx < @as(T, 0x1.62e42fefa39efp+13)) {
+        const t = expm1_wide(T, absx);
+        if (absx < 1.0) {
+            if (absx < 0x1p-32)
+                return x_;
+            return h * (2 * t - t * t / (t + 1));
+        }
+        return h * (t + t / (t + 1));
+    }
+
+    // |x| > log(FLT_MAX) or nan
+    const t = @exp(@as(T, 0.5) * absx);
+    return h * t * t;
 }
 
 fn exp10(x: f64) callconv(.c) f64 {

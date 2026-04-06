@@ -121,22 +121,99 @@ fn asinhf_(x: f32) callconv(.c) f32 {
     return math.asinh(x);
 }
 
-/// Compute log(1+x) accurately using the Kahan/Goldberg trick.
-/// Used for types where std.math.log1p is not available (f80, f128).
+/// Compute log(1+x) using the identity log(1+x) = 2*atanh(x/(x+2))
+/// and the series atanh(s) = s + s³/3 + s⁵/5 + ...
+/// Uses only basic arithmetic (+, -, *, /) — no @log.
 fn log1p_wide(comptime T: type, x: T) T {
-    const u = @as(T, 1.0) + x;
-    if (u == @as(T, 1.0)) return x;
-    return @log(u) * x / (u - @as(T, 1.0));
+    if (x == 0) return x;
+    const one: T = 1.0;
+    const u = one + x;
+    if (u == one) return x;
+
+    // For large |x|, delegate to log_pure which does its own range reduction.
+    // Thresholds chosen so that log_pure's callback into log1p_wide always
+    // has |x| in [-0.293, 0.414], preventing infinite recursion.
+    if (x > 0.5 or x < -0.3) return log_pure(T, u);
+
+    // log(1+x) = 2*atanh(s) where s = x/(x+2)
+    const s = x / (x + 2.0);
+    const s2 = s * s;
+
+    // Horner evaluation: atanh(s)/s = 1 + s²/3 + s⁴/5 + ...
+    // For |x| <= 0.5: |s| <= 0.2, s² <= 0.04, 30 terms → error < 2^(-130).
+    const num_terms = 30;
+    var w: T = one / @as(T, @floatFromInt(2 * num_terms + 1));
+    comptime var i: u32 = num_terms;
+    inline while (i > 0) : (i -= 1) {
+        w = w * s2 + one / @as(T, @floatFromInt(2 * i - 1));
+    }
+    return 2 * s * w;
 }
 
-/// Compute exp(x)-1 accurately using the Kahan/Goldberg trick.
-/// Used for types where std.math.expm1 is not available (f80, f128).
+/// Compute log(x) for x > 0 using frexp range reduction + log1p_wide.
+/// Uses only basic arithmetic — no @log.
+fn log_pure(comptime T: type, x: T) T {
+    const fr = math.frexp(x);
+    var sig = fr.significand;
+    var exp_val = fr.exponent;
+    // Adjust so significand ∈ [√2/2, √2) for tighter log1p_wide input range
+    const sqrt2_over_2: T = 0.70710678118654752440084436210484903928;
+    if (sig < sqrt2_over_2) {
+        sig *= 2.0;
+        exp_val -= 1;
+    }
+    const ln2: T = 0.6931471805599453094172321214581765680755001343602552541206800094;
+    const k: T = @floatFromInt(exp_val);
+    return k * ln2 + log1p_wide(T, sig - 1.0);
+}
+
+/// Taylor series for exp(x)-1: x + x²/2! + x³/3! + ...
+fn taylor_expm1(comptime T: type, x: T) T {
+    var term: T = x;
+    var sum: T = x;
+    var n: u32 = 2;
+    while (n < 50) : (n += 1) {
+        term *= x / @as(T, @floatFromInt(n));
+        const old = sum;
+        sum += term;
+        if (sum == old) break;
+    }
+    return sum;
+}
+
+/// Compute exp(x)-1 using Taylor series with range reduction.
+/// Uses only basic arithmetic — no @exp.
 fn expm1_wide(comptime T: type, x: T) T {
-    const u = @exp(x);
-    const t = u - @as(T, 1.0);
-    if (t == @as(T, 0.0)) return x;
-    if (!math.isFinite(t)) return t;
-    return t * x / @log(u);
+    if (x == 0) return x;
+    if (!math.isFinite(x)) {
+        if (x > 0) return math.inf(T);
+        return -1.0;
+    }
+
+    if (@abs(x) < 0.5) return taylor_expm1(T, x);
+
+    // Range reduction: x = k*ln2 + r, |r| <= ln2/2
+    const ln2: T = 0.6931471805599453094172321214581765680755001343602552541206800094;
+    const inv_ln2: T = 1.4426950408889634073599246810018921374266459541529859341354494069;
+    const k_f: T = @round(x * inv_ln2);
+    const r = x - k_f * ln2;
+
+    if (k_f > 0x1p30 or k_f < -0x1p30) {
+        if (x > 0) return math.inf(T);
+        return -1.0;
+    }
+    const k: i32 = @intFromFloat(k_f);
+
+    const sum = taylor_expm1(T, r);
+    if (k == 0) return sum;
+    // expm1(x) = 2^k * (1 + expm1(r)) - 1 = 2^k * expm1(r) + (2^k - 1)
+    const two_k = math.scalbn(@as(T, 1.0), k);
+    return two_k * sum + (two_k - 1);
+}
+
+/// Compute exp(x) using expm1. Uses only basic arithmetic — no @exp.
+fn exp_pure(comptime T: type, x: T) T {
+    return 1.0 + expm1_wide(T, x);
 }
 
 /// Port of musl asinh.c using f128 intermediates for < 1.5 ULP accuracy.
@@ -152,11 +229,11 @@ fn asinh_(x_: f64) callconv(.c) f64 {
 
     if (e >= 0x3FF + 26) {
         // |x| >= 0x1p26 or inf or nan
-        const r: f64 = @floatCast(@log(x) + @as(f128, 0.693147180559945309417232121458176568));
+        const r: f64 = @floatCast(log_pure(f128, x) + @as(f128, 0.693147180559945309417232121458176568));
         return if (s != 0) -r else r;
     } else if (e >= 0x3FF + 1) {
         // |x| >= 2
-        const r: f64 = @floatCast(@log(2 * x + 1 / (@sqrt(x * x + 1) + x)));
+        const r: f64 = @floatCast(log_pure(f128, 2 * x + 1 / (@sqrt(x * x + 1) + x)));
         return if (s != 0) -r else r;
     } else if (e >= 0x3FF - 26) {
         // |x| >= 0x1p-26: compute in f128 to avoid log1p precision loss
@@ -183,10 +260,10 @@ fn asinhl_impl(comptime T: type, x_: T) T {
     const ax = @abs(x_);
 
     if (ax >= 0x1p32) {
-        const r = @log(ax) + @as(T, 0.693147180559945309417232121458176568);
+        const r = log_pure(T, ax) + @as(T, 0.693147180559945309417232121458176568);
         return if (math.signbit(x_)) -r else r;
     } else if (ax >= 2.0) {
-        const r = @log(2 * ax + 1 / (@sqrt(ax * ax + 1) + ax));
+        const r = log_pure(T, 2 * ax + 1 / (@sqrt(ax * ax + 1) + ax));
         return if (math.signbit(x_)) -r else r;
     } else if (ax >= 0x1p-32) {
         const y = ax + ax * ax / (@sqrt(ax * ax + 1) + 1);
@@ -294,7 +371,7 @@ fn sinh_(x_: f64) callconv(.c) f64 {
     }
 
     // |x| > log(DBL_MAX) or nan: f128 exp won't overflow here
-    const t: f128 = @exp(absx);
+    const t: f128 = exp_pure(f128, absx);
     return @floatCast(h * t);
 }
 
@@ -324,7 +401,7 @@ fn sinhl_impl(comptime T: type, x_: T) T {
     }
 
     // |x| > log(FLT_MAX) or nan
-    const t = @exp(@as(T, 0.5) * absx);
+    const t = exp_pure(T, @as(T, 0.5) * absx);
     return h * t * t;
 }
 

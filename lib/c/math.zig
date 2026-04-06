@@ -178,7 +178,7 @@ fn fdimf_(x: f32, y: f32) callconv(.c) f32 {
 fn fdiml_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
     return switch (@typeInfo(c_longdouble).float.bits) {
         64 => @bitCast(fdim_(@bitCast(x), @bitCast(y))),
-        else => @floatCast(fdim_(@floatCast(x), @floatCast(y))),
+        else => fdimGeneric(c_longdouble, x, y),
     };
 }
 

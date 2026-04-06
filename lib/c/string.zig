@@ -348,6 +348,7 @@ fn strerror_r_fn(err: c_int, buf: ?[*]u8, buflen: usize) callconv(.c) c_int {
 }
 
 const signal_descriptions = blk: {
+    @setEvalBranchQuota(10000);
     const base = [_][*:0]const u8{
         "Unknown signal",
         "Hangup",

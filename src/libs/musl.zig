@@ -804,8 +804,7 @@ const src_files = [_][]const u8{
     "musl/src/math/asinhf.c",
     "musl/src/math/asinhl.c",
     "musl/src/math/asinl.c",
-    "musl/src/math/atan2.c",
-    "musl/src/math/atan2f.c",
+
     "musl/src/math/atan2l.c",
     "musl/src/math/atanh.c",
     "musl/src/math/atanhf.c",
@@ -845,9 +844,9 @@ const src_files = [_][]const u8{
     "musl/src/math/i386/acosl.s",
     "musl/src/math/i386/asinf.s",
     "musl/src/math/i386/asinl.s",
-    "musl/src/math/i386/atan2f.s",
+
     "musl/src/math/i386/atan2l.s",
-    "musl/src/math/i386/atan2.s",
+
     "musl/src/math/i386/exp2l.s",
     "musl/src/math/i386/exp_ld.s",
     "musl/src/math/i386/expl.s",

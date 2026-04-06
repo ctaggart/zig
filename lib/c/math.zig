@@ -52,6 +52,8 @@ comptime {
         symbol(&acoshf, "acoshf");
         symbol(&asin, "asin");
         symbol(&atan, "atan");
+        symbol(&atan2, "atan2");
+        symbol(&atan2f, "atan2f");
         symbol(&atanf, "atanf");
         symbol(&atanl, "atanl");
         symbol(&cbrt, "cbrt");
@@ -99,6 +101,14 @@ fn atan(x: f64) callconv(.c) f64 {
 
 fn atanf(x: f32) callconv(.c) f32 {
     return math.atan(x);
+}
+
+fn atan2(y: f64, x: f64) callconv(.c) f64 {
+    return math.atan2(y, x);
+}
+
+fn atan2f(y: f32, x: f32) callconv(.c) f32 {
+    return math.atan2(y, x);
 }
 
 fn atanl(x: c_longdouble) callconv(.c) c_longdouble {

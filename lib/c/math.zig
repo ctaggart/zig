@@ -61,6 +61,8 @@ comptime {
         symbol(&exp10f, "exp10f");
         symbol(&fdim, "fdim");
         symbol(&hypot, "hypot");
+        symbol(&llrint, "llrint");
+        symbol(&lrint, "lrint");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
@@ -71,6 +73,7 @@ comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&copysign, "copysign");
         symbol(&copysignf, "copysignf");
+        symbol(&nearbyint, "nearbyint");
         symbol(&rint, "rint");
     }
 
@@ -173,6 +176,15 @@ fn hypotl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
     return math.hypot(x, y);
 }
 
+fn intFromFloat(comptime I: type, x: anytype) I {
+    const F = @TypeOf(x);
+    if (math.isNan(x) or !math.isFinite(x)) return math.minInt(I);
+    const upper: F = @floatFromInt(@as(comptime_int, math.maxInt(I)) + 1);
+    const lower: F = @floatFromInt(math.minInt(I));
+    if (x >= upper or x < lower) return math.minInt(I);
+    return @intFromFloat(x);
+}
+
 fn isnan(x: f64) callconv(.c) c_int {
     return if (math.isNan(x)) 1 else 0;
 }
@@ -183,6 +195,14 @@ fn isnanf(x: f32) callconv(.c) c_int {
 
 fn isnanl(x: c_longdouble) callconv(.c) c_int {
     return if (math.isNan(x)) 1 else 0;
+}
+
+fn llrint(x: f64) callconv(.c) c_longlong {
+    return intFromFloat(c_longlong, rint(x));
+}
+
+fn lrint(x: f64) callconv(.c) c_long {
+    return intFromFloat(c_long, rint(x));
 }
 
 fn modfGeneric(comptime T: type, x: T, iptr: *T) T {
@@ -272,6 +292,10 @@ test "modf" {
     try testModf(f32);
     try testModf(f64);
     try testModf(c_longdouble);
+}
+
+fn nearbyint(x: f64) callconv(.c) f64 {
+    return rint(x);
 }
 
 fn nan(_: [*:0]const c_char) callconv(.c) f64 {

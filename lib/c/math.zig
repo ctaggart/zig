@@ -60,6 +60,7 @@ comptime {
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
         symbol(&fdim, "fdim");
+        symbol(&fma, "fma");
         symbol(&hypot, "hypot");
         symbol(&modf, "modf");
         symbol(&pow, "pow");
@@ -159,6 +160,10 @@ fn fdim(x: f64, y: f64) callconv(.c) f64 {
         return x - y;
     }
     return 0;
+}
+
+fn fma(x: f64, y: f64, z: f64) callconv(.c) f64 {
+    return @mulAdd(f64, x, y, z);
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {

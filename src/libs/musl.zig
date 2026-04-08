@@ -1056,8 +1056,7 @@ const src_files = [_][]const u8{
     "musl/src/misc/wordexp.c",
     "musl/src/mman/mmap.c",
     "musl/src/mman/mremap.c",
-    "musl/src/mman/msync.c",
-    "musl/src/mman/munmap.c",
+
     "musl/src/mman/shm_open.c",
     "musl/src/mq/mq_close.c",
     "musl/src/mq/mq_getattr.c",
@@ -1763,9 +1762,7 @@ const src_files = [_][]const u8{
     "musl/src/unistd/faccessat.c",
     "musl/src/unistd/fchdir.c",
     "musl/src/unistd/fchown.c",
-    "musl/src/unistd/fdatasync.c",
-    "musl/src/unistd/fsync.c",
-    "musl/src/unistd/ftruncate.c",
+
     "musl/src/unistd/getcwd.c",
     "musl/src/unistd/gethostname.c",
     "musl/src/unistd/getlogin.c",

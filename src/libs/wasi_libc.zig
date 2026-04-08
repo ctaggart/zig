@@ -501,9 +501,7 @@ const libc_bottom_half_src_files = [_][]const u8{
     "wasi/libc-bottom-half/cloudlibc/src/libc/time/nanosleep.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/time/time.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/faccessat.c",
-    "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/fdatasync.c",
-    "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/fsync.c",
-    "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/ftruncate.c",
+
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/linkat.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/lseek.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/pread.c",

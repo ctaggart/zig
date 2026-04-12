@@ -960,7 +960,6 @@ const src_files = [_][]const u8{
     "musl/src/misc/getauxval.c",
     "musl/src/misc/getdomainname.c",
     "musl/src/misc/issetugid.c",
-    "musl/src/misc/nftw.c",
     "musl/src/mman/mmap.c",
     "musl/src/mman/mremap.c",
     "musl/src/mman/msync.c",

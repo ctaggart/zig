@@ -136,6 +136,7 @@ comptime {
     _ = @import("c/termios.zig");
     _ = @import("c/ldso.zig");
     _ = @import("c/linux.zig");
+    _ = @import("c/mq.zig");
     _ = @import("c/unistd.zig");
     _ = @import("c/spawn.zig");
     _ = @import("c/wasi_cloudlibc.zig");

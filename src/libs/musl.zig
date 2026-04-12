@@ -554,7 +554,6 @@ const src_files = [_][]const u8{
     "musl/src/env/unsetenv.c",
     "musl/src/errno/__errno_location.c",
     "musl/src/errno/strerror.c",
-    "musl/src/exit/abort.c",
     "musl/src/exit/arm/__aeabi_atexit.c",
     "musl/src/exit/assert.c",
     "musl/src/exit/exit.c",

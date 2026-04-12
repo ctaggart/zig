@@ -1467,13 +1467,6 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_cond_wait.c",
     "musl/src/thread/pthread_create.c",
     "musl/src/thread/pthread_getattr_np.c",
-    //"musl/src/thread/pthread_getconcurrency.c", // migrated to lib/c/thread.zig
-    "musl/src/thread/pthread_getcpuclockid.c",
-    "musl/src/thread/pthread_join.c",
-    "musl/src/thread/pthread_key_create.c",
-    "musl/src/thread/pthread_kill.c",
-    //"musl/src/thread/pthread_mutexattr_destroy.c", // migrated to lib/c/thread.zig
-    //"musl/src/thread/pthread_mutexattr_init.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_mutexattr_setprotocol.c",
     //"musl/src/thread/pthread_mutexattr_setpshared.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_mutexattr_setrobust.c",
@@ -1501,8 +1494,6 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_rwlock_unlock.c",
     "musl/src/thread/pthread_rwlock_wrlock.c",
     "musl/src/thread/pthread_setattr_default_np.c",
-    "musl/src/thread/pthread_setschedprio.c",
-    "musl/src/thread/pthread_sigmask.c",
     "musl/src/thread/riscv32/clone.s",
     "musl/src/thread/riscv32/__set_thread_area.s",
     "musl/src/thread/riscv32/syscall_cp.s",
@@ -1524,11 +1515,6 @@ const src_files = [_][]const u8{
     "musl/src/thread/synccall.c",
     "musl/src/thread/__syscall_cp.c",
     "musl/src/thread/syscall_cp.c",
-    "musl/src/thread/thrd_create.c",
-    "musl/src/thread/thrd_exit.c",
-    "musl/src/thread/thrd_join.c",
-    "musl/src/thread/thrd_sleep.c",
-    //"musl/src/thread/thrd_yield.c", // migrated to lib/c/thread.zig
     "musl/src/thread/__timedwait.c",
     "musl/src/thread/tls.c",
     "musl/src/thread/__tls_get_addr.c",

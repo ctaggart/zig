@@ -99,6 +99,7 @@ comptime {
     _ = @import("c/regex.zig");
     _ = @import("c/search.zig");
     _ = @import("c/stat.zig");
+    _ = @import("c/setjmp.zig");
     _ = @import("c/stdlib.zig");
     _ = @import("c/string.zig");
     _ = @import("c/strings.zig");

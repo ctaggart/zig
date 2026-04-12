@@ -543,8 +543,6 @@ const src_files = [_][]const u8{
     "musl/src/dirent/telldir.c",
     "musl/src/dirent/versionsort.c",
     "musl/src/env/__init_tls.c",
-    "musl/src/env/__libc_start_main.c",
-    "musl/src/env/__reset_tls.c",
     "musl/src/errno/__errno_location.c",
     "musl/src/errno/strerror.c",
     "musl/src/exit/arm/__aeabi_atexit.c",

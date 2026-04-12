@@ -142,4 +142,7 @@ comptime {
 
     _ = @import("c/misc.zig");
     _ = @import("c/sched.zig");
+    if (builtin.target.isWasiLibC()) {
+        _ = @import("c/wasi_thread_stub.zig");
+    }
 }

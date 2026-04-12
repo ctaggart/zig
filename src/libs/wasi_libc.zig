@@ -770,36 +770,7 @@ const libc_top_half_src_files = [_][]const u8{
 
     "wasi/libc-top-half/sources/arc4random.c",
 
-    "wasi/thread-stub/pthread_barrier_destroy.c",
-    "wasi/thread-stub/pthread_barrier_init.c",
-    "wasi/thread-stub/pthread_barrier_wait.c",
-    "wasi/thread-stub/pthread_cond_broadcast.c",
-    "wasi/thread-stub/pthread_cond_destroy.c",
-    "wasi/thread-stub/pthread_cond_init.c",
-    "wasi/thread-stub/pthread_cond_signal.c",
-    "wasi/thread-stub/pthread_cond_timedwait.c",
-    "wasi/thread-stub/pthread_cond_wait.c",
-    "wasi/thread-stub/pthread_create.c",
-    "wasi/thread-stub/pthread_detach.c",
-    "wasi/thread-stub/pthread_getattr_np.c",
-    "wasi/thread-stub/pthread_join.c",
-    "wasi/thread-stub/pthread_mutex_consistent.c",
-    "wasi/thread-stub/pthread_mutex_getprioceiling.c",
-    "wasi/thread-stub/pthread_mutex_lock.c",
-    "wasi/thread-stub/pthread_mutex_timedlock.c",
-    "wasi/thread-stub/pthread_mutex_trylock.c",
-    "wasi/thread-stub/pthread_mutex_unlock.c",
-    "wasi/thread-stub/pthread_once.c",
-    "wasi/thread-stub/pthread_rwlock_rdlock.c",
-    "wasi/thread-stub/pthread_rwlock_timedrdlock.c",
-    "wasi/thread-stub/pthread_rwlock_timedwrlock.c",
-    "wasi/thread-stub/pthread_rwlock_tryrdlock.c",
-    "wasi/thread-stub/pthread_rwlock_trywrlock.c",
-    "wasi/thread-stub/pthread_rwlock_unlock.c",
-    "wasi/thread-stub/pthread_rwlock_wrlock.c",
-    "wasi/thread-stub/pthread_spin_lock.c",
-    "wasi/thread-stub/pthread_spin_trylock.c",
-    "wasi/thread-stub/pthread_spin_unlock.c",
+
 };
 
 const crt1_command_src_file = "wasi/libc-bottom-half/crt/crt1-command.c";

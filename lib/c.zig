@@ -108,6 +108,8 @@ comptime {
     _ = @import("c/process.zig");
     _ = @import("c/time.zig");
     _ = @import("c/thread.zig");
+    _ = @import("c/exit.zig");
+    _ = @import("c/legacy.zig");
     _ = @import("c/unistd.zig");
     _ = @import("c/spawn.zig");
     _ = @import("c/wchar.zig");

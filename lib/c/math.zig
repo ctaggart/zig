@@ -59,11 +59,18 @@ comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&acos, "acos");
         symbol(&acoshf, "acoshf");
+        symbol(&acosl, "acosl");
         symbol(&asin, "asin");
+        symbol(&asinhf, "asinhf");
+        symbol(&asinl, "asinl");
         symbol(&atan, "atan");
+        symbol(&atanf, "atanf");
+        symbol(&atanhf, "atanhf");
+        symbol(&atanl, "atanl");
         symbol(&cbrt, "cbrt");
         symbol(&cbrtf, "cbrtf");
         symbol(&cosh, "cosh");
+        symbol(&cosl, "cosl");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
         symbol(&fdim, "fdim");
@@ -76,16 +83,52 @@ comptime {
         symbol(&modf, "modf");
         symbol(&nan, "nan");
         symbol(&nanf, "nanf");
+        symbol(&expm1f, "expm1f");
+        symbol(&fdimf, "fdimf");
+        symbol(&fdiml, "fdiml");
+        symbol(&fmaf, "fmaf");
+        symbol(&fmal, "fmal");
+        symbol(&frexpf, "frexpf");
+        symbol(&frexpl, "frexpl");
+        symbol(&hypot, "hypot");
+        symbol(&ilogbf, "ilogbf");
+        symbol(&ilogbl, "ilogbl");
+        symbol(&ldexpf, "ldexpf");
+        symbol(&ldexpl, "ldexpl");
+        symbol(&llrintf, "llrintf");
+        symbol(&llrintl, "llrintl");
+        symbol(&llroundf, "llroundf");
+        symbol(&llroundl, "llroundl");
+        symbol(&log1pf, "log1pf");
+        symbol(&lrintf, "lrintf");
+        symbol(&lrintl, "lrintl");
+        symbol(&lroundf, "lroundf");
+        symbol(&lroundl, "lroundl");
+        symbol(&modf, "modf");
+        symbol(&nearbyintf, "nearbyintf");
+        symbol(&nearbyintl, "nearbyintl");
+        symbol(&nextafterf, "nextafterf");
+        symbol(&nextafterl, "nextafterl");
+        symbol(&nexttowardf, "nexttowardf");
+        symbol(&nexttowardl, "nexttowardl");
+        symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+
+        symbol(&sincosl, "sincosl");
+        symbol(&sinhf, "sinhf");
+        symbol(&sinl, "sinl");
         symbol(&tanh, "tanh");
+        symbol(&tanl, "tanl");
     }
 
     if (builtin.target.isMuslLibC()) {
         symbol(&copysign, "copysign");
         symbol(&copysignf, "copysignf");
+        symbol(&finitef, "finitef");
         symbol(&rint, "rint");
         symbol(&rintf, "rintf");
+        symbol(&significandf, "significandf");
     }
 }
 
@@ -446,4 +489,210 @@ fn tanh(x: f64) callconv(.c) f64 {
 
 fn tanhf(x: f32) callconv(.c) f32 {
     return math.tanh(x);
+}
+
+fn acosl(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.acos(x);
+}
+
+fn asinhf(x: f32) callconv(.c) f32 {
+    return math.asinh(x);
+}
+
+fn asinl(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.asin(x);
+}
+
+fn atanhf(x: f32) callconv(.c) f32 {
+    return math.atanh(x);
+}
+
+fn cosl(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.cos(x);
+}
+
+fn expm1f(x: f32) callconv(.c) f32 {
+    return math.expm1(x);
+}
+
+fn fdimGeneric(comptime T: type, x: T, y: T) T {
+    if (math.isNan(x)) return math.nan(T);
+    if (math.isNan(y)) return math.nan(T);
+    return if (x > y) x - y else 0;
+}
+
+fn fdimf(x: f32, y: f32) callconv(.c) f32 {
+    return fdimGeneric(f32, x, y);
+}
+
+fn fdiml(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return fdimGeneric(c_longdouble, x, y);
+}
+
+fn finitef(x: f32) callconv(.c) c_int {
+    return if (math.isFinite(x)) 1 else 0;
+}
+
+fn fmaf(x: f32, y: f32, z: f32) callconv(.c) f32 {
+    return @mulAdd(f32, x, y, z);
+}
+
+fn fmal(x: c_longdouble, y: c_longdouble, z: c_longdouble) callconv(.c) c_longdouble {
+    return @mulAdd(c_longdouble, x, y, z);
+}
+
+fn frexpGeneric(comptime T: type, x: T, exp: *c_int) T {
+    const result = math.frexp(x);
+    exp.* = result.exponent;
+    return result.significand;
+}
+
+fn frexpf(x: f32, exp: *c_int) callconv(.c) f32 {
+    return frexpGeneric(f32, x, exp);
+}
+
+fn frexpl(x: c_longdouble, exp: *c_int) callconv(.c) c_longdouble {
+    return frexpGeneric(c_longdouble, x, exp);
+}
+
+fn ilogbf(x: f32) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ilogbl(x: c_longdouble) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ldexpf(x: f32, n: c_int) callconv(.c) f32 {
+    return math.ldexp(x, n);
+}
+
+fn ldexpl(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
+    return math.ldexp(x, n);
+}
+
+fn llrintf(x: f32) callconv(.c) c_longlong {
+    return @intFromFloat(rintGeneric(f32, x));
+}
+
+fn llrintl(x: c_longdouble) callconv(.c) c_longlong {
+    return @intFromFloat(rintGeneric(c_longdouble, x));
+}
+
+fn llroundf(x: f32) callconv(.c) c_longlong {
+    return @intFromFloat(math.round(x));
+}
+
+fn llroundl(x: c_longdouble) callconv(.c) c_longlong {
+    return @intFromFloat(math.round(x));
+}
+
+fn log1pf(x: f32) callconv(.c) f32 {
+    return math.log1p(x);
+}
+
+fn lrintf(x: f32) callconv(.c) c_long {
+    return @intFromFloat(rintGeneric(f32, x));
+}
+
+fn lrintl(x: c_longdouble) callconv(.c) c_long {
+    return @intFromFloat(rintGeneric(c_longdouble, x));
+}
+
+fn lroundf(x: f32) callconv(.c) c_long {
+    return @intFromFloat(math.round(x));
+}
+
+fn lroundl(x: c_longdouble) callconv(.c) c_long {
+    return @intFromFloat(math.round(x));
+}
+
+fn nearbyintf(x: f32) callconv(.c) f32 {
+    return rintGeneric(f32, x);
+}
+
+fn nearbyintl(x: c_longdouble) callconv(.c) c_longdouble {
+    return rintGeneric(c_longdouble, x);
+}
+
+fn nextafterf(x: f32, y: f32) callconv(.c) f32 {
+    return math.nextAfter(f32, x, y);
+}
+
+fn nextafterl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return math.nextAfter(c_longdouble, x, y);
+}
+
+fn nexttowardf(x: f32, y: c_longdouble) callconv(.c) f32 {
+    var ux: u32 = @bitCast(x);
+    if (math.isNan(x) or math.isNan(y)) return math.nan(f32);
+    const xl: c_longdouble = @floatCast(x);
+    if (xl == y) return @floatCast(y);
+    if (x == 0) {
+        ux = 1;
+        if (math.signbit(y)) ux |= 0x80000000;
+    } else if (xl < y) {
+        if (ux >> 31 != 0) {
+            ux -= 1;
+        } else {
+            ux += 1;
+        }
+    } else {
+        if (ux >> 31 != 0) {
+            ux += 1;
+        } else {
+            ux -= 1;
+        }
+    }
+    return @bitCast(ux);
+}
+
+fn nexttowardl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return math.nextAfter(c_longdouble, x, y);
+}
+
+/// Generic rint for any IEEE 754 float type.
+fn rintGeneric(comptime T: type, x: T) T {
+    const toint: T = 1.0 / math.floatEps(T);
+    const FloatBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
+    const mant_bits = math.floatMantissaBits(T);
+    const frac_bits = math.floatFractionalBits(T);
+    const exp_bits = math.floatExponentBits(T);
+    const bias: comptime_int = (@as(comptime_int, 1) << (exp_bits - 1)) - 1;
+    const exp_mask: u32 = (@as(u32, 1) << @intCast(exp_bits)) - 1;
+
+    const a: FloatBits = @bitCast(x);
+    const e: u32 = @truncate(a >> mant_bits);
+    const e_masked = e & exp_mask;
+    const s: u1 = @truncate(a >> (@typeInfo(T).float.bits - 1));
+
+    if (e_masked >= bias + frac_bits) return x;
+
+    const y: T = if (s == 1) x - toint + toint else x + toint - toint;
+    if (y == 0) return if (s == 1) -@as(T, 0.0) else @as(T, 0.0);
+    return y;
+}
+
+
+
+fn significandf(x: f32) callconv(.c) f32 {
+    const e = math.ilogb(x);
+    return math.scalbn(x, if (e == std.math.minInt(i32)) 0 else -e);
+}
+
+fn sincosl(x: c_longdouble, sin_ptr: *c_longdouble, cos_ptr: *c_longdouble) callconv(.c) void {
+    sin_ptr.* = math.sin(x);
+    cos_ptr.* = math.cos(x);
+}
+
+fn sinhf(x: f32) callconv(.c) f32 {
+    return math.sinh(x);
+}
+
+fn sinl(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.sin(x);
+}
+
+fn tanl(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.tan(x);
 }

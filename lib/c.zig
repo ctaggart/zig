@@ -123,6 +123,7 @@ comptime {
     _ = @import("c/legacy.zig");
     _ = @import("c/exit.zig");
     _ = @import("c/misc.zig");
+    _ = @import("c/errno.zig");
     _ = @import("c/unistd.zig");
     _ = @import("c/spawn.zig");
     _ = @import("c/wchar.zig");

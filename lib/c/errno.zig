@@ -15,6 +15,16 @@ comptime {
 }
 
 /// Thread-local errno storage. Replaces musl's __pthread_self()->errno_val.
+    }
+    if (builtin.link_libc) {
+        symbol(&strerror, "strerror");
+        symbol(&__strerror_l, "__strerror_l");
+        symbol(&__strerror_l, "strerror_l");
+    }
+}
+
+// ── __errno_location ───────────────────────────────────────────────────
+
 threadlocal var errno_val: c_int = 0;
 
 fn __errno_location() callconv(.c) *c_int {
@@ -28,6 +38,15 @@ const error_messages = blk: {
     const max_errno = 134; // ENOMEDIUM=123, EKEYREJECTED=129, mips EDQUOT=1133->109
     var table: [max_errno + 1][*:0]const u8 = .{"Unknown error"} ** (max_errno + 1);
     table[0] = "No error information";
+// ── strerror ───────────────────────────────────────────────────────────
+
+// Error message table indexed by errno value.
+// Max errno on Linux is ~133, allocate 134 entries.
+const MAX_ERRNO = 134;
+
+const errmsg = blk: {
+    var table: [MAX_ERRNO][*:0]const u8 = .{"No error information"} ** MAX_ERRNO;
+    const E = linux.E;
     table[@intFromEnum(E.ILSEQ)] = "Illegal byte sequence";
     table[@intFromEnum(E.DOM)] = "Domain error";
     table[@intFromEnum(E.RANGE)] = "Result not representable";
@@ -127,4 +146,11 @@ fn strerror(e: c_int, ...) callconv(.c) [*:0]const u8 {
     // strerror_l takes locale as second arg — we ignore it (no locale support)
     const idx: usize = if (e >= 0 and e < error_messages.len) @intCast(e) else 0;
     return error_messages[idx];
+fn strerror(e: c_int) callconv(.c) [*:0]const u8 {
+    const idx: usize = if (e >= 0 and e < MAX_ERRNO) @intCast(e) else 0;
+    return errmsg[idx];
+}
+
+fn __strerror_l(e: c_int, _: ?*anyopaque) callconv(.c) [*:0]const u8 {
+    return strerror(e);
 }

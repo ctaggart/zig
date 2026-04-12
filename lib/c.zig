@@ -114,6 +114,7 @@ comptime {
     _ = @import("c/env.zig");
     _ = @import("c/exit.zig");
     _ = @import("c/env.zig");
+    _ = @import("c/conf.zig");
     _ = @import("c/unistd.zig");
     _ = @import("c/spawn.zig");
     _ = @import("c/wchar.zig");

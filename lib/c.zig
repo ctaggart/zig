@@ -83,6 +83,7 @@ comptime {
     _ = @import("c/errno.zig");
     _ = @import("c/exit.zig");
     _ = @import("c/fcntl.zig");
+    _ = @import("c/fenv.zig");
     _ = @import("c/inttypes.zig");
     if (!builtin.target.isMinGW()) {
         _ = @import("c/malloc.zig");

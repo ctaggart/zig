@@ -78,14 +78,19 @@ pub fn errnoSize(syscall_return_value: usize) isize {
 }
 
 comptime {
+    _ = @import("c/conf.zig");
     _ = @import("c/ctype.zig");
+    _ = @import("c/errno.zig");
+    _ = @import("c/exit.zig");
     _ = @import("c/fcntl.zig");
     _ = @import("c/inttypes.zig");
     if (!builtin.target.isMinGW()) {
         _ = @import("c/malloc.zig");
     }
     _ = @import("c/math.zig");
+    _ = @import("c/legacy.zig");
     _ = @import("c/search.zig");
+    _ = @import("c/stat.zig");
     _ = @import("c/stdlib.zig");
     _ = @import("c/string.zig");
     _ = @import("c/strings.zig");

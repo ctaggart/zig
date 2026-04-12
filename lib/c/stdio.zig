@@ -865,42 +865,42 @@ const VaList = std.builtin.VaList;
 fn fprintf_impl(f: ?*FILE, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfprintf_fn(f, fmt, ap);
+    return vfprintf(f, fmt, ap);
 }
 
 /// printf.c: int printf(const char *restrict fmt, ...)
 fn printf_impl(fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfprintf_fn(stdout_ext.*, fmt, ap);
+    return vfprintf(stdout_ext.*, fmt, ap);
 }
 
 /// snprintf.c: int snprintf(char *restrict s, size_t n, const char *restrict fmt, ...)
 fn snprintf_impl(s: [*]u8, n: usize, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vsnprintf_fn(s, n, fmt, ap);
+    return vsnprintf(s, n, fmt, ap);
 }
 
 /// sprintf.c: int sprintf(char *restrict s, const char *restrict fmt, ...)
 fn sprintf_impl(s: [*]u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vsprintf_fn(s, fmt, ap);
+    return vsprintf(s, fmt, ap);
 }
 
 /// asprintf.c: int asprintf(char **s, const char *fmt, ...)
 fn asprintf_impl(s: *?[*]u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vasprintf_fn(s, fmt, ap);
+    return vasprintf(s, fmt, ap);
 }
 
 /// dprintf.c: int dprintf(int fd, const char *restrict fmt, ...)
 fn dprintf_impl(fd: c_int, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vdprintf_fn(fd, fmt, ap);
+    return vdprintf(fd, fmt, ap);
 }
 
 // --- Scanning wrappers (scanf.c, fscanf.c, sscanf.c) ---
@@ -909,21 +909,21 @@ fn dprintf_impl(fd: c_int, fmt: [*:0]const u8, ...) callconv(.c) c_int {
 fn scanf_impl(fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vscanf_fn(fmt, ap);
+    return vscanf(fmt, ap);
 }
 
 /// fscanf.c: int fscanf(FILE *restrict f, const char *restrict fmt, ...)
 fn fscanf_impl(f: ?*FILE, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfscanf_fn(f, fmt, ap);
+    return vfscanf(f, fmt, ap);
 }
 
 /// sscanf.c: int sscanf(const char *restrict s, const char *restrict fmt, ...)
 fn sscanf_impl(s: [*:0]const u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vsscanf_fn(s, fmt, ap);
+    return vsscanf(s, fmt, ap);
 }
 
 // --- Error output (perror.c) ---
@@ -962,11 +962,11 @@ const lockfile_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__
 const unlockfile_fn = @extern(*const fn (*FILE) callconv(.c) void, .{ .name = "__unlockfile" });
 const fflush_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "fflush" });
 const strerror_fn = @extern(*const fn (c_int) callconv(.c) [*:0]const u8, .{ .name = "strerror" });
-const vfprintf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfprintf" });
-const vsnprintf_fn = @extern(*const fn ([*]u8, usize, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vsnprintf" });
-const vsprintf_fn = @extern(*const fn ([*]u8, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vsprintf" });
-const vasprintf_fn = @extern(*const fn (*?[*]u8, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vasprintf" });
-const vdprintf_fn = @extern(*const fn (c_int, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vdprintf" });
-const vscanf_fn = @extern(*const fn ([*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vscanf" });
-const vfscanf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfscanf" });
-const vsscanf_fn = @extern(*const fn ([*:0]const u8, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vsscanf" });
+extern "c" fn vfprintf(f: ?*FILE, fmt: [*:0]const u8, ap: VaList) c_int;
+extern "c" fn vsnprintf(s: [*]u8, n: usize, fmt: [*:0]const u8, ap: VaList) c_int;
+extern "c" fn vsprintf(s: [*]u8, fmt: [*:0]const u8, ap: VaList) c_int;
+extern "c" fn vasprintf(s: *?[*]u8, fmt: [*:0]const u8, ap: VaList) c_int;
+extern "c" fn vdprintf(fd: c_int, fmt: [*:0]const u8, ap: VaList) c_int;
+extern "c" fn vscanf(fmt: [*:0]const u8, ap: VaList) c_int;
+extern "c" fn vfscanf(f: ?*FILE, fmt: [*:0]const u8, ap: VaList) c_int;
+extern "c" fn vsscanf(s: [*:0]const u8, fmt: [*:0]const u8, ap: VaList) c_int;

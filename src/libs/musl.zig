@@ -967,7 +967,6 @@ const src_files = [_][]const u8{
     "musl/src/misc/mntent.c",
     "musl/src/misc/nftw.c",
     "musl/src/misc/openpty.c",
-    "musl/src/misc/pty.c",
     "musl/src/misc/realpath.c",
     "musl/src/misc/syscall.c",
     "musl/src/misc/syslog.c",

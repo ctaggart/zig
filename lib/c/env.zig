@@ -109,8 +109,10 @@ fn dummy() callconv(.c) void {}
 extern const __init_array_start: *const fn () callconv(.c) void;
 extern const __init_array_end: *const fn () callconv(.c) void;
 
-
 extern var __libc: LibC;
+extern var __hwcap: usize;
+extern var __sysinfo: usize;
+extern "c" fn __libc_start_init() void;
 
 comptime {
     if (builtin.target.isMuslLibC()) {

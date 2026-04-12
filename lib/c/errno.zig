@@ -7,10 +7,12 @@ const symbol = @import("../c.zig").symbol;
 comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&__errno_location, "__errno_location");
-        symbol(&strerror, "strerror");
+        symbol(&__errno_location, "___errno_location");
     }
     if (builtin.link_libc) {
+        symbol(&strerror, "strerror");
         symbol(&__strerror_l, "__strerror_l");
+        symbol(&__strerror_l, "strerror_l");
     }
 }
 
@@ -22,13 +24,6 @@ fn __errno_location() callconv(.c) *c_int {
     return &errno_val;
 }
 
-/// Error message table indexed by Linux error number.
-/// Matches musl's __strerror.h entries.
-const error_messages = blk: {
-    const E = linux.E;
-    const max_errno = 134; // ENOMEDIUM=123, EKEYREJECTED=129, mips EDQUOT=1133->109
-    var table: [max_errno + 1][*:0]const u8 = .{"Unknown error"} ** (max_errno + 1);
-    table[0] = "No error information";
 // ── strerror ───────────────────────────────────────────────────────────
 
 // Error message table indexed by errno value.
@@ -60,7 +55,6 @@ const errmsg = blk: {
     table[@intFromEnum(E.CONNRESET)] = "Connection reset by peer";
     table[@intFromEnum(E.TIMEDOUT)] = "Operation timed out";
     table[@intFromEnum(E.CONNREFUSED)] = "Connection refused";
-    table[@intFromEnum(E.HOSTDOWN)] = "Host is down";
     table[@intFromEnum(E.HOSTUNREACH)] = "Host is unreachable";
     table[@intFromEnum(E.ADDRINUSE)] = "Address in use";
     table[@intFromEnum(E.PIPE)] = "Broken pipe";
@@ -98,7 +92,6 @@ const errmsg = blk: {
     table[@intFromEnum(E.NOLINK)] = "Link has been severed";
     table[@intFromEnum(E.PROTO)] = "Protocol error";
     table[@intFromEnum(E.BADMSG)] = "Bad message";
-    table[@intFromEnum(E.BADFD)] = "File descriptor in bad state";
     table[@intFromEnum(E.NOTSOCK)] = "Not a socket";
     table[@intFromEnum(E.DESTADDRREQ)] = "Destination address required";
     table[@intFromEnum(E.MSGSIZE)] = "Message too large";
@@ -134,8 +127,8 @@ const errmsg = blk: {
 };
 
 fn strerror(e: c_int) callconv(.c) [*:0]const u8 {
-    const idx: usize = if (e >= 0 and e < error_messages.len) @intCast(e) else 0;
-    return error_messages[idx];
+    const idx: usize = if (e >= 0 and e < MAX_ERRNO) @intCast(e) else 0;
+    return errmsg[idx];
 }
 
 fn __strerror_l(e: c_int, _: ?*anyopaque) callconv(.c) [*:0]const u8 {

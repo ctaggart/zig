@@ -1580,7 +1580,6 @@ const src_files = [_][]const u8{
     "musl/src/time/clock_gettime.c",
     "musl/src/time/clock_settime.c",
     "musl/src/time/difftime.c",
-    "musl/src/time/getdate.c",
     "musl/src/time/gettimeofday.c",
     "musl/src/time/strftime.c",
     "musl/src/time/strptime.c",

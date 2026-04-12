@@ -16,11 +16,20 @@ comptime {
         symbol(&mlockLinux, "mlock");
         symbol(&mlockallLinux, "mlockall");
 
+        symbol(&mmapLinux, "mmap");
+        symbol(&mmapLinux, "__mmap");
+        symbol(&mmapLinux, "mmap64");
+
         symbol(&mprotectLinux, "mprotect");
         symbol(&mprotectLinux, "__mprotect");
 
+        symbol(&msyncLinux, "msync");
+
         symbol(&munlockLinux, "munlock");
         symbol(&munlockallLinux, "munlockall");
+
+        symbol(&munmapLinux, "munmap");
+        symbol(&munmapLinux, "__munmap");
 
         symbol(&posix_madviseLinux, "posix_madvise");
 
@@ -130,4 +139,37 @@ fn shm_unlinkLinux(name: [*:0]const u8) callconv(.c) c_int {
     const path: [*:0]const u8 = buf[0 .. 9 + len :0];
 
     return errno(linux.unlink(path));
+}
+const linux = std.os.linux;
+
+const MAP_FAILED: ?*anyopaque = @ptrFromInt(std.math.maxInt(usize));
+
+fn mmapLinux(addr: ?*anyopaque, len: usize, prot: c_int, flags: c_int, fd: c_int, off: i64) callconv(.c) ?*anyopaque {
+    // Reject mappings that would overflow ptrdiff_t
+    if (len >= @as(usize, @intCast(std.math.maxInt(isize)))) {
+        std.c._errno().* = @intFromEnum(linux.E.NOMEM);
+        return MAP_FAILED;
+    }
+    const ret = linux.mmap(@ptrCast(addr), len, @bitCast(@as(u32, @bitCast(prot))), @bitCast(@as(u32, @bitCast(flags))), fd, off);
+    const signed: isize = @bitCast(ret);
+    if (signed < 0 and signed >= -4095) {
+        @branchHint(.unlikely);
+        var e: c_int = @intCast(-signed);
+        // Fixup incorrect EPERM from kernel for anonymous mappings
+        if (e == @intFromEnum(linux.E.PERM) and addr == null) {
+            const f: linux.MAP = @bitCast(@as(u32, @bitCast(flags)));
+            if (f.ANONYMOUS and !f.FIXED) e = @intFromEnum(linux.E.NOMEM);
+        }
+        std.c._errno().* = e;
+        return MAP_FAILED;
+    }
+    return @ptrFromInt(ret);
+}
+
+fn msyncLinux(addr: *anyopaque, len: usize, flags: c_int) callconv(.c) c_int {
+    return errno(linux.msync(@ptrCast(addr), len, flags));
+}
+
+fn munmapLinux(addr: *anyopaque, len: usize) callconv(.c) c_int {
+    return errno(linux.munmap(@ptrCast(addr), len));
 }

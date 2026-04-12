@@ -374,6 +374,55 @@ comptime {
             // pthread_setattr_default_np / pthread_getattr_default_np
             symbol(&setattr_default_np_fn, "pthread_setattr_default_np");
             symbol(&getattr_default_np_fn, "pthread_getattr_default_np");
+
+            // Internal: __wait, vmlock, __set_thread_area, __syscall_cp
+            symbol(&wait_fn, "__wait");
+            symbol(&vm_wait_fn, "__vm_wait");
+            symbol(&vm_lock_fn2, "__vm_lock");
+            symbol(&vm_unlock_fn2, "__vm_unlock");
+            symbol(&set_thread_area_fn, "__set_thread_area");
+            symbol(&syscall_cp_fn, "__syscall_cp");
+
+            // Semaphore: sem_post, sem_trywait
+            symbol(&sem_post_fn, "sem_post");
+            symbol(&sem_trywait_fn, "sem_trywait");
+
+            // pthread_self / thrd_current
+            symbol(&pthread_self_fn, "pthread_self");
+            symbol(&pthread_self_fn, "thrd_current");
+
+            // pthread_getspecific / tss_get
+            symbol(&pthread_getspecific_fn, "pthread_getspecific");
+            symbol(&pthread_getspecific_fn, "tss_get");
+            symbol(&pthread_setspecific_fn, "pthread_setspecific");
+
+            // Cancel state/type/test
+            symbol(&pthread_setcancelstate_fn, "__pthread_setcancelstate");
+            symbol(&pthread_setcancelstate_fn, "pthread_setcancelstate");
+            symbol(&pthread_setcanceltype_fn, "pthread_setcanceltype");
+            symbol(&pthread_testcancel_fn, "__pthread_testcancel");
+            symbol(&pthread_testcancel_fn, "pthread_testcancel");
+            symbol(&testcancel_fn, "__testcancel");
+
+            // Cleanup push/pop
+            symbol(&cleanup_push_fn, "_pthread_cleanup_push");
+            symbol(&cleanup_pop_fn, "_pthread_cleanup_pop");
+            symbol(&do_cleanup_push_fn, "__do_cleanup_push");
+            symbol(&do_cleanup_pop_fn, "__do_cleanup_pop");
+
+            // pthread_sigmask
+            symbol(&pthread_sigmask_fn, "pthread_sigmask");
+
+            // pthread_getcpuclockid
+            symbol(&pthread_getcpuclockid_fn, "pthread_getcpuclockid");
+
+            // pthread_once
+            symbol(&pthread_once_fn, "__pthread_once");
+            symbol(&pthread_once_fn, "pthread_once");
+
+            // pthread_detach / thrd_detach
+            symbol(&pthread_detach_fn, "pthread_detach");
+            symbol(&pthread_detach_fn, "thrd_detach");
         }
     }
 }
@@ -3252,12 +3301,11 @@ fn tss_delete_fn(key: c_uint) callconv(.c) void {
 // Accesses self->tsd[k] - use struct pthread layout
 fn tss_set_fn(k: c_uint, x: ?*anyopaque) callconv(.c) c_int {
     const self_addr = selfAddr();
-    const off_tsd: usize = off_map_base + 7 * ptr_size;
-    const tsd_pp: *[*]?*anyopaque = @ptrFromInt(self_addr + off_tsd);
+    const tsd_off = off_map_base + 7 * ptr_size;
+    const tsd_pp: *[*]?*anyopaque = @ptrFromInt(self_addr + tsd_off);
     const tsd = tsd_pp.*;
     if (tsd[k] != x) {
         tsd[k] = x;
-        // tsd_used is at off_tid+18 (1 byte, bitfield byte)
         const tsd_used: *u8 = @ptrFromInt(self_addr + off_tid + 18);
         tsd_used.* = 1;
     }
@@ -3307,5 +3355,342 @@ fn getattr_default_np_fn(attrp: *anyopaque) callconv(.c) c_int {
     a_s[0] = __default_stacksize;
     a_s[1] = __default_guardsize;
     __release_ptc_ext();
+    return 0;
+}
+
+// ============================================================
+// Struct pthread field offsets (Part 2 of struct __pthread)
+// ============================================================
+
+const off_detach_state: usize = off_tid + 8;
+const off_cancel: usize = off_tid + 12;
+const off_canceldisable: usize = off_tid + 16; // volatile unsigned char
+const off_cancelasync: usize = off_tid + 17; // volatile unsigned char
+const off_tsd_used_byte: usize = off_tid + 18; // bitfield byte
+const off_cancelbuf: usize = off_map_base + 6 * ptr_size;
+const off_tsd: usize = off_map_base + 7 * ptr_size;
+
+// DT_* enum values
+const DT_EXITED: c_int = 0;
+const DT_JOINABLE: c_int = 2;
+const DT_DETACHED: c_int = 3;
+
+// ============================================================
+// __wait.c — spin + futex wait
+// ============================================================
+
+fn wait_fn(addr: *volatile c_int, waiters: ?*volatile c_int, val: c_int, priv_arg: c_int) callconv(.c) void {
+    var spins: c_int = 100;
+    const priv: usize = if (priv_arg != 0) FUTEX_PRIVATE else 0;
+    while (spins > 0) : (spins -= 1) {
+        if (waiters) |w| {
+            if (w.* != 0) break;
+        }
+        if (addr.* == val) {
+            std.atomic.spinLoopHint();
+        } else {
+            return;
+        }
+    }
+    if (waiters) |w| {
+        _ = @atomicRmw(c_int, @constCast(@volatileCast(w)), .Add, 1, .seq_cst);
+    }
+    while (addr.* == val) {
+        const val_u: usize = @bitCast(@as(isize, val));
+        const rc: isize = @bitCast(linux.syscall4(.futex, @intFromPtr(addr), FUTEX_WAIT | priv, val_u, 0));
+        if (rc == -@as(isize, @intCast(@intFromEnum(E.NOSYS)))) {
+            _ = linux.syscall4(.futex, @intFromPtr(addr), FUTEX_WAIT, val_u, 0);
+        }
+    }
+    if (waiters) |w| {
+        _ = @atomicRmw(c_int, @constCast(@volatileCast(w)), .Add, -1, .seq_cst);
+    }
+}
+
+// ============================================================
+// vmlock.c — VM lock/unlock/wait
+// ============================================================
+
+var vmlock_storage: [2]c_int = .{ 0, 0 };
+export const __vmlock_lockptr: *volatile c_int = &vmlock_storage[0];
+
+fn vm_wait_fn() callconv(.c) void {
+    var tmp = @atomicLoad(c_int, &vmlock_storage[0], .seq_cst);
+    while (tmp != 0) {
+        wait_fn(&vmlock_storage[0], &vmlock_storage[1], tmp, 1);
+        tmp = @atomicLoad(c_int, &vmlock_storage[0], .seq_cst);
+    }
+}
+
+fn vm_lock_fn2() callconv(.c) void {
+    _ = @atomicRmw(c_int, &vmlock_storage[0], .Add, 1, .seq_cst);
+}
+
+fn vm_unlock_fn2() callconv(.c) void {
+    if (@atomicRmw(c_int, &vmlock_storage[0], .Add, -1, .seq_cst) == 1 and vmlock_storage[1] != 0)
+        wake(@ptrCast(&vmlock_storage[0]), -1, 1);
+}
+
+// ============================================================
+// __set_thread_area.c (generic)
+// ============================================================
+
+fn set_thread_area_fn(p: usize) callconv(.c) c_int {
+    if (@hasField(linux.SYS, "set_thread_area")) {
+        return @truncate(-@as(isize, @bitCast(linux.syscall1(.set_thread_area, p))));
+    } else {
+        return -eint(.NOSYS);
+    }
+}
+
+// ============================================================
+// __syscall_cp.c — cancellation-point syscall wrapper
+// ============================================================
+
+// The real cancellation-point logic is in arch-specific .s files
+// (via __syscall_cp_asm). This is the C fallback: just a regular syscall.
+fn syscall_cp_fn(nr: usize, u: usize, v: usize, w: usize, x: usize, y: usize, z: usize) callconv(.c) isize {
+    const __syscall_cp_c_ext = @extern(*const fn (usize, usize, usize, usize, usize, usize, usize) callconv(.c) isize, .{ .name = "__syscall_cp_c" });
+    return __syscall_cp_c_ext(nr, u, v, w, x, y, z);
+}
+
+// ============================================================
+// sem_post.c
+// ============================================================
+
+fn sem_post_fn(sem: *anyopaque) callconv(.c) c_int {
+    const s: [*]volatile c_int = @ptrCast(@alignCast(sem));
+    const s_mut: [*]c_int = @constCast(@volatileCast(s));
+    const priv = s[2]; // __val[2]
+    while (true) {
+        const val = s[0];
+        const waiters_val = s[1];
+        if ((val & SEM_VALUE_MAX) == SEM_VALUE_MAX) {
+            const __errno_location = @extern(*const fn () callconv(.c) *c_int, .{ .name = "__errno_location" });
+            __errno_location().* = eint(.OVERFLOW);
+            return -1;
+        }
+        var new = val + 1;
+        if (waiters_val <= 1)
+            new &= ~@as(c_int, @bitCast(@as(c_uint, 0x80000000)));
+        if (@cmpxchgStrong(c_int, &s_mut[0], val, new, .seq_cst, .seq_cst) == null) {
+            if (val < 0) wake(@ptrCast(&s_mut[0]), if (waiters_val > 1) @as(c_int, 1) else @as(c_int, -1), priv);
+            return 0;
+        }
+    }
+}
+
+// ============================================================
+// sem_trywait.c
+// ============================================================
+
+fn sem_trywait_fn(sem: *anyopaque) callconv(.c) c_int {
+    const s: [*]volatile c_int = @ptrCast(@alignCast(sem));
+    const s_mut: [*]c_int = @constCast(@volatileCast(s));
+    while (true) {
+        const val = s[0];
+        if ((val & SEM_VALUE_MAX) == 0) {
+            const __errno_location = @extern(*const fn () callconv(.c) *c_int, .{ .name = "__errno_location" });
+            __errno_location().* = eint(.AGAIN);
+            return -1;
+        }
+        if (@cmpxchgStrong(c_int, &s_mut[0], val, val - 1, .seq_cst, .seq_cst) == null) return 0;
+    }
+}
+
+// ============================================================
+// pthread_self.c
+// ============================================================
+
+fn pthread_self_fn() callconv(.c) usize {
+    return selfAddr();
+}
+
+// ============================================================
+// pthread_getspecific.c
+// ============================================================
+
+fn pthread_getspecific_fn(k: c_uint) callconv(.c) ?*anyopaque {
+    const self_addr = selfAddr();
+    const tsd_pp: *[*]?*anyopaque = @ptrFromInt(self_addr + off_tsd);
+    return tsd_pp.*[k];
+}
+
+// ============================================================
+// pthread_setspecific.c
+// ============================================================
+
+fn pthread_setspecific_fn(k: c_uint, x: ?*const anyopaque) callconv(.c) c_int {
+    const self_addr = selfAddr();
+    const tsd_pp: *[*]?*anyopaque = @ptrFromInt(self_addr + off_tsd);
+    const tsd = tsd_pp.*;
+    const x_mut: ?*anyopaque = @constCast(x);
+    if (tsd[k] != x_mut) {
+        tsd[k] = x_mut;
+        const tsd_used: *u8 = @ptrFromInt(self_addr + off_tsd_used_byte);
+        tsd_used.* |= 1;
+    }
+    return 0;
+}
+
+// ============================================================
+// pthread_setcancelstate.c
+// ============================================================
+
+fn pthread_setcancelstate_fn(new: c_int, old: ?*c_int) callconv(.c) c_int {
+    if (@as(c_uint, @bitCast(new)) > 2) return eint(.INVAL);
+    const self_addr = selfAddr();
+    const cdp: *volatile u8 = @ptrFromInt(self_addr + off_canceldisable);
+    if (old) |o| o.* = @intCast(cdp.*);
+    cdp.* = @intCast(@as(c_uint, @bitCast(new)));
+    return 0;
+}
+
+// ============================================================
+// pthread_setcanceltype.c
+// ============================================================
+
+fn pthread_setcanceltype_fn(new: c_int, old: ?*c_int) callconv(.c) c_int {
+    const self_addr = selfAddr();
+    if (@as(c_uint, @bitCast(new)) > 1) return eint(.INVAL);
+    const cap: *volatile u8 = @ptrFromInt(self_addr + off_cancelasync);
+    if (old) |o| o.* = @intCast(cap.*);
+    cap.* = @intCast(@as(c_uint, @bitCast(new)));
+    if (new != 0) pthread_testcancel_fn();
+    return 0;
+}
+
+// ============================================================
+// pthread_testcancel.c
+// ============================================================
+
+// __testcancel is a weak symbol: if cancellation is not linked, it's a no-op.
+// The real implementation is in pthread_cancel.c.
+fn testcancel_fn() callconv(.c) void {}
+
+fn pthread_testcancel_fn() callconv(.c) void {
+    testcancel_fn();
+}
+
+// ============================================================
+// pthread_cleanup_push.c
+// ============================================================
+
+// struct __ptcb { void (*__f)(void *); void *__x; struct __ptcb *__next; }
+// Layout: __f at 0, __x at ptr_size, __next at 2*ptr_size
+
+fn do_cleanup_push_fn(_: *anyopaque) callconv(.c) void {}
+fn do_cleanup_pop_fn(_: *anyopaque) callconv(.c) void {}
+
+fn cleanup_push_fn(cb: *anyopaque, f: ?*const anyopaque, x: ?*anyopaque) callconv(.c) void {
+    const cb_p: [*]usize = @ptrCast(@alignCast(cb));
+    cb_p[0] = @intFromPtr(f); // __f
+    cb_p[1] = @intFromPtr(x); // __x
+    do_cleanup_push_fn(cb);
+}
+
+fn cleanup_pop_fn(cb: *anyopaque, run: c_int) callconv(.c) void {
+    do_cleanup_pop_fn(cb);
+    if (run != 0) {
+        const cb_p: [*]usize = @ptrCast(@alignCast(cb));
+        const f: *const fn (?*anyopaque) callconv(.c) void = @ptrFromInt(cb_p[0]);
+        f(@ptrFromInt(cb_p[1]));
+    }
+}
+
+// ============================================================
+// pthread_sigmask.c
+// ============================================================
+
+const _NSIG: usize = 65;
+const SIG_BLOCK: c_int = 0;
+
+fn pthread_sigmask_fn(how: c_int, set: ?*const anyopaque, old: ?*anyopaque) callconv(.c) c_int {
+    if (set != null and @as(c_uint, @bitCast(how)) -% @as(c_uint, @bitCast(SIG_BLOCK)) > 2)
+        return eint(.INVAL);
+    const set_addr: usize = if (set) |s| @intFromPtr(s) else 0;
+    const old_addr: usize = if (old) |o| @intFromPtr(o) else 0;
+    const ret: isize = @bitCast(linux.syscall4(.rt_sigprocmask, @as(usize, @bitCast(@as(isize, how))), set_addr, old_addr, _NSIG / 8));
+    const r: c_int = -@as(c_int, @truncate(ret));
+    if (r == 0) {
+        if (old) |o| {
+            // Mask out internal signals (SIGCANCEL=33, SIGSYNCCALL=34)
+            const bits: [*]usize = @ptrCast(@alignCast(o));
+            if (@sizeOf(usize) == 8) {
+                bits[0] &= ~@as(usize, 0x380000000); // bits 32,33,34
+            } else {
+                bits[0] &= ~@as(usize, 0x80000000); // bit 32
+                bits[1] &= ~@as(usize, 0x3); // bits 33,34
+            }
+        }
+    }
+    return r;
+}
+
+// ============================================================
+// pthread_getcpuclockid.c
+// ============================================================
+
+fn pthread_getcpuclockid_fn(t: usize, clockid: *c_int) callconv(.c) c_int {
+    const tid: c_int = @as(*const c_int, @ptrFromInt(t + off_tid)).*;
+    // *clockid = (-t->tid-1)*8U + 6
+    const neg_tid: c_int = -tid - 1;
+    clockid.* = @bitCast(@as(c_uint, @bitCast(neg_tid)) *% 8 +% 6);
+    return 0;
+}
+
+// ============================================================
+// pthread_once.c
+// ============================================================
+
+fn pthread_once_full(control: *c_int, init: *const fn () callconv(.c) void) c_int {
+    while (true) {
+        const old = @cmpxchgStrong(c_int, control, 0, 1, .seq_cst, .seq_cst);
+        const state = old orelse 0;
+        switch (state) {
+            0 => {
+                // We're the initializer
+                init();
+                if (@atomicRmw(c_int, control, .Xchg, 2, .seq_cst) == 3)
+                    wake(@ptrCast(control), -1, 1);
+                return 0;
+            },
+            1 => {
+                _ = @cmpxchgStrong(c_int, control, 1, 3, .seq_cst, .seq_cst);
+                wait_fn(@ptrCast(control), null, 3, 1);
+                continue;
+            },
+            3 => {
+                wait_fn(@ptrCast(control), null, 3, 1);
+                continue;
+            },
+            2 => return 0,
+            else => continue,
+        }
+    }
+}
+
+fn pthread_once_fn(control: *volatile c_int, init: *const fn () callconv(.c) void) callconv(.c) c_int {
+    if (control.* == 2) {
+        _ = @atomicLoad(c_int, control, .seq_cst);
+        return 0;
+    }
+    return pthread_once_full(@constCast(@volatileCast(control)), init);
+}
+
+// ============================================================
+// pthread_detach.c
+// ============================================================
+
+fn pthread_detach_fn(t: usize) callconv(.c) c_int {
+    const ds: *c_int = @ptrFromInt(t + off_detach_state);
+    if (@cmpxchgStrong(c_int, ds, DT_JOINABLE, DT_DETACHED, .seq_cst, .seq_cst) != null) {
+        // Already detached or exiting — must join to clean up
+        var cs: c_int = undefined;
+        _ = pthread_setcancelstate_fn(PTHREAD_CANCEL_DISABLE, &cs);
+        const __pthread_join_ext = @extern(*const fn (usize, ?*?*anyopaque) callconv(.c) c_int, .{ .name = "__pthread_join" });
+        _ = __pthread_join_ext(t, null);
+        _ = pthread_setcancelstate_fn(cs, null);
+    }
     return 0;
 }

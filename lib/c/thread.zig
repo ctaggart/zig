@@ -250,6 +250,31 @@ comptime {
             symbol(&mutex_lock_fn, "__pthread_mutex_lock");
             symbol(&mutex_lock_fn, "pthread_mutex_lock");
             symbol(&mutex_consistent_fn, "pthread_mutex_consistent");
+
+            // Spinlock operations
+            symbol(&spin_init_fn, "pthread_spin_init");
+            symbol(&spin_destroy_fn, "pthread_spin_destroy");
+            symbol(&spin_lock_fn, "pthread_spin_lock");
+            symbol(&spin_trylock_fn, "pthread_spin_trylock");
+            symbol(&spin_unlock_fn, "pthread_spin_unlock");
+
+            // Mutex trylock/timedlock/unlock
+            symbol(&mutex_trylock_owner_fn, "__pthread_mutex_trylock_owner");
+            symbol(&mutex_trylock_fn, "__pthread_mutex_trylock");
+            symbol(&mutex_trylock_fn, "pthread_mutex_trylock");
+            symbol(&mutex_timedlock_fn, "__pthread_mutex_timedlock");
+            symbol(&mutex_timedlock_fn, "pthread_mutex_timedlock");
+            symbol(&mutex_unlock_fn, "__pthread_mutex_unlock");
+            symbol(&mutex_unlock_fn, "pthread_mutex_unlock");
+
+            // Simple pthread stubs
+            symbol(&pthread_getconcurrency_fn, "pthread_getconcurrency");
+            symbol(&pthread_setconcurrency_fn, "pthread_setconcurrency");
+            symbol(&pthread_equal_fn, "pthread_equal");
+            symbol(&pthread_equal_fn, "thrd_equal");
+
+            // C11 thread helpers
+            symbol(&thrd_yield_fn, "thrd_yield");
         }
     }
 }
@@ -2142,4 +2167,351 @@ fn mutex_consistent_fn(m: *anyopaque) callconv(.c) c_int {
         return eint(.PERM);
     _ = @atomicRmw(c_int, &m_i[1], .And, ~@as(c_int, 0x40000000), .seq_cst);
     return 0;
+}
+
+// ============================================================
+// Spinlock operations
+// ============================================================
+
+// --- pthread_spin_init.c ---
+fn spin_init_fn(s: *c_int, _: c_int) callconv(.c) c_int {
+    s.* = 0;
+    return 0;
+}
+
+// --- pthread_spin_destroy.c ---
+fn spin_destroy_fn(_: *c_int) callconv(.c) c_int {
+    return 0;
+}
+
+// --- pthread_spin_lock.c ---
+fn spin_lock_fn(s: *c_int) callconv(.c) c_int {
+    while (@as(*volatile c_int, s).* != 0 or
+        (@cmpxchgStrong(c_int, s, 0, eint(.BUSY), .seq_cst, .seq_cst) != null))
+    {
+        std.atomic.spinLoopHint();
+    }
+    return 0;
+}
+
+// --- pthread_spin_trylock.c ---
+fn spin_trylock_fn(s: *c_int) callconv(.c) c_int {
+    return @cmpxchgStrong(c_int, s, 0, eint(.BUSY), .seq_cst, .seq_cst) orelse 0;
+}
+
+// --- pthread_spin_unlock.c ---
+fn spin_unlock_fn(s: *c_int) callconv(.c) c_int {
+    @atomicStore(c_int, s, 0, .seq_cst);
+    return 0;
+}
+
+// ============================================================
+// Mutex trylock / timedlock / unlock
+// ============================================================
+
+const FUTEX_LOCK_PI: usize = 6;
+const FUTEX_UNLOCK_PI: usize = 7;
+
+// Mutex field indices (matching musl's __u union layout in pthread_impl.h)
+// _m_type = __i[0], _m_lock = __vi[1], _m_waiters = __vi[2]
+// _m_prev = __p[3], _m_next = __p[4], _m_count = __i[5]
+
+fn mutexPtrs(m: *anyopaque) [*]usize {
+    return @ptrCast(@alignCast(m));
+}
+
+// Pthread struct offsets for robust_list (relative to self pointer)
+const off_after_bitfields: usize = off_tid + 19; // tid(4)+errno_val(4)+detach_state(4)+cancel(4)+canceldisable(1)+cancelasync(1)+bitfield_byte(1)
+const off_map_base: usize = std.mem.alignForward(usize, off_after_bitfields, ptr_size);
+const off_robust_head: usize = off_map_base + 8 * ptr_size; // skip: map_base, map_size, stack, stack_size, guard_size, result, cancelbuf, tsd
+const off_robust_off: usize = off_robust_head + ptr_size;
+const off_robust_pending: usize = off_robust_head + 2 * ptr_size;
+
+fn selfTid() c_int {
+    const pthread_self_ext = @extern(*const fn () callconv(.c) usize, .{ .name = "pthread_self" });
+    const self_addr = pthread_self_ext();
+    return @as(*const c_int, @ptrFromInt(self_addr + off_tid)).*;
+}
+
+fn selfAddr() usize {
+    const pthread_self_ext = @extern(*const fn () callconv(.c) usize, .{ .name = "pthread_self" });
+    return pthread_self_ext();
+}
+
+fn robustHead(self_addr: usize) *volatile usize {
+    return @ptrFromInt(self_addr + off_robust_head);
+}
+
+fn robustOff(self_addr: usize) *isize {
+    return @ptrFromInt(self_addr + off_robust_off);
+}
+
+fn robustPending(self_addr: usize) *volatile usize {
+    return @ptrFromInt(self_addr + off_robust_pending);
+}
+
+// --- pthread_mutex_trylock.c ---
+fn mutex_trylock_owner_fn(m: *anyopaque) callconv(.c) c_int {
+    const m_i: [*]c_int = @ptrCast(@alignCast(m));
+    const m_p = mutexPtrs(m);
+
+    const @"type" = m_i[0]; // _m_type
+    const self_a = selfAddr();
+    const tid = @as(*const c_int, @ptrFromInt(self_a + off_tid)).*;
+
+    var old = @atomicLoad(c_int, &m_i[1], .monotonic); // _m_lock
+    const own = old & 0x3fffffff;
+    if (own == tid) {
+        if ((@"type" & 8) != 0 and m_i[5] < 0) { // PI + _m_count < 0
+            old &= 0x40000000;
+            m_i[5] = 0; // _m_count = 0
+            // fall through to success
+        } else if ((@"type" & 3) == 1) { // PTHREAD_MUTEX_RECURSIVE
+            if (@as(c_uint, @bitCast(m_i[5])) >= @as(c_uint, @bitCast(@as(c_int, std.math.maxInt(c_int)))))
+                return eint(.AGAIN);
+            m_i[5] += 1; // _m_count++
+            return 0;
+        } else {
+            // Not recursive - can't re-lock
+            return eint(.BUSY);
+        }
+    } else {
+        if (own == 0x3fffffff) return eint(.NOTRECOVERABLE);
+        if (own != 0 or (old != 0 and (@"type" & 4) == 0)) return eint(.BUSY);
+    }
+
+    if ((@"type" & 128) != 0) {
+        if (robustOff(self_a).* == 0) {
+            // Set up robust list offset: &m->_m_lock - &m->_m_next
+            // _m_lock is at byte offset 4 (i[1]), _m_next is at p[4]
+            const m_lock_addr = @intFromPtr(&m_i[1]);
+            const m_next_addr = @intFromPtr(&m_p[4]);
+            robustOff(self_a).* = @as(isize, @intCast(m_lock_addr)) - @as(isize, @intCast(m_next_addr));
+            _ = linux.syscall2(.set_robust_list, self_a + off_robust_head, 3 * ptr_size);
+        }
+        if (m_i[2] != 0) { // _m_waiters
+            var tid_u: c_uint = @bitCast(tid);
+            tid_u |= 0x80000000;
+            _ = @as(c_int, @bitCast(tid_u)); // tid |= 0x80000000
+        }
+        robustPending(self_a).* = @intFromPtr(&m_p[4]); // pending = &_m_next
+    }
+
+    var new_tid = tid | (old & 0x40000000);
+    if ((@"type" & 128) != 0 and m_i[2] != 0) // robust + waiters
+        new_tid |= @as(c_int, @bitCast(@as(c_uint, 0x80000000)));
+
+    if (@cmpxchgStrong(c_int, &m_i[1], old, new_tid, .seq_cst, .seq_cst) != null) {
+        robustPending(self_a).* = 0;
+        if ((@"type" & 12) == 12 and m_i[2] != 0) return eint(.NOTRECOVERABLE);
+        return eint(.BUSY);
+    }
+
+    // success path
+    if ((@"type" & 8) != 0 and m_i[2] != 0) { // PI + waiters
+        const priv: usize = (@as(usize, @intCast(@"type" & 128)) ^ 128);
+        _ = linux.syscall2(.futex, @intFromPtr(&m_i[1]), FUTEX_UNLOCK_PI | priv);
+        robustPending(self_a).* = 0;
+        return if ((@"type" & 4) != 0) eint(.NOTRECOVERABLE) else eint(.BUSY);
+    }
+
+    // Link mutex into robust list
+    const head = robustHead(self_a);
+    const next_val = head.*;
+    m_p[4] = next_val; // _m_next = head
+    m_p[3] = @intFromPtr(head); // _m_prev = &head
+    if (next_val != @intFromPtr(head)) {
+        // *(void**)(next - sizeof(void*)) = &m->_m_next
+        const prev_ptr: *usize = @ptrFromInt(next_val - ptr_size);
+        prev_ptr.* = @intFromPtr(&m_p[4]);
+    }
+    head.* = @intFromPtr(&m_p[4]);
+    robustPending(self_a).* = 0;
+
+    if (old != 0) {
+        m_i[5] = 0; // _m_count = 0
+        return eint(.OWNERDEAD);
+    }
+    return 0;
+}
+
+fn mutex_trylock_fn(m: *anyopaque) callconv(.c) c_int {
+    const m_i: [*]c_int = @ptrCast(@alignCast(m));
+    if ((m_i[0] & 15) == 0) { // PTHREAD_MUTEX_NORMAL
+        return @cmpxchgStrong(c_int, &m_i[1], 0, eint(.BUSY), .seq_cst, .seq_cst) orelse 0;
+    }
+    return mutex_trylock_owner_fn(m);
+}
+
+// --- pthread_mutex_timedlock.c ---
+
+fn mutex_timedlock_pi(m: *anyopaque, at: ?*const anyopaque) c_int {
+    const m_i: [*]c_int = @ptrCast(@alignCast(m));
+    const @"type" = m_i[0];
+    const priv: usize = (@as(usize, @intCast(@"type" & 128)) ^ 128);
+    const self_a = selfAddr();
+
+    if (priv == 0) robustPending(self_a).* = @intFromPtr(&mutexPtrs(m)[4]);
+
+    var e: c_int = undefined;
+    while (true) {
+        const at_addr: usize = if (at) |p| @intFromPtr(p) else 0;
+        const rc: isize = @bitCast(linux.syscall4(.futex, @intFromPtr(&m_i[1]), FUTEX_LOCK_PI | priv, 0, at_addr));
+        e = -@as(c_int, @intCast(@as(i32, @truncate(rc))));
+        if (e != eint(.INTR)) break;
+    }
+    if (e != 0) {
+        robustPending(self_a).* = 0;
+    }
+
+    switch (e) {
+        0 => {
+            // Catch spurious success for non-robust mutexes
+            if ((@"type" & 4) == 0 and ((@atomicLoad(c_int, &m_i[1], .monotonic) & 0x40000000) != 0 or m_i[2] != 0)) {
+                @atomicStore(c_int, &m_i[2], -1, .seq_cst);
+                _ = linux.syscall2(.futex, @intFromPtr(&m_i[1]), FUTEX_UNLOCK_PI | priv);
+                robustPending(self_a).* = 0;
+            } else {
+                m_i[5] = -1; // _m_count = -1
+                return mutex_trylock_owner_fn(m);
+            }
+        },
+        eint(.TIMEDOUT) => return e,
+        eint(.DEADLK) => {
+            if ((@"type" & 3) == 2) return e; // PTHREAD_MUTEX_ERRORCHECK
+        },
+        else => {},
+    }
+    // Fall through: wait until timeout
+    const __timedwait_ext = @extern(*const fn (*anyopaque, c_int, c_int, ?*const anyopaque, c_int) callconv(.c) c_int, .{ .name = "__timedwait" });
+    while (true) {
+        var zero: c_int = 0;
+        e = __timedwait_ext(@ptrCast(&zero), 0, 0, at, 1); // CLOCK_REALTIME=0
+        if (e == eint(.TIMEDOUT)) return e;
+    }
+}
+
+fn mutex_timedlock_fn(m: *anyopaque, at: ?*const anyopaque) callconv(.c) c_int {
+    const m_i: [*]c_int = @ptrCast(@alignCast(m));
+    const __timedwait_ext = @extern(*const fn (*anyopaque, c_int, c_int, ?*const anyopaque, c_int) callconv(.c) c_int, .{ .name = "__timedwait" });
+
+    if ((m_i[0] & 15) == 0 and @cmpxchgStrong(c_int, &m_i[1], 0, eint(.BUSY), .seq_cst, .seq_cst) == null)
+        return 0;
+
+    const @"type" = m_i[0];
+    const priv: c_int = (@"type" & 128) ^ 128;
+
+    var r = mutex_trylock_fn(m);
+    if (r != eint(.BUSY)) return r;
+
+    if ((@"type" & 8) != 0) return mutex_timedlock_pi(m, at);
+
+    var spins: c_int = 100;
+    while (spins > 0 and @atomicLoad(c_int, &m_i[1], .monotonic) != 0 and m_i[2] == 0) : (spins -= 1) {
+        std.atomic.spinLoopHint();
+    }
+
+    while (true) {
+        r = mutex_trylock_fn(m);
+        if (r != eint(.BUSY)) return r;
+
+        const lock_val = @atomicLoad(c_int, &m_i[1], .monotonic);
+        const own = lock_val & 0x3fffffff;
+        if (own == 0 and (lock_val == 0 or (@"type" & 4) != 0))
+            continue;
+        if ((@"type" & 3) == 2 and own == selfTid()) // ERRORCHECK
+            return eint(.DEADLK);
+
+        _ = @atomicRmw(c_int, &m_i[2], .Add, 1, .seq_cst); // _m_waiters++
+        const t = lock_val | @as(c_int, @bitCast(@as(c_uint, 0x80000000)));
+        _ = @cmpxchgStrong(c_int, &m_i[1], lock_val, t, .seq_cst, .seq_cst);
+        r = __timedwait_ext(@ptrCast(&m_i[1]), t, 0, at, priv); // CLOCK_REALTIME=0
+        _ = @atomicRmw(c_int, &m_i[2], .Add, -1, .seq_cst); // _m_waiters--
+        if (r != 0 and r != eint(.INTR)) break;
+    }
+    return r;
+}
+
+// --- pthread_mutex_unlock.c ---
+fn mutex_unlock_fn(m: *anyopaque) callconv(.c) c_int {
+    const m_i: [*]c_int = @ptrCast(@alignCast(m));
+    const m_p = mutexPtrs(m);
+    const waiters = m_i[2]; // _m_waiters
+    var cont: c_int = undefined;
+    const @"type" = m_i[0] & 15;
+    const priv: usize = (@as(usize, @intCast(m_i[0] & 128)) ^ 128);
+    var new: c_int = 0;
+    var old: c_int = undefined;
+
+    if (@"type" != 0) { // not PTHREAD_MUTEX_NORMAL
+        const self_a = selfAddr();
+        old = @atomicLoad(c_int, &m_i[1], .monotonic);
+        const own = old & 0x3fffffff;
+        const tid = @as(*const c_int, @ptrFromInt(self_a + off_tid)).*;
+        if (own != tid) return eint(.PERM);
+        if ((m_i[0] & 3) == 1 and m_i[5] != 0) { // RECURSIVE + _m_count
+            m_i[5] -= 1;
+            return 0;
+        }
+        if ((m_i[0] & 4) != 0 and (old & 0x40000000) != 0)
+            new = 0x7fffffff;
+        if (priv == 0) { // robust (non-private)
+            robustPending(self_a).* = @intFromPtr(&m_p[4]);
+            const __vm_lock_ext = @extern(*const fn () callconv(.c) void, .{ .name = "__vm_lock" });
+            __vm_lock_ext();
+        }
+        // Unlink from robust list: prev->next = next; next->prev = prev
+        const prev_val = m_p[3]; // _m_prev
+        const next_val = m_p[4]; // _m_next
+        const prev_p: *volatile usize = @ptrFromInt(prev_val);
+        prev_p.* = next_val;
+        if (next_val != @intFromPtr(robustHead(self_a))) {
+            const next_prev_p: *volatile usize = @ptrFromInt(next_val - ptr_size);
+            next_prev_p.* = prev_val;
+        }
+    }
+    if ((m_i[0] & 8) != 0) { // PI mutex
+        if (old < 0 or @cmpxchgStrong(c_int, &m_i[1], old, new, .seq_cst, .seq_cst) != null) {
+            if (new != 0) @atomicStore(c_int, &m_i[2], -1, .seq_cst);
+            _ = linux.syscall2(.futex, @intFromPtr(&m_i[1]), FUTEX_UNLOCK_PI | priv);
+        }
+        cont = 0;
+    } else {
+        cont = @atomicRmw(c_int, &m_i[1], .Xchg, new, .seq_cst);
+    }
+    if (@"type" != 0 and priv == 0) {
+        const self_a = selfAddr();
+        robustPending(self_a).* = 0;
+        const __vm_unlock_ext = @extern(*const fn () callconv(.c) void, .{ .name = "__vm_unlock" });
+        __vm_unlock_ext();
+    }
+    if (waiters != 0 or cont < 0)
+        wake(@ptrCast(&m_i[1]), 1, @intCast(priv));
+    return 0;
+}
+
+// ============================================================
+// Simple pthread stubs
+// ============================================================
+
+// --- pthread_getconcurrency.c ---
+fn pthread_getconcurrency_fn() callconv(.c) c_int {
+    return 0;
+}
+
+// --- pthread_setconcurrency.c ---
+fn pthread_setconcurrency_fn(val: c_int) callconv(.c) c_int {
+    if (val < 0) return eint(.INVAL);
+    if (val > 0) return eint(.AGAIN);
+    return 0;
+}
+
+// --- pthread_equal.c ---
+fn pthread_equal_fn(a: usize, b: usize) callconv(.c) c_int {
+    return @intFromBool(a == b);
+}
+
+// --- thrd_yield.c ---
+fn thrd_yield_fn() callconv(.c) void {
+    _ = linux.syscall0(.sched_yield);
 }

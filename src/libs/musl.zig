@@ -1437,8 +1437,6 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_cond_timedwait.c",
     //"musl/src/thread/pthread_cond_wait.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_create.c",
-    "musl/src/thread/pthread_getattr_np.c",
-    "musl/src/thread/pthread_setattr_default_np.c",
     "musl/src/thread/riscv32/clone.s",
     "musl/src/thread/riscv32/__set_thread_area.s",
     "musl/src/thread/riscv32/syscall_cp.s",

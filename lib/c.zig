@@ -116,47 +116,27 @@ comptime {
     _ = @import("c/sys/select.zig");
     _ = @import("c/sys/utsname.zig");
 
-    _ = @import("c/signal.zig");
-    _ = @import("c/time.zig");
-    _ = @import("c/env.zig");
-    _ = @import("c/exit.zig");
-    _ = @import("c/process.zig");
-    _ = @import("c/time.zig");
-    _ = @import("c/process.zig");
-    _ = @import("c/process.zig");
-    _ = @import("c/time.zig");
-    _ = @import("c/thread.zig");
-    _ = @import("c/exit.zig");
-    _ = @import("c/legacy.zig");
-    _ = @import("c/exit.zig");
-    _ = @import("c/env.zig");
-    _ = @import("c/exit.zig");
-    _ = @import("c/env.zig");
-    _ = @import("c/conf.zig");
-    _ = @import("c/legacy.zig");
-    _ = @import("c/exit.zig");
-    _ = @import("c/misc.zig");
-    _ = @import("c/errno.zig");
-    _ = @import("c/stdio.zig");
-    _ = @import("c/locale.zig");
-    _ = @import("c/complex.zig");
-    _ = @import("c/termios.zig");
-    _ = @import("c/ldso.zig");
-    _ = @import("c/linux.zig");
-    _ = @import("c/mq.zig");
-    _ = @import("c/internal.zig");
     _ = @import("c/aio.zig");
-    _ = @import("c/unistd.zig");
+    _ = @import("c/complex.zig");
+    _ = @import("c/env.zig");
+    _ = @import("c/internal.zig");
+    _ = @import("c/linux.zig");
+    _ = @import("c/locale.zig");
+    _ = @import("c/misc.zig");
+    _ = @import("c/mq.zig");
+    _ = @import("c/process.zig");
+    _ = @import("c/signal.zig");
     _ = @import("c/spawn.zig");
-    _ = @import("c/wasi_cloudlibc.zig");
+    _ = @import("c/stdio.zig");
+    _ = @import("c/termios.zig");
+    _ = @import("c/thread.zig");
+    _ = @import("c/time.zig");
+    _ = @import("c/unistd.zig");
     _ = @import("c/wchar.zig");
 
-    _ = @import("c/misc.zig");
-    _ = @import("c/sched.zig");
     if (builtin.target.isWasiLibC()) {
-        _ = @import("c/wasi_thread_stub.zig");
-    if (builtin.target.isWasiLibC()) {
+        _ = @import("c/wasi_cloudlibc.zig");
         _ = @import("c/wasi_sources.zig");
+        _ = @import("c/wasi_thread_stub.zig");
     }
-    _ = @import("c/wasi_cloudlibc.zig");
 }

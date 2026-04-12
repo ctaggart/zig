@@ -1,100 +1,90 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const symbol = @import("../c.zig").symbol;
-
-/// Musl internal FILE struct layout (struct _IO_FILE from stdio_impl.h).
-/// Only used when targeting musl libc.
-const FILE = extern struct {
-    flags: c_uint,
-    rpos: ?[*]u8,
-    rend: ?[*]u8,
-    close_fn: ?*const anyopaque,
-    close_fn: ?*const fn (*FILE) callconv(.c) c_int,
-    wend: ?[*]u8,
-    wpos: ?[*]u8,
-    mustbezero_1: ?[*]u8,
-    wbase: ?[*]u8,
-    read_fn: ?*const anyopaque,
-    write_fn: ?*const anyopaque,
-    seek_fn: ?*const anyopaque,
-    read_fn: ?*const fn (*FILE, [*]u8, usize) callconv(.c) usize,
-    write_fn: ?*const fn (*FILE, [*]const u8, usize) callconv(.c) usize,
-    seek_fn: ?*const fn (*FILE, i64, c_int) callconv(.c) i64,
-    buf: ?[*]u8,
-    buf_size: usize,
-    prev: ?*FILE,
-    next: ?*FILE,
-    fd: c_int,
-    pipe_pid: c_int,
-    lockcount: c_long,
-    mode: c_int,
-    lock: c_int,
-    lbf: c_int,
-    cookie: ?*anyopaque,
-    off: i64,
-    getln_buf: ?[*]u8,
-    mustbezero_2: ?*anyopaque,
-    shend: ?[*]u8,
-    shlim: i64,
-    shcnt: i64,
-    prev_locked: ?*FILE,
-    next_locked: ?*FILE,
-    locale: ?*anyopaque,
-};
-
+const FILE = opaque {};
 const wchar_t = std.c.wchar_t;
 const wint_t = std.c.wint_t;
 const ssize_t = isize;
+const _IOFBF = 0;
+const _IOLBF = 1;
+const _IONBF = 2;
+const BUFSIZ = 1024;
+const EOF = -1;
+const setvbuf_fn = @extern(*const fn (?*FILE, ?[*]u8, c_int, usize) callconv(.c) c_int, .{ .name = "setvbuf" });
+const getdelim_fn = @extern(*const fn (?*[*]u8, ?*usize, c_int, ?*FILE) callconv(.c) ssize_t, .{ .name = "getdelim" });
+const fgetwc_fn = @extern(*const fn (?*FILE) callconv(.c) wint_t, .{ .name = "fgetwc" });
+const fputwc_fn = @extern(*const fn (wchar_t, ?*FILE) callconv(.c) wint_t, .{ .name = "fputwc" });
+const fread_fn = @extern(*const fn (*anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fread" });
+const fwrite_fn = @extern(*const fn (*const anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fwrite" });
+const stdin_ext = @extern(*const ?*FILE, .{ .name = "stdin" });
+const stdout_ext = @extern(*const ?*FILE, .{ .name = "stdout" });
+const fgetc_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "fgetc" });
+const fputc_fn = @extern(*const fn (c_int, ?*FILE) callconv(.c) c_int, .{ .name = "fputc" });
+const getc_unlocked_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "getc_unlocked" });
+const putc_unlocked_fn = @extern(*const fn (c_int, ?*FILE) callconv(.c) c_int, .{ .name = "putc_unlocked" });
+const F_EOF: c_uint = 16;
+const F_ERR: c_uint = 32;
+const lockfile_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__lockfile" });
+const unlockfile_fn = @extern(*const fn (*FILE) callconv(.c) void, .{ .name = "__unlockfile" });
+const fseeko_unlocked_fn = @extern(*const fn (*FILE, i64, c_int) callconv(.c) c_int, .{ .name = "__fseeko_unlocked" });
+const fseeko_fn = @extern(*const fn (*FILE, i64, c_int) callconv(.c) c_int, .{ .name = "__fseeko" });
+const ftello_fn = @extern(*const fn (*FILE) callconv(.c) i64, .{ .name = "__ftello" });
+const UNGET = 8;
+const toread_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__toread" });
+const F_SVB: c_uint = 64;
+const F_APP: c_uint = 128;
+const F_NORD: c_uint = 4;
+const F_NOWR: c_uint = 8;
+const SEEK_SET: c_int = 0;
+const SEEK_CUR: c_int = 1;
+const SEEK_END: c_int = 2;
+const towrite_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__towrite" });
+const linux = std.os.linux;
+const c_errno = @import("../c.zig").errno;
+const fflush_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "fflush" });
+const uflow_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__uflow" });
+const overflow_fn = @extern(*const fn (*FILE, c_int) callconv(.c) c_int, .{ .name = "__overflow" });
+const VaList = std.builtin.VaList;
+const SnCookie = extern struct {
+    s: [*]u8,
+    n: usize,
+};
+const SwCookie = extern struct {
+    ws: [*]wchar_t,
+    l: usize,
+};
+const stderr_ext = @extern(*const ?*FILE, .{ .name = "stderr" });
+const strerror_fn = @extern(*const fn (c_int) callconv(.c) [*:0]const u8, .{ .name = "strerror" });
+const vfprintf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfprintf" });
+const vfwprintf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwprintf" });
+const vfscanf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfscanf" });
+const vfwscanf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwscanf" });
+const memchr_fn = @extern(*const fn (?[*]const u8, c_int, usize) callconv(.c) ?[*]u8, .{ .name = "memchr" });
+const lseek_fn = @extern(*const fn (c_int, i64, c_int) callconv(.c) i64, .{ .name = "__lseek" });
+const malloc_fn = @extern(*const fn (usize) callconv(.c) ?*anyopaque, .{ .name = "malloc" });
+const realloc_fn = @extern(*const fn (?*anyopaque, usize) callconv(.c) ?*anyopaque, .{ .name = "realloc" });
+const stdio_write_ext = @extern(*const fn (*FILE, [*]const u8, usize) callconv(.c) usize, .{ .name = "__stdio_write" });
+const mbtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize) callconv(.c) c_int, .{ .name = "mbtowc" });
+const wcsrtombs_fn = @extern(*const fn (?[*]u8, *?[*:0]const wchar_t, usize, ?*anyopaque) callconv(.c) usize, .{ .name = "wcsrtombs" });
 
 comptime {
     if (builtin.link_libc and builtin.target.isMuslLibC()) {
-        // Buffer control wrappers (setbuf.c, setbuffer.c, setlinebuf.c)
         symbol(&setbuf, "setbuf");
         symbol(&setbuffer, "setbuffer");
         symbol(&setlinebuf, "setlinebuf");
-
-        // Line reading (getline.c)
         symbol(&getline, "getline");
-
-        // Wide character I/O wrappers (getwchar.c, putwchar.c, getwc.c, putwc.c)
         symbol(&getwchar, "getwchar");
         symbol(&getwchar, "getwchar_unlocked");
         symbol(&putwchar, "putwchar");
         symbol(&putwchar, "putwchar_unlocked");
         symbol(&getwc, "getwc");
         symbol(&putwc, "putwc");
-
-        // Character I/O (fgetc.c, fputc.c, getc.c, putc.c, getc_unlocked.c, putc_unlocked.c)
-        symbol(&getc_unlocked_impl, "getc_unlocked");
-        symbol(&getc_unlocked_impl, "fgetc_unlocked");
-        symbol(&getc_unlocked_impl, "_IO_getc_unlocked");
-        symbol(&putc_unlocked_impl, "putc_unlocked");
-        symbol(&putc_unlocked_impl, "fputc_unlocked");
-        symbol(&putc_unlocked_impl, "_IO_putc_unlocked");
-        symbol(&fgetc_impl, "fgetc");
-        symbol(&fgetc_impl, "getc");
-        symbol(&fgetc_impl, "_IO_getc");
-        symbol(&fputc_impl, "fputc");
-        symbol(&fputc_impl, "putc");
-        symbol(&fputc_impl, "_IO_putc");
-
-        // Internal buffer transitions (__toread.c, __towrite.c, __uflow.c, __overflow.c)
-        symbol(&toread_impl, "__toread");
-        symbol(&towrite_impl, "__towrite");
-        symbol(&uflow_impl, "__uflow");
-        symbol(&overflow_impl, "__overflow");
-
-        // Character I/O wrappers (getchar.c, putchar.c, getchar_unlocked.c, putchar_unlocked.c)
+        symbol(&getw, "getw");
+        symbol(&putw, "putw");
         symbol(&getchar, "getchar");
         symbol(&putchar, "putchar");
         symbol(&getchar_unlocked, "getchar_unlocked");
         symbol(&putchar_unlocked, "putchar_unlocked");
-
-        // Word I/O (getw.c, putw.c)
-        symbol(&getw, "getw");
-        symbol(&putw, "putw");
-
-        // Stream status (feof.c, ferror.c, clearerr.c, fileno.c)
         symbol(&feof_fn, "feof");
         symbol(&feof_fn, "feof_unlocked");
         symbol(&feof_fn, "_IO_feof_unlocked");
@@ -105,25 +95,15 @@ comptime {
         symbol(&clearerr, "clearerr_unlocked");
         symbol(&fileno, "fileno");
         symbol(&fileno, "fileno_unlocked");
-
-        // Positioning (rewind.c, fgetpos.c, fsetpos.c)
         symbol(&rewind, "rewind");
         symbol(&fgetpos, "fgetpos");
         symbol(&fsetpos, "fsetpos");
-
-        // String I/O (fputs.c, puts.c, gets.c)
         symbol(&fputs, "fputs");
         symbol(&fputs, "fputs_unlocked");
         symbol(&puts, "puts");
         symbol(&gets, "gets");
-
-        // Unget (ungetc.c)
         symbol(&ungetc, "ungetc");
-
-        // Buffering (setvbuf.c)
         symbol(&setvbuf, "setvbuf");
-
-        // Seeking & position (fseek.c, ftell.c)
         symbol(&__fseeko_unlocked, "__fseeko_unlocked");
         symbol(&__fseeko, "__fseeko");
         symbol(&fseek, "fseek");
@@ -132,19 +112,13 @@ comptime {
         symbol(&__ftello, "__ftello");
         symbol(&ftell, "ftell");
         symbol(&__ftello, "ftello");
-
-        // Bulk I/O (fread.c, fwrite.c)
         symbol(&__fwritex, "__fwritex");
         symbol(&fwrite, "fwrite");
         symbol(&fwrite, "fwrite_unlocked");
         symbol(&fread, "fread");
         symbol(&fread, "fread_unlocked");
-
-        // String read (fgets.c)
         symbol(&fgets, "fgets");
         symbol(&fgets, "fgets_unlocked");
-
-        // GNU extensions (ext.c, ext2.c)
         symbol(&_flushlbf, "_flushlbf");
         symbol(&__fsetlocking, "__fsetlocking");
         symbol(&__fwriting, "__fwriting");
@@ -160,306 +134,136 @@ comptime {
         symbol(&__freadptr, "__freadptr");
         symbol(&__freadptrinc, "__freadptrinc");
         symbol(&__fseterr, "__fseterr");
-
-        // File operations (remove.c, rename.c)
         symbol(&remove_fn, "remove");
         symbol(&rename_fn, "rename");
-
-        // Formatting wrappers (fprintf.c, printf.c, snprintf.c, sprintf.c, asprintf.c, dprintf.c)
+        symbol(&getc_unlocked_impl, "getc_unlocked");
+        symbol(&getc_unlocked_impl, "fgetc_unlocked");
+        symbol(&getc_unlocked_impl, "_IO_getc_unlocked");
+        symbol(&putc_unlocked_impl, "putc_unlocked");
+        symbol(&putc_unlocked_impl, "fputc_unlocked");
+        symbol(&putc_unlocked_impl, "_IO_putc_unlocked");
+        symbol(&fgetc_impl, "fgetc");
+        symbol(&fgetc_impl, "getc");
+        symbol(&fgetc_impl, "_IO_getc");
+        symbol(&fputc_impl, "fputc");
+        symbol(&fputc_impl, "putc");
+        symbol(&fputc_impl, "_IO_putc");
+        symbol(&toread_impl, "__toread");
+        symbol(&towrite_impl, "__towrite");
+        symbol(&uflow_impl, "__uflow");
+        symbol(&overflow_impl, "__overflow");
         symbol(&fprintf_impl, "fprintf");
         symbol(&printf_impl, "printf");
         symbol(&snprintf_impl, "snprintf");
         symbol(&sprintf_impl, "sprintf");
         symbol(&asprintf_impl, "asprintf");
         symbol(&dprintf_impl, "dprintf");
-
-        // Scanning wrappers (scanf.c, fscanf.c, sscanf.c)
         symbol(&scanf_impl, "scanf");
         symbol(&scanf_impl, "__isoc99_scanf");
         symbol(&fscanf_impl, "fscanf");
         symbol(&fscanf_impl, "__isoc99_fscanf");
         symbol(&sscanf_impl, "sscanf");
         symbol(&sscanf_impl, "__isoc99_sscanf");
-
-        // Error output (perror.c)
         symbol(&perror_impl, "perror");
-
-        // Wide formatting wrappers (wprintf.c, fwprintf.c, swprintf.c)
         symbol(&wprintf_impl, "wprintf");
         symbol(&fwprintf_impl, "fwprintf");
         symbol(&swprintf_impl, "swprintf");
-
-        // Wide scanning wrappers (wscanf.c, fwscanf.c, swscanf.c)
         symbol(&wscanf_impl, "wscanf");
         symbol(&wscanf_impl, "__isoc99_wscanf");
         symbol(&fwscanf_impl, "fwscanf");
         symbol(&fwscanf_impl, "__isoc99_fwscanf");
         symbol(&swscanf_impl, "swscanf");
         symbol(&swscanf_impl, "__isoc99_swscanf");
-
-        // Wide v* delegation (vwprintf.c, vwscanf.c)
         symbol(&vwprintf_impl, "vwprintf");
         symbol(&vwscanf_impl, "vwscanf");
         symbol(&vwscanf_impl, "__isoc99_vwscanf");
-
-        // Narrow v* delegation (vprintf.c, vscanf.c)
         symbol(&vprintf_impl, "vprintf");
         symbol(&vscanf_impl, "vscanf");
         symbol(&vscanf_impl, "__isoc99_vscanf");
-
-        // Narrow v*s... (vsnprintf.c, vsprintf.c, vsscanf.c)
         symbol(&vsnprintf_impl, "vsnprintf");
         symbol(&vsprintf_impl, "vsprintf");
         symbol(&vsscanf_impl, "vsscanf");
         symbol(&vsscanf_impl, "__isoc99_vsscanf");
-
-        // Wide v*sw... (vswprintf.c, vswscanf.c)
         symbol(&vswprintf_impl, "vswprintf");
         symbol(&vswscanf_impl, "vswscanf");
         symbol(&vswscanf_impl, "__isoc99_vswscanf");
-
-        // Internal helpers (__fmodeflags.c, __fclose_ca.c)
         symbol(&fmodeflags_impl, "__fmodeflags");
         symbol(&fclose_ca_impl, "__fclose_ca");
-
-        // BSD extension (fgetln.c)
         symbol(&fgetln_impl, "fgetln");
-
-        // Internal I/O (__stdio_seek.c)
         symbol(&stdio_seek_impl, "__stdio_seek");
-
-        // Allocation formatting (vasprintf.c)
         symbol(&vasprintf_impl, "vasprintf");
-
-        // FD formatting (vdprintf.c)
         symbol(&vdprintf_impl, "vdprintf");
-
-        // Line reading (getdelim.c)
         symbol(&getdelim_impl, "getdelim");
         symbol(&getdelim_impl, "__getdelim");
     }
 }
 
-/// C constants
-const _IOFBF = 0;
-const _IOLBF = 1;
-const _IONBF = 2;
-const BUFSIZ = 1024;
-const EOF = -1;
-
-/// setbuf.c: void setbuf(FILE *restrict f, char *restrict buf)
 fn setbuf(f: ?*FILE, buf: ?[*]u8) callconv(.c) void {
     _ = setvbuf_fn(f, buf, if (buf != null) _IOFBF else _IONBF, BUFSIZ);
-    _ = setvbuf(@ptrCast(f), buf, if (buf != null) _IOFBF else _IONBF, BUFSIZ);
 }
 
-/// setbuffer.c: void setbuffer(FILE *f, char *buf, size_t size)
 fn setbuffer(f: ?*FILE, buf: ?[*]u8, size: usize) callconv(.c) void {
     _ = setvbuf_fn(f, buf, if (buf != null) _IOFBF else _IONBF, size);
-    _ = setvbuf(@ptrCast(f), buf, if (buf != null) _IOFBF else _IONBF, size);
 }
 
-/// setlinebuf.c: void setlinebuf(FILE *f)
 fn setlinebuf(f: ?*FILE) callconv(.c) void {
     _ = setvbuf_fn(f, null, _IOLBF, 0);
-    _ = setvbuf(@ptrCast(f), null, _IOLBF, 0);
 }
 
-/// getline.c: ssize_t getline(char **s, size_t *n, FILE *f)
 fn getline(s: ?*[*]u8, n: ?*usize, f: ?*FILE) callconv(.c) ssize_t {
     return getdelim_fn(s, n, '\n', f);
-    return getdelim_impl(s, n, '\n', f);
 }
 
-/// getwchar.c: wint_t getwchar(void)
 fn getwchar() callconv(.c) wint_t {
     return fgetwc_fn(stdin_ext.*);
 }
 
-/// putwchar.c: wint_t putwchar(wchar_t c)
 fn putwchar(c: wchar_t) callconv(.c) wint_t {
     return fputwc_fn(c, stdout_ext.*);
 }
 
-/// getwc.c: wint_t getwc(FILE *f)
 fn getwc(f: ?*FILE) callconv(.c) wint_t {
     return fgetwc_fn(f);
 }
 
-/// putwc.c: wint_t putwc(wchar_t c, FILE *f)
 fn putwc(c: wchar_t, f: ?*FILE) callconv(.c) wint_t {
     return fputwc_fn(c, f);
 }
 
-/// getw.c: int getw(FILE *f)
 fn getw(f: ?*FILE) callconv(.c) c_int {
     var x: c_int = undefined;
     return if (fread_fn(&x, @sizeOf(c_int), 1, f) != 0) x else EOF;
-    return if (fread(@ptrCast(&x), @sizeOf(c_int), 1, @ptrCast(f)) != 0) x else EOF;
 }
 
-/// putw.c: int putw(int x, FILE *f)
 fn putw(x: c_int, f: ?*FILE) callconv(.c) c_int {
     var val = x;
     return @as(c_int, @intCast(fwrite_fn(&val, @sizeOf(c_int), 1, f))) - 1;
-    return @as(c_int, @intCast(fwrite(@ptrCast(&val), @sizeOf(c_int), 1, @ptrCast(f)))) - 1;
 }
 
-/// getchar.c: int getchar(void)
 fn getchar() callconv(.c) c_int {
     return fgetc_fn(stdin_ext.*);
-    return @as(c_int, @intCast(fwrite(@ptrCast(&val), @sizeOf(c_int), 1, @ptrCast(f)))) - 1;
 }
 
-    return @as(c_int, @intCast(fwrite(@ptrCast(&val), @sizeOf(c_int), 1, @ptrCast(f)))) - 1;
-}
-
-// --- Internal buffer transitions (__toread.c, __towrite.c, __uflow.c, __overflow.c) ---
-
-/// __toread.c: int __toread(FILE *f)
-/// Transition FILE from write mode to read mode.
-fn toread_impl(f: *FILE) callconv(.c) c_int {
-    f.mode |= @bitCast(@as(c_uint, @bitCast(f.mode)) -% 1);
-    if (f.wpos != f.wbase) {
-        _ = f.write_fn.?(f, @ptrCast(&[0]u8{}), 0);
-    }
-    f.wpos = null;
-    f.wbase = null;
-    f.wend = null;
-    if (f.flags & F_NORD != 0) {
-        f.flags |= F_ERR;
-        return EOF;
-    }
-    const end = f.buf.? + f.buf_size;
-    f.rpos = end;
-    f.rend = end;
-    return if (f.flags & F_EOF != 0) EOF else 0;
-}
-
-/// __towrite.c: int __towrite(FILE *f)
-/// Transition FILE from read mode to write mode.
-fn towrite_impl(f: *FILE) callconv(.c) c_int {
-    f.mode |= @bitCast(@as(c_uint, @bitCast(f.mode)) -% 1);
-    if (f.flags & F_NOWR != 0) {
-        f.flags |= F_ERR;
-        return EOF;
-    }
-    f.rpos = null;
-    f.rend = null;
-    f.wpos = f.buf;
-    f.wbase = f.buf;
-    f.wend = f.buf.? + f.buf_size;
-    return 0;
-}
-
-/// __uflow.c: int __uflow(FILE *f)
-/// Refill read buffer and return one byte, or EOF.
-fn uflow_impl(f: *FILE) callconv(.c) c_int {
-    var c: u8 = undefined;
-    if (toread_impl(f) == 0 and f.read_fn.?(f, @as([*]u8, @ptrCast(&c)), 1) == 1) return c;
-    return EOF;
-}
-
-/// __overflow.c: int __overflow(FILE *f, int _c)
-/// Write one byte through the buffer, flushing if needed.
-fn overflow_impl(f: *FILE, _c: c_int) callconv(.c) c_int {
-    var c: u8 = @truncate(@as(c_uint, @bitCast(_c)));
-    if (f.wend == null and towrite_impl(f) != 0) return EOF;
-    if (f.wpos != f.wend and @as(c_int, c) != f.lbf) {
-        f.wpos.?[0] = c;
-        f.wpos = f.wpos.? + 1;
-        return c;
-    }
-    if (f.write_fn.?(f, @as([*]const u8, @ptrCast(&c)), 1) != 1) return EOF;
-    return c;
-}
-
-// --- Character I/O (fgetc.c, fputc.c, getc.c, putc.c, getc_unlocked.c, putc_unlocked.c) ---
-
-/// getc_unlocked.c: int getc_unlocked(FILE *f)
-/// Implements musl's getc_unlocked macro:
-///   ((f)->rpos != (f)->rend) ? *(f)->rpos++ : __uflow((f))
-fn getc_unlocked_impl(f: *FILE) callconv(.c) c_int {
-    if (f.rpos != f.rend) {
-        const c = f.rpos.?[0];
-        f.rpos = f.rpos.? + 1;
-        return c;
-    }
-    return uflow_fn(f);
-    return uflow_impl(f);
-}
-
-/// putc_unlocked.c: int putc_unlocked(int c, FILE *f)
-/// Implements musl's putc_unlocked macro:
-///   ((unsigned char)(c)!=(f)->lbf && (f)->wpos!=(f)->wend)
-///     ? *(f)->wpos++ = (unsigned char)(c) : __overflow((f),(unsigned char)(c))
-fn putc_unlocked_impl(c: c_int, f: *FILE) callconv(.c) c_int {
-    const uc: u8 = @truncate(@as(c_uint, @bitCast(c)));
-    if (uc != @as(u8, @truncate(@as(c_uint, @bitCast(f.lbf)))) and f.wpos != f.wend) {
-        f.wpos.?[0] = uc;
-        f.wpos = f.wpos.? + 1;
-        return uc;
-    }
-    return overflow_fn(f, uc);
-    return overflow_impl(f, uc);
-}
-
-/// fgetc.c / getc.c: int fgetc(FILE *f)
-fn fgetc_impl(f: *FILE) callconv(.c) c_int {
-    const need_unlock = flock(f);
-    const c = getc_unlocked_impl(f);
-    funlock(f, need_unlock);
-    return c;
-}
-
-/// fputc.c / putc.c: int fputc(int c, FILE *f)
-fn fputc_impl(c: c_int, f: *FILE) callconv(.c) c_int {
-    const need_unlock = flock(f);
-    const result = putc_unlocked_impl(c, f);
-    funlock(f, need_unlock);
-    return result;
-}
-
-/// getchar.c: int getchar(void)
-fn getchar() callconv(.c) c_int {
-    return fgetc_impl(@ptrCast(stdin_ext.*));
-}
-
-/// putchar.c: int putchar(int c)
 fn putchar(c: c_int) callconv(.c) c_int {
     return fputc_fn(c, stdout_ext.*);
-    return fputc_impl(c, @ptrCast(stdout_ext.*));
 }
 
-/// getchar_unlocked.c: int getchar_unlocked(void)
 fn getchar_unlocked() callconv(.c) c_int {
     return getc_unlocked_fn(stdin_ext.*);
-    return getc_unlocked_impl(@ptrCast(stdin_ext.*));
 }
 
-/// putchar_unlocked.c: int putchar_unlocked(int c)
 fn putchar_unlocked(c: c_int) callconv(.c) c_int {
     return putc_unlocked_fn(c, stdout_ext.*);
-    return putc_unlocked_impl(c, @ptrCast(stdout_ext.*));
 }
 
-// --- Stream status functions ---
-
-/// Musl FILE flag constants (from stdio_impl.h)
-const F_EOF: c_uint = 16;
-const F_ERR: c_uint = 32;
-
-/// Implements musl FLOCK(f) macro: ((f)->lock>=0 ? __lockfile((f)) : 0)
 inline fn flock(f: *FILE) c_int {
     return if (f.lock >= 0) lockfile_fn(f) else 0;
 }
 
-/// Implements musl FUNLOCK(f) macro
 inline fn funlock(f: *FILE, need_unlock: c_int) void {
     if (need_unlock != 0) unlockfile_fn(f);
 }
 
-/// feof.c: int feof(FILE *f)
 fn feof_fn(f: *FILE) callconv(.c) c_int {
     const need_unlock = flock(f);
     const ret: c_int = @intFromBool(f.flags & F_EOF != 0);
@@ -467,7 +271,6 @@ fn feof_fn(f: *FILE) callconv(.c) c_int {
     return ret;
 }
 
-/// ferror.c: int ferror(FILE *f)
 fn ferror_fn(f: *FILE) callconv(.c) c_int {
     const need_unlock = flock(f);
     const ret: c_int = @intFromBool(f.flags & F_ERR != 0);
@@ -475,14 +278,12 @@ fn ferror_fn(f: *FILE) callconv(.c) c_int {
     return ret;
 }
 
-/// clearerr.c: void clearerr(FILE *f)
 fn clearerr(f: *FILE) callconv(.c) void {
     const need_unlock = flock(f);
     f.flags &= ~(F_EOF | F_ERR);
     funlock(f, need_unlock);
 }
 
-/// fileno.c: int fileno(FILE *f)
 fn fileno(f: *FILE) callconv(.c) c_int {
     const need_unlock = flock(f);
     const fd = f.fd;
@@ -494,57 +295,43 @@ fn fileno(f: *FILE) callconv(.c) c_int {
     return fd;
 }
 
-/// rewind.c: void rewind(FILE *f)
 fn rewind(f: *FILE) callconv(.c) void {
     const need_unlock = flock(f);
     _ = fseeko_unlocked_fn(f, 0, 0); // SEEK_SET = 0
-    _ = __fseeko_unlocked(f, 0, SEEK_SET);
     f.flags &= ~F_ERR;
     funlock(f, need_unlock);
 }
 
-/// fgetpos.c: int fgetpos(FILE *f, fpos_t *pos)
 fn fgetpos(f: *FILE, pos: *i64) callconv(.c) c_int {
     const off = ftello_fn(f);
-    const off = __ftello(f);
     if (off < 0) return -1;
     pos.* = off;
     return 0;
 }
 
-/// fsetpos.c: int fsetpos(FILE *f, const fpos_t *pos)
 fn fsetpos(f: *FILE, pos: *const i64) callconv(.c) c_int {
     return fseeko_fn(f, pos.*, 0); // SEEK_SET = 0
-    return __fseeko(f, pos.*, SEEK_SET);
 }
 
-// --- String I/O functions ---
-
-/// fputs.c: int fputs(const char *restrict s, FILE *restrict f)
 fn fputs(s: [*:0]const u8, f: *FILE) callconv(.c) c_int {
     const l = std.mem.len(s);
     return @as(c_int, @intCast(@intFromBool(fwrite_fn(s, 1, l, f) == l))) - 1;
-    return @as(c_int, @intCast(@intFromBool(fwrite(s, 1, l, f) == l))) - 1;
 }
 
-/// puts.c: int puts(const char *s)
 fn puts(s: [*:0]const u8) callconv(.c) c_int {
     const stdout_ptr: *FILE = @ptrCast(stdout_ext.*);
     const need_unlock = flock(stdout_ptr);
     const r: c_int = -@as(c_int, @intFromBool(fputs(s, stdout_ptr) < 0 or putc_unlocked_fn('\n', stdout_ext.*) < 0));
-    const r: c_int = -@as(c_int, @intFromBool(fputs(s, stdout_ptr) < 0 or putc_unlocked_impl('\n', stdout_ptr) < 0));
     funlock(stdout_ptr, need_unlock);
     return r;
 }
 
-/// gets.c: char *gets(char *s)
 fn gets(s: [*]u8) callconv(.c) ?[*]u8 {
     var i: usize = 0;
     const stdin_ptr: *FILE = @ptrCast(stdin_ext.*);
     const need_unlock = flock(stdin_ptr);
     while (true) {
         const c = getc_unlocked_fn(stdin_ext.*);
-        const c = getc_unlocked_impl(stdin_ptr);
         if (c == EOF or c == '\n') {
             s[i] = 0;
             if (c != '\n' and (stdin_ptr.flags & F_EOF == 0 or i == 0)) {
@@ -560,19 +347,12 @@ fn gets(s: [*]u8) callconv(.c) ?[*]u8 {
     return s;
 }
 
-// --- Unget functions ---
-
-/// Musl UNGET constant (from stdio_impl.h)
-const UNGET = 8;
-
-/// ungetc.c: int ungetc(int c, FILE *f)
 fn ungetc(c: c_int, f: *FILE) callconv(.c) c_int {
     if (c == EOF) return c;
 
     const need_unlock = flock(f);
 
     if (f.rpos == null) _ = toread_fn(f);
-    if (f.rpos == null) _ = toread_impl(f);
     if (f.rpos == null) {
         funlock(f, need_unlock);
         return EOF;
@@ -594,26 +374,6 @@ fn ungetc(c: c_int, f: *FILE) callconv(.c) c_int {
     return @as(c_int, @intCast(@as(c_uint, @bitCast(c)) & 0xff));
 }
 
-// Extern references to musl C functions that are still compiled from C sources.
-const setvbuf_fn = @extern(*const fn (?*FILE, ?[*]u8, c_int, usize) callconv(.c) c_int, .{ .name = "setvbuf" });
-const getdelim_fn = @extern(*const fn (?*[*]u8, ?*usize, c_int, ?*FILE) callconv(.c) ssize_t, .{ .name = "getdelim" });
-const fgetwc_fn = @extern(*const fn (?*FILE) callconv(.c) wint_t, .{ .name = "fgetwc" });
-const fputwc_fn = @extern(*const fn (wchar_t, ?*FILE) callconv(.c) wint_t, .{ .name = "fputwc" });
-const fread_fn = @extern(*const fn (*anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fread" });
-const fwrite_fn = @extern(*const fn (*const anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fwrite" });
-// --- Buffering ---
-
-/// Musl FILE flag constant (from stdio_impl.h)
-const F_SVB: c_uint = 64;
-const F_APP: c_uint = 128;
-const F_NORD: c_uint = 4;
-const F_NOWR: c_uint = 8;
-
-const SEEK_SET: c_int = 0;
-const SEEK_CUR: c_int = 1;
-const SEEK_END: c_int = 2;
-
-/// setvbuf.c
 fn setvbuf(f: *FILE, buf: ?[*]u8, @"type": c_int, size: usize) callconv(.c) c_int {
     f.lbf = EOF;
 
@@ -634,9 +394,6 @@ fn setvbuf(f: *FILE, buf: ?[*]u8, @"type": c_int, size: usize) callconv(.c) c_in
     return 0;
 }
 
-// --- Seeking & position (fseek.c, ftell.c) ---
-
-/// __fseeko_unlocked from fseek.c
 fn __fseeko_unlocked(f: *FILE, off_arg: i64, whence: c_int) callconv(.c) c_int {
     var off = off_arg;
 
@@ -673,7 +430,6 @@ fn __fseeko_unlocked(f: *FILE, off_arg: i64, whence: c_int) callconv(.c) c_int {
     return 0;
 }
 
-/// __fseeko from fseek.c
 fn __fseeko(f: *FILE, off: i64, whence: c_int) callconv(.c) c_int {
     const need_unlock = flock(f);
     const result = __fseeko_unlocked(f, off, whence);
@@ -681,12 +437,10 @@ fn __fseeko(f: *FILE, off: i64, whence: c_int) callconv(.c) c_int {
     return result;
 }
 
-/// fseek from fseek.c
 fn fseek(f: *FILE, off: c_long, whence: c_int) callconv(.c) c_int {
     return __fseeko(f, @intCast(off), whence);
 }
 
-/// __ftello_unlocked from ftell.c
 fn __ftello_unlocked(f: *FILE) callconv(.c) i64 {
     const pos = f.seek_fn.?(f, 0, if (f.flags & F_APP != 0 and f.wpos != f.wbase) SEEK_END else SEEK_CUR);
     if (pos < 0) return pos;
@@ -700,7 +454,6 @@ fn __ftello_unlocked(f: *FILE) callconv(.c) i64 {
     return pos;
 }
 
-/// __ftello from ftell.c
 fn __ftello(f: *FILE) callconv(.c) i64 {
     const need_unlock = flock(f);
     const pos = __ftello_unlocked(f);
@@ -708,7 +461,6 @@ fn __ftello(f: *FILE) callconv(.c) i64 {
     return pos;
 }
 
-/// ftell from ftell.c
 fn ftell(f: *FILE) callconv(.c) c_long {
     const pos = __ftello(f);
     if (pos > std.math.maxInt(c_long)) {
@@ -718,14 +470,10 @@ fn ftell(f: *FILE) callconv(.c) c_long {
     return @intCast(pos);
 }
 
-// --- Bulk I/O (fread.c, fwrite.c) ---
-
-/// __fwritex from fwrite.c - internal write helper
 fn __fwritex(s: [*]const u8, l_arg: usize, f: *FILE) callconv(.c) usize {
     var l = l_arg;
 
     if (f.wend == null and towrite_fn(f) != 0) return 0;
-    if (f.wend == null and towrite_impl(f) != 0) return 0;
 
     if (l > @intFromPtr(f.wend.?) - @intFromPtr(f.wpos.?)) return f.write_fn.?(f, s, l);
 
@@ -749,7 +497,6 @@ fn __fwritex(s: [*]const u8, l_arg: usize, f: *FILE) callconv(.c) usize {
     return l + 0; // +0 because no i prefix in this path
 }
 
-/// fwrite from fwrite.c
 fn fwrite(src: [*]const u8, size: usize, nmemb: usize, f: *FILE) callconv(.c) usize {
     const l = size *% nmemb;
     if (size == 0) return 0;
@@ -759,7 +506,6 @@ fn fwrite(src: [*]const u8, size: usize, nmemb: usize, f: *FILE) callconv(.c) us
     return if (k == l) nmemb else k / size;
 }
 
-/// fread from fread.c
 fn fread(destv: [*]u8, size: usize, nmemb: usize, f: *FILE) callconv(.c) usize {
     const len = size *% nmemb;
     var l = len;
@@ -786,7 +532,6 @@ fn fread(destv: [*]u8, size: usize, nmemb: usize, f: *FILE) callconv(.c) usize {
     var dest = destv + (len - l);
     while (l > 0) {
         const k = if (toread_fn(f) != 0) @as(usize, 0) else f.read_fn.?(f, dest, l);
-        const k = if (toread_impl(f) != 0) @as(usize, 0) else f.read_fn.?(f, dest, l);
         if (k == 0) {
             funlock(f, need_unlock);
             return (len - l) / size;
@@ -799,9 +544,6 @@ fn fread(destv: [*]u8, size: usize, nmemb: usize, f: *FILE) callconv(.c) usize {
     return nmemb;
 }
 
-// --- String read (fgets.c) ---
-
-/// fgets.c: char *fgets(char *restrict s, int n, FILE *restrict f)
 fn fgets(s: [*]u8, n_arg: c_int, f: *FILE) callconv(.c) ?[*]u8 {
     var p = s;
     var n = n_arg;
@@ -832,7 +574,6 @@ fn fgets(s: [*]u8, n_arg: c_int, f: *FILE) callconv(.c) ?[*]u8 {
             if (z != null or n == 0) break;
         }
         const c = getc_unlocked_fn(@ptrCast(f));
-        const c = getc_unlocked_impl(@ptrCast(f));
         if (c < 0) {
             if (p == s or f.flags & F_EOF == 0) {
                 funlock(f, need_unlock);
@@ -851,54 +592,42 @@ fn fgets(s: [*]u8, n_arg: c_int, f: *FILE) callconv(.c) ?[*]u8 {
     return s;
 }
 
-// --- GNU extensions (ext.c) ---
-
-/// _flushlbf: flush all line-buffered streams
 fn _flushlbf() callconv(.c) void {
     _ = fflush_fn(null);
 }
 
-/// __fsetlocking: set locking type (no-op in musl)
 fn __fsetlocking(_: *FILE, _: c_int) callconv(.c) c_int {
     return 0;
 }
 
-/// __fwriting: check if stream is in write mode
 fn __fwriting(f: *FILE) callconv(.c) c_int {
     return @intFromBool(f.flags & F_NORD != 0 or f.wend != null);
 }
 
-/// __freading: check if stream is in read mode
 fn __freading(f: *FILE) callconv(.c) c_int {
     return @intFromBool(f.flags & F_NOWR != 0 or f.rend != null);
 }
 
-/// __freadable: check if stream is readable
 fn __freadable(f: *FILE) callconv(.c) c_int {
     return @intFromBool(f.flags & F_NORD == 0);
 }
 
-/// __fwritable: check if stream is writable
 fn __fwritable(f: *FILE) callconv(.c) c_int {
     return @intFromBool(f.flags & F_NOWR == 0);
 }
 
-/// __flbf: check if stream is line-buffered
 fn __flbf(f: *FILE) callconv(.c) c_int {
     return @intFromBool(f.lbf >= 0);
 }
 
-/// __fbufsize: get stream buffer size
 fn __fbufsize(f: *FILE) callconv(.c) usize {
     return f.buf_size;
 }
 
-/// __fpending: get pending write data size
 fn __fpending(f: *FILE) callconv(.c) usize {
     return if (f.wend != null) @intFromPtr(f.wpos.?) - @intFromPtr(f.wbase.?) else 0;
 }
 
-/// __fpurge: discard all pending data
 fn __fpurge(f: *FILE) callconv(.c) c_int {
     f.wpos = null;
     f.wbase = null;
@@ -908,36 +637,24 @@ fn __fpurge(f: *FILE) callconv(.c) c_int {
     return 0;
 }
 
-// --- GNU extensions (ext2.c) ---
-
-/// __freadahead: bytes available for reading
 fn __freadahead(f: *FILE) callconv(.c) usize {
     return if (f.rend != null) @intFromPtr(f.rend.?) - @intFromPtr(f.rpos.?) else 0;
 }
 
-/// __freadptr: get pointer to read buffer
 fn __freadptr(f: *FILE, sizep: *usize) callconv(.c) ?[*]const u8 {
     if (f.rpos == f.rend) return null;
     sizep.* = @intFromPtr(f.rend.?) - @intFromPtr(f.rpos.?);
     return f.rpos;
 }
 
-/// __freadptrinc: advance read pointer
 fn __freadptrinc(f: *FILE, inc: usize) callconv(.c) void {
     f.rpos = f.rpos.? + inc;
 }
 
-/// __fseterr: set error flag on stream
 fn __fseterr(f: *FILE) callconv(.c) void {
     f.flags |= F_ERR;
 }
 
-// --- File operations (remove.c, rename.c) ---
-
-const linux = std.os.linux;
-const c_errno = @import("../c.zig").errno;
-
-/// remove.c: int remove(const char *path)
 fn remove_fn(path: [*:0]const u8) callconv(.c) c_int {
     var r = linux.unlinkat(linux.AT.FDCWD, @ptrCast(path), 0);
     const signed: isize = @bitCast(r);
@@ -947,106 +664,147 @@ fn remove_fn(path: [*:0]const u8) callconv(.c) c_int {
     return c_errno(r);
 }
 
-/// rename.c: int rename(const char *old, const char *new)
 fn rename_fn(old: [*:0]const u8, new: [*:0]const u8) callconv(.c) c_int {
     return c_errno(linux.renameat2(linux.AT.FDCWD, @ptrCast(old), linux.AT.FDCWD, @ptrCast(new), .{}));
 }
 
-// Extern references to musl C functions that are still compiled from C sources.
-const getdelim_fn = @extern(*const fn (?*[*]u8, ?*usize, c_int, ?*FILE) callconv(.c) ssize_t, .{ .name = "getdelim" });
-const fgetwc_fn = @extern(*const fn (?*FILE) callconv(.c) wint_t, .{ .name = "fgetwc" });
-const fputwc_fn = @extern(*const fn (wchar_t, ?*FILE) callconv(.c) wint_t, .{ .name = "fputwc" });
-const fgetc_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "fgetc" });
-const fputc_fn = @extern(*const fn (c_int, ?*FILE) callconv(.c) c_int, .{ .name = "fputc" });
-const getc_unlocked_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "getc_unlocked" });
-const putc_unlocked_fn = @extern(*const fn (c_int, ?*FILE) callconv(.c) c_int, .{ .name = "putc_unlocked" });
-const uflow_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__uflow" });
-const overflow_fn = @extern(*const fn (*FILE, c_int) callconv(.c) c_int, .{ .name = "__overflow" });
-const stdin_ext = @extern(*const ?*FILE, .{ .name = "stdin" });
-const stdout_ext = @extern(*const ?*FILE, .{ .name = "stdout" });
-const lockfile_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__lockfile" });
-const unlockfile_fn = @extern(*const fn (*FILE) callconv(.c) void, .{ .name = "__unlockfile" });
-const fseeko_unlocked_fn = @extern(*const fn (*FILE, i64, c_int) callconv(.c) c_int, .{ .name = "__fseeko_unlocked" });
-const fseeko_fn = @extern(*const fn (*FILE, i64, c_int) callconv(.c) c_int, .{ .name = "__fseeko" });
-const ftello_fn = @extern(*const fn (*FILE) callconv(.c) i64, .{ .name = "__ftello" });
-const toread_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__toread" });
-const toread_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__toread" });
-const towrite_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__towrite" });
-const toread_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__toread" });
-const towrite_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__towrite" });
-const fflush_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "fflush" });
-// --- Formatting wrappers (fprintf.c, printf.c, snprintf.c, sprintf.c, asprintf.c, dprintf.c) ---
+fn getc_unlocked_impl(f: *FILE) callconv(.c) c_int {
+    if (f.rpos != f.rend) {
+        const c = f.rpos.?[0];
+        f.rpos = f.rpos.? + 1;
+        return c;
+    }
+    return uflow_fn(f);
+}
 
-const VaList = std.builtin.VaList;
+fn putc_unlocked_impl(c: c_int, f: *FILE) callconv(.c) c_int {
+    const uc: u8 = @truncate(@as(c_uint, @bitCast(c)));
+    if (uc != @as(u8, @truncate(@as(c_uint, @bitCast(f.lbf)))) and f.wpos != f.wend) {
+        f.wpos.?[0] = uc;
+        f.wpos = f.wpos.? + 1;
+        return uc;
+    }
+    return overflow_fn(f, uc);
+}
 
-/// fprintf.c: int fprintf(FILE *restrict f, const char *restrict fmt, ...)
+fn fgetc_impl(f: *FILE) callconv(.c) c_int {
+    const need_unlock = flock(f);
+    const c = getc_unlocked_impl(f);
+    funlock(f, need_unlock);
+    return c;
+}
+
+fn fputc_impl(c: c_int, f: *FILE) callconv(.c) c_int {
+    const need_unlock = flock(f);
+    const result = putc_unlocked_impl(c, f);
+    funlock(f, need_unlock);
+    return result;
+}
+
+fn toread_impl(f: *FILE) callconv(.c) c_int {
+    f.mode |= @bitCast(@as(c_uint, @bitCast(f.mode)) -% 1);
+    if (f.wpos != f.wbase) {
+        _ = f.write_fn.?(f, @ptrCast(&[0]u8{}), 0);
+    }
+    f.wpos = null;
+    f.wbase = null;
+    f.wend = null;
+    if (f.flags & F_NORD != 0) {
+        f.flags |= F_ERR;
+        return EOF;
+    }
+    const end = f.buf.? + f.buf_size;
+    f.rpos = end;
+    f.rend = end;
+    return if (f.flags & F_EOF != 0) EOF else 0;
+}
+
+fn towrite_impl(f: *FILE) callconv(.c) c_int {
+    f.mode |= @bitCast(@as(c_uint, @bitCast(f.mode)) -% 1);
+    if (f.flags & F_NOWR != 0) {
+        f.flags |= F_ERR;
+        return EOF;
+    }
+    f.rpos = null;
+    f.rend = null;
+    f.wpos = f.buf;
+    f.wbase = f.buf;
+    f.wend = f.buf.? + f.buf_size;
+    return 0;
+}
+
+fn uflow_impl(f: *FILE) callconv(.c) c_int {
+    var c: u8 = undefined;
+    if (toread_impl(f) == 0 and f.read_fn.?(f, @as([*]u8, @ptrCast(&c)), 1) == 1) return c;
+    return EOF;
+}
+
+fn overflow_impl(f: *FILE, _c: c_int) callconv(.c) c_int {
+    var c: u8 = @truncate(@as(c_uint, @bitCast(_c)));
+    if (f.wend == null and towrite_impl(f) != 0) return EOF;
+    if (f.wpos != f.wend and @as(c_int, c) != f.lbf) {
+        f.wpos.?[0] = c;
+        f.wpos = f.wpos.? + 1;
+        return c;
+    }
+    if (f.write_fn.?(f, @as([*]const u8, @ptrCast(&c)), 1) != 1) return EOF;
+    return c;
+}
+
 fn fprintf_impl(f: ?*FILE, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vfprintf_fn(f, fmt, ap);
 }
 
-/// printf.c: int printf(const char *restrict fmt, ...)
 fn printf_impl(fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vfprintf_fn(stdout_ext.*, fmt, ap);
 }
 
-/// snprintf.c: int snprintf(char *restrict s, size_t n, const char *restrict fmt, ...)
 fn snprintf_impl(s: [*]u8, n: usize, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vsnprintf_impl(s, n, fmt, ap);
 }
 
-/// sprintf.c: int sprintf(char *restrict s, const char *restrict fmt, ...)
 fn sprintf_impl(s: [*]u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vsprintf_impl(s, fmt, ap);
 }
 
-/// asprintf.c: int asprintf(char **s, const char *fmt, ...)
 fn asprintf_impl(s: *?[*]u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vasprintf_impl(s, fmt, ap);
 }
 
-/// dprintf.c: int dprintf(int fd, const char *restrict fmt, ...)
 fn dprintf_impl(fd: c_int, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vdprintf_impl(fd, fmt, ap);
 }
 
-// --- Scanning wrappers (scanf.c, fscanf.c, sscanf.c) ---
-
-/// scanf.c: int scanf(const char *restrict fmt, ...)
 fn scanf_impl(fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vscanf_impl(fmt, ap);
 }
 
-/// fscanf.c: int fscanf(FILE *restrict f, const char *restrict fmt, ...)
 fn fscanf_impl(f: ?*FILE, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vfscanf_fn(f, fmt, ap);
 }
 
-/// sscanf.c: int sscanf(const char *restrict s, const char *restrict fmt, ...)
 fn sscanf_impl(s: [*:0]const u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vsscanf_impl(s, fmt, ap);
 }
 
-// --- Error output (perror.c) ---
-
-/// perror.c: void perror(const char *msg)
 fn perror_impl(msg: ?[*:0]const u8) callconv(.c) void {
     const f: *FILE = @ptrCast(stderr_ext.*);
     const errstr = strerror_fn(std.c._errno().*);
@@ -1069,10 +827,6 @@ fn perror_impl(msg: ?[*:0]const u8) callconv(.c) void {
     funlock(f, need_unlock);
 }
 
-// --- Internal helpers (__fmodeflags.c, __fclose_ca.c) ---
-
-/// __fmodeflags.c: int __fmodeflags(const char *mode)
-/// Parse fopen-style mode string to O_* flags.
 fn fmodeflags_impl(mode: [*:0]const u8) callconv(.c) c_int {
     const O = std.os.linux.O;
     var o = O{};
@@ -1105,14 +859,10 @@ fn fmodeflags_impl(mode: [*:0]const u8) callconv(.c) c_int {
     return @bitCast(@as(u32, @bitCast(o)));
 }
 
-/// __fclose_ca.c: int __fclose_ca(FILE *f)
 fn fclose_ca_impl(f: *FILE) callconv(.c) c_int {
     return f.close_fn.?(f);
 }
 
-// --- BSD extension (fgetln.c) ---
-
-/// fgetln.c: char *fgetln(FILE *f, size_t *plen)
 fn fgetln_impl(f_opaque: ?*FILE, plen: *usize) callconv(.c) ?[*]u8 {
     const f: *FILE = @ptrCast(f_opaque orelse return null);
     var ret: ?[*]u8 = null;
@@ -1141,16 +891,10 @@ fn fgetln_impl(f_opaque: ?*FILE, plen: *usize) callconv(.c) ?[*]u8 {
     return ret;
 }
 
-// --- Internal I/O (__stdio_seek.c) ---
-
-/// __stdio_seek.c: off_t __stdio_seek(FILE *f, off_t off, int whence)
 fn stdio_seek_impl(f: *FILE, off: i64, whence: c_int) callconv(.c) i64 {
     return lseek_fn(f.fd, off, whence);
 }
 
-// --- Allocation formatting (vasprintf.c) ---
-
-/// vasprintf.c: int vasprintf(char **s, const char *fmt, va_list ap)
 fn vasprintf_impl(s: *?[*]u8, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     var ap_src = ap;
     var ap_copy = @cVaCopy(&ap_src);
@@ -1164,9 +908,6 @@ fn vasprintf_impl(s: *?[*]u8, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int
     return vsnprintf_impl(s.*.?, size + 1, fmt, ap_src);
 }
 
-// --- FD formatting (vdprintf.c) ---
-
-/// vdprintf.c: int vdprintf(int fd, const char *restrict fmt, va_list ap)
 fn vdprintf_impl(fd: c_int, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     var f = std.mem.zeroes(FILE);
     f.fd = fd;
@@ -1178,9 +919,6 @@ fn vdprintf_impl(fd: c_int, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     return vfprintf_fn(@ptrCast(&f), fmt, ap);
 }
 
-// --- Line reading (getdelim.c) ---
-
-/// getdelim.c: ssize_t getdelim(char **restrict s, size_t *restrict n, int delim, FILE *restrict f)
 fn getdelim_impl(s_raw: ?*[*]u8, n_raw: ?*usize, delim: c_int, f_opaque: ?*FILE) callconv(.c) ssize_t {
     const f: *FILE = @ptrCast(f_opaque orelse return -1);
     const need_unlock = flock(f);
@@ -1287,13 +1025,6 @@ fn setErrno(e: std.os.linux.E) void {
     std.c._errno().* = @intCast(@intFromEnum(e));
 }
 
-// --- vsnprintf.c ---
-
-const SnCookie = extern struct {
-    s: [*]u8,
-    n: usize,
-};
-
 fn sn_write(f: *FILE, s: [*]const u8, l: usize) callconv(.c) usize {
     const c: *SnCookie = @ptrCast(@alignCast(f.cookie.?));
     const wbase = f.wbase orelse @as([*]u8, @ptrCast(@constCast(s)));
@@ -1317,7 +1048,6 @@ fn sn_write(f: *FILE, s: [*]const u8, l: usize) callconv(.c) usize {
     return l;
 }
 
-/// vsnprintf.c: int vsnprintf(char *restrict s, size_t n, const char *restrict fmt, va_list ap)
 fn vsnprintf_impl(s: [*]u8, n: usize, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     var buf: [1]u8 = undefined;
     var dummy: [1]u8 = undefined;
@@ -1335,14 +1065,9 @@ fn vsnprintf_impl(s: [*]u8, n: usize, fmt: [*:0]const u8, ap: VaList) callconv(.
     return vfprintf_fn(@ptrCast(&f), fmt, ap);
 }
 
-// --- vsprintf.c ---
-
-/// vsprintf.c: int vsprintf(char *restrict s, const char *restrict fmt, va_list ap)
 fn vsprintf_impl(s: [*]u8, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     return vsnprintf_impl(s, std.math.maxInt(c_int), fmt, ap);
 }
-
-// --- vsscanf.c ---
 
 fn string_read(f: *FILE, buf: [*]u8, len: usize) callconv(.c) usize {
     const src: [*]const u8 = @ptrCast(@alignCast(f.cookie.?));
@@ -1359,7 +1084,6 @@ fn string_read(f: *FILE, buf: [*]u8, len: usize) callconv(.c) usize {
     return actual;
 }
 
-/// vsscanf.c: int vsscanf(const char *restrict s, const char *restrict fmt, va_list ap)
 fn vsscanf_impl(s: [*:0]const u8, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     var f = std.mem.zeroes(FILE);
     f.buf = @ptrCast(@constCast(s));
@@ -1368,8 +1092,6 @@ fn vsscanf_impl(s: [*:0]const u8, fmt: [*:0]const u8, ap: VaList) callconv(.c) c
     f.lock = -1;
     return vfscanf_fn(@ptrCast(&f), fmt, ap);
 }
-
-// --- vswprintf.c ---
 
 fn sw_write(f: *FILE, s: [*]const u8, l: usize) callconv(.c) usize {
     const l0 = l;
@@ -1410,12 +1132,6 @@ fn sw_write(f: *FILE, s: [*]const u8, l: usize) callconv(.c) usize {
     return l0;
 }
 
-const SwCookie = extern struct {
-    ws: [*]wchar_t,
-    l: usize,
-};
-
-/// vswprintf.c: int vswprintf(wchar_t *restrict s, size_t n, const wchar_t *restrict fmt, va_list ap)
 fn vswprintf_impl(s: [*]wchar_t, n: usize, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
     var buf: [256]u8 = undefined;
     var c = SwCookie{ .ws = s, .l = n -| 1 };
@@ -1431,8 +1147,6 @@ fn vswprintf_impl(s: [*]wchar_t, n: usize, fmt: [*:0]const wchar_t, ap: VaList) 
     _ = sw_write(&f, @ptrCast(&f), 0);
     return if (r >= @as(c_int, @intCast(n))) @as(c_int, -1) else r;
 }
-
-// --- vswscanf.c ---
 
 fn wstring_read(f: *FILE, buf: [*]u8, len: usize) callconv(.c) usize {
     var src: ?[*:0]const wchar_t = @ptrCast(@alignCast(f.cookie orelse return 0));
@@ -1451,7 +1165,6 @@ fn wstring_read(f: *FILE, buf: [*]u8, len: usize) callconv(.c) usize {
     return 1;
 }
 
-/// vswscanf.c: int vswscanf(const wchar_t *restrict s, const wchar_t *restrict fmt, va_list ap)
 fn vswscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
     var buf: [256]u8 = undefined;
     var f = std.mem.zeroes(FILE);
@@ -1463,94 +1176,54 @@ fn vswscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ap: VaList) cal
     return vfwscanf_fn(@ptrCast(&f), fmt, ap);
 }
 
-// --- Wide formatting wrappers (wprintf.c, fwprintf.c, swprintf.c) ---
-
-/// wprintf.c: int wprintf(const wchar_t *restrict fmt, ...)
 fn wprintf_impl(fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vfwprintf_fn(stdout_ext.*, fmt, ap);
 }
 
-/// fwprintf.c: int fwprintf(FILE *restrict f, const wchar_t *restrict fmt, ...)
 fn fwprintf_impl(f: ?*FILE, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vfwprintf_fn(f, fmt, ap);
 }
 
-/// swprintf.c: int swprintf(wchar_t *restrict s, size_t n, const wchar_t *restrict fmt, ...)
 fn swprintf_impl(s: [*]wchar_t, n: usize, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vswprintf_impl(s, n, fmt, ap);
 }
 
-// --- Wide scanning wrappers (wscanf.c, fwscanf.c, swscanf.c) ---
-
-/// wscanf.c: int wscanf(const wchar_t *restrict fmt, ...)
 fn wscanf_impl(fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vfwscanf_fn(stdin_ext.*, fmt, ap);
 }
 
-/// fwscanf.c: int fwscanf(FILE *restrict f, const wchar_t *restrict fmt, ...)
 fn fwscanf_impl(f: ?*FILE, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vfwscanf_fn(f, fmt, ap);
 }
 
-/// swscanf.c: int swscanf(const wchar_t *restrict s, const wchar_t *restrict fmt, ...)
 fn swscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
     return vswscanf_impl(s, fmt, ap);
 }
 
-// --- Wide v* delegation (vwprintf.c, vwscanf.c) ---
-
-/// vwprintf.c: int vwprintf(const wchar_t *restrict fmt, va_list ap)
 fn vwprintf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
     return vfwprintf_fn(stdout_ext.*, fmt, ap);
 }
 
-/// vwscanf.c: int vwscanf(const wchar_t *restrict fmt, va_list ap)
 fn vwscanf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
     return vfwscanf_fn(stdin_ext.*, fmt, ap);
 }
 
-// --- Narrow v* delegation (vprintf.c, vscanf.c) ---
-
-/// vprintf.c: int vprintf(const char *restrict fmt, va_list ap)
 fn vprintf_impl(fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     return vfprintf_fn(stdout_ext.*, fmt, ap);
 }
 
-/// vscanf.c: int vscanf(const char *restrict fmt, va_list ap)
 fn vscanf_impl(fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     return vfscanf_fn(stdin_ext.*, fmt, ap);
 }
-
-// Extern references to musl C functions that are still compiled from C sources.
-const fgetwc_fn = @extern(*const fn (?*FILE) callconv(.c) wint_t, .{ .name = "fgetwc" });
-const fputwc_fn = @extern(*const fn (wchar_t, ?*FILE) callconv(.c) wint_t, .{ .name = "fputwc" });
-const stdin_ext = @extern(*const ?*FILE, .{ .name = "stdin" });
-const stdout_ext = @extern(*const ?*FILE, .{ .name = "stdout" });
-const stderr_ext = @extern(*const ?*FILE, .{ .name = "stderr" });
-const lockfile_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__lockfile" });
-const unlockfile_fn = @extern(*const fn (*FILE) callconv(.c) void, .{ .name = "__unlockfile" });
-const fflush_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "fflush" });
-const strerror_fn = @extern(*const fn (c_int) callconv(.c) [*:0]const u8, .{ .name = "strerror" });
-const vfprintf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfprintf" });
-const vfwprintf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwprintf" });
-const vfscanf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfscanf" });
-const vfwscanf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwscanf" });
-const memchr_fn = @extern(*const fn (?[*]const u8, c_int, usize) callconv(.c) ?[*]u8, .{ .name = "memchr" });
-const lseek_fn = @extern(*const fn (c_int, i64, c_int) callconv(.c) i64, .{ .name = "__lseek" });
-const malloc_fn = @extern(*const fn (usize) callconv(.c) ?*anyopaque, .{ .name = "malloc" });
-const realloc_fn = @extern(*const fn (?*anyopaque, usize) callconv(.c) ?*anyopaque, .{ .name = "realloc" });
-const stdio_write_ext = @extern(*const fn (*FILE, [*]const u8, usize) callconv(.c) usize, .{ .name = "__stdio_write" });
-const mbtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize) callconv(.c) c_int, .{ .name = "mbtowc" });
-const wcsrtombs_fn = @extern(*const fn (?[*]u8, *?[*:0]const wchar_t, usize, ?*anyopaque) callconv(.c) usize, .{ .name = "wcsrtombs" });

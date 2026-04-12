@@ -1,1035 +1,11 @@
 const builtin = @import("builtin");
-
 const std = @import("std");
 const math = std.math;
-const maxInt = std.math.maxInt;
-const minInt = std.math.minInt;
-const mem = std.mem;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectApproxEqAbs = std.testing.expectApproxEqAbs;
 const expectApproxEqRel = std.testing.expectApproxEqRel;
-
 const symbol = @import("../c.zig").symbol;
-
-// lgamma signgam global variable
-export var __signgam: c_int = 0;
-
-comptime {
-    @export(&__signgam, .{ .name = "signgam", .linkage = .weak });
-    if (builtin.target.isMinGW()) {
-        symbol(&isnan, "isnan");
-        symbol(&isnan, "__isnan");
-        symbol(&isnanf, "isnanf");
-        symbol(&isnanf, "__isnanf");
-        symbol(&isnanl, "isnanl");
-        symbol(&isnanl, "__isnanl");
-
-        symbol(&math.floatTrueMin(f64), "__DENORM");
-        symbol(&math.inf(f64), "__INF");
-        symbol(&math.nan(f64), "__QNAN");
-        symbol(&math.snan(f64), "__SNAN");
-
-        symbol(&math.floatTrueMin(f32), "__DENORMF");
-        symbol(&math.inf(f32), "__INFF");
-        symbol(&math.nan(f32), "__QNANF");
-        symbol(&math.snan(f32), "__SNANF");
-
-        symbol(&math.floatTrueMin(c_longdouble), "__DENORML");
-        symbol(&math.inf(c_longdouble), "__INFL");
-        symbol(&math.nan(c_longdouble), "__QNANL");
-        symbol(&math.snan(c_longdouble), "__SNANL");
-    }
-
-    if (builtin.target.isMinGW() or builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
-        symbol(&frexpf, "frexpf");
-        symbol(&frexpl, "frexpl");
-        symbol(&hypotf, "hypotf");
-        symbol(&hypotl, "hypotl");
-        symbol(&modfl, "modfl");
-    }
-
-    if ((builtin.target.isMinGW() and @sizeOf(f64) != @sizeOf(c_longdouble)) or builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
-        symbol(&atanl, "atanl");
-        symbol(&copysignl, "copysignl");
-        symbol(&nanl, "nanl");
-    }
-
-    if ((builtin.target.isMinGW() and builtin.cpu.arch == .x86) or builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
-        symbol(&acosf, "acosf");
-        symbol(&atanf, "atanf");
-        symbol(&coshf, "coshf");
-        symbol(&modff, "modff");
-        symbol(&tanhf, "tanhf");
-    }
-
-    if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
-        symbol(&acos, "acos");
-        symbol(&acoshf, "acoshf");
-        symbol(&acosl, "acosl");
-        symbol(&asin, "asin");
-        symbol(&asinhf, "asinhf");
-        symbol(&asinl, "asinl");
-        symbol(&asinf, "asinf");
-        symbol(&atan, "atan");
-        symbol(&atan2, "atan2");
-        symbol(&atan2f, "atan2f");
-        symbol(&atanf, "atanf");
-        symbol(&atanhf, "atanhf");
-        symbol(&acosf, "acosf");
-        symbol(&acosh_, "acosh");
-        symbol(&acoshf, "acoshf");
-        symbol(&acoshl_, "acoshl");
-        symbol(&asin, "asin");
-        symbol(&asinh_, "asinh");
-        symbol(&asinhf_, "asinhf");
-        symbol(&asinhl_, "asinhl");
-        symbol(&atan, "atan");
-        symbol(&atanf, "atanf");
-        symbol(&atanh_, "atanh");
-        symbol(&atanhf_, "atanhf");
-        symbol(&atanhl_, "atanhl");
-        symbol(&atanl, "atanl");
-        symbol(&cbrt, "cbrt");
-        symbol(&cbrtf, "cbrtf");
-        symbol(&cosh, "cosh");
-        symbol(&cosl, "cosl");
-        symbol(&coshl_, "coshl");
-        symbol(&erf_, "erf");
-        symbol(&erfc_, "erfc");
-        symbol(&erff_, "erff");
-        symbol(&erfcf_, "erfcf");
-        symbol(&exp10, "exp10");
-        symbol(&exp10f, "exp10f");
-        symbol(&fdim, "fdim");
-        symbol(&finite, "finite");
-        symbol(&finitef, "finitef");
-        symbol(&frexp, "frexp");
-        symbol(&fdim_, "fdim");
-        symbol(&fdimf_, "fdimf");
-        symbol(&fdiml_, "fdiml");
-        symbol(&finite_, "finite");
-        symbol(&finitef_, "finitef");
-        symbol(&fma, "fma");
-        symbol(&fmal, "fmal");
-        symbol(&hypot, "hypot");
-        symbol(&lrint, "lrint");
-        symbol(&lrintf, "lrintf");
-        symbol(&frexp_, "frexp");
-        symbol(&frexpf_, "frexpf");
-        symbol(&frexpl_, "frexpl");
-        symbol(&hypot, "hypot");
-        symbol(&ilogb_, "ilogb");
-        symbol(&ilogbf_, "ilogbf");
-        symbol(&ilogbl_, "ilogbl");
-        symbol(&ldexp_, "ldexp");
-        symbol(&ldexpf_, "ldexpf");
-        symbol(&ldexpl_, "ldexpl");
-        symbol(&logb_, "logb");
-        symbol(&logbf_, "logbf");
-        symbol(&logbl_, "logbl");
-        symbol(&llrint, "llrint");
-        symbol(&lrint, "lrint");
-        symbol(&lgamma_, "lgamma");
-        symbol(&lgammaf_, "lgammaf");
-        symbol(&lgamma_r, "__lgamma_r");
-        symbol(&lgamma_r, "lgamma_r");
-        symbol(&lgammaf_r, "__lgammaf_r");
-        symbol(&lgammaf_r, "lgammaf_r");
-        symbol(&modf, "modf");
-        symbol(&nan, "nan");
-        symbol(&nanf, "nanf");
-        symbol(&expm1f, "expm1f");
-        symbol(&fdimf, "fdimf");
-        symbol(&fdiml, "fdiml");
-        symbol(&fmaf, "fmaf");
-        symbol(&fmal, "fmal");
-        symbol(&frexpf, "frexpf");
-        symbol(&frexpl, "frexpl");
-        symbol(&hypot, "hypot");
-        symbol(&ilogbf, "ilogbf");
-        symbol(&ilogbl, "ilogbl");
-        symbol(&ldexpf, "ldexpf");
-        symbol(&ldexpl, "ldexpl");
-        symbol(&llrintf, "llrintf");
-        symbol(&llrintl, "llrintl");
-        symbol(&llroundf, "llroundf");
-        symbol(&llroundl, "llroundl");
-        symbol(&log1pf, "log1pf");
-        symbol(&lrintf, "lrintf");
-        symbol(&lrintl, "lrintl");
-        symbol(&lroundf, "lroundf");
-        symbol(&lroundl, "lroundl");
-        symbol(&modf, "modf");
-        symbol(&nearbyintf, "nearbyintf");
-        symbol(&nearbyintl, "nearbyintl");
-        symbol(&nextafterf, "nextafterf");
-        symbol(&nextafterl, "nextafterl");
-        symbol(&nexttowardf, "nexttowardf");
-        symbol(&nexttowardl, "nexttowardl");
-        symbol(&pow, "pow");
-        symbol(&powl, "powl");
-        symbol(&pow10, "pow10");
-        symbol(&pow10f, "pow10f");
-
-        symbol(&exp2l, "exp2l");
-        symbol(&expl, "expl");
-        symbol(&expm1f, "expm1f");
-        symbol(&fdimf, "fdimf");
-        symbol(&fdiml, "fdiml");
-        symbol(&fmaf, "fmaf");
-        symbol(&fmal, "fmal");
-        symbol(&frexpf, "frexpf");
-        symbol(&frexpl, "frexpl");
-        symbol(&hypot, "hypot");
-        symbol(&ilogbf, "ilogbf");
-        symbol(&ilogbl, "ilogbl");
-        symbol(&ldexpf, "ldexpf");
-        symbol(&ldexpl, "ldexpl");
-        symbol(&llrintf, "llrintf");
-        symbol(&llrintl, "llrintl");
-        symbol(&llroundf, "llroundf");
-        symbol(&llroundl, "llroundl");
-        symbol(&log10l, "log10l");
-        symbol(&log1pf, "log1pf");
-        symbol(&log2l, "log2l");
-        symbol(&logbf, "logbf");
-        symbol(&logbl, "logbl");
-        symbol(&logl, "logl");
-        symbol(&lrintf, "lrintf");
-        symbol(&lrintl, "lrintl");
-        symbol(&lroundf, "lroundf");
-        symbol(&lroundl, "lroundl");
-        symbol(&modf, "modf");
-        symbol(&nearbyintf, "nearbyintf");
-        symbol(&nearbyintl, "nearbyintl");
-
-        symbol(&pow, "pow");
-        symbol(&pow10, "pow10");
-        symbol(&pow10f, "pow10f");
-        symbol(&scalblnf, "scalblnf");
-        symbol(&scalblnl, "scalblnl");
-        symbol(&scalbnf, "scalbnf");
-        symbol(&scalbnl, "scalbnl");
-        symbol(&sincosl, "sincosl");
-        symbol(&sinhf, "sinhf");
-        symbol(&sinl, "sinl");
-        symbol(&powf, "powf");
-        symbol(&scalbln_, "scalbln");
-        symbol(&scalblnf_, "scalblnf");
-        symbol(&scalblnl_, "scalblnl");
-        symbol(&scalbn_, "scalbn");
-        symbol(&scalbnf_, "scalbnf");
-        symbol(&scalbnl_, "scalbnl");
-        symbol(&significand_, "significand");
-        symbol(&significandf_, "significandf");
-        symbol(&rintl, "rintl");
-        symbol(&remainder_, "remainder");
-        symbol(&remainder_, "drem");
-        symbol(&remainderf_, "remainderf");
-        symbol(&remainderf_, "dremf");
-        symbol(&remainderl_, "remainderl");
-        symbol(&remquo_, "remquo");
-        symbol(&remquof_, "remquof");
-        symbol(&remquol_, "remquol");
-        symbol(&sinh, "sinh");
-        symbol(&sinhf, "sinhf");
-        symbol(&tanh, "tanh");
-        symbol(&tanl, "tanl");
-        symbol(&rintl, "rintl");
-        symbol(&sinh_, "sinh");
-        symbol(&sinhl_, "sinhl");
-        symbol(&tanh, "tanh");
-        symbol(&tanhl_, "tanhl");
-
-    }
-
-    if (builtin.target.isMuslLibC()) {
-        symbol(&copysign, "copysign");
-        symbol(&copysignf, "copysignf");
-        symbol(&finitef, "finitef");
-        symbol(&nearbyint, "nearbyint");
-        symbol(&rint, "rint");
-        symbol(&rintf, "rintf");
-        symbol(&scalbf, "scalbf");
-        symbol(&significandf, "significandf");
-        symbol(&__fpclassify, "__fpclassify");
-        symbol(&__fpclassifyf, "__fpclassifyf");
-        symbol(&__fpclassifyl, "__fpclassifyl");
-        symbol(&rint, "rint");
-        symbol(&__signbit, "__signbit");
-        symbol(&__signbitf, "__signbitf");
-        symbol(&__signbitl, "__signbitl");
-        symbol(&nextafter, "nextafter");
-        symbol(&nexttoward, "nexttoward");
-        symbol(&rint, "rint");
-        symbol(&scalb, "scalb");
-    }
-}
-
-fn acos(x: f64) callconv(.c) f64 {
-    return math.acos(x);
-}
-
-fn acosf(x: f32) callconv(.c) f32 {
-    return math.acos(x);
-}
-
-fn acosh_(x: f64) callconv(.c) f64 {
-    return math.acosh(x);
-}
-
-fn acoshf(x: f32) callconv(.c) f32 {
-    return math.acosh(x);
-}
-
-fn acoshl_(x: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(c_longdouble).float.bits) {
-        64 => math.acosh(@as(f64, @bitCast(x))),
-        else => @floatCast(math.acosh(@as(f64, @floatCast(x)))),
-    };
-}
-
-fn asin(x: f64) callconv(.c) f64 {
-    return math.asin(x);
-}
-
-fn asinf(x: f32) callconv(.c) f32 {
-    return math.asin(x);
-fn asinhf_(x: f32) callconv(.c) f32 {
-    return math.asinh(x);
-}
-
-/// Compute log(1+x) using the identity log(1+x) = 2*atanh(x/(x+2))
-/// and the series atanh(s) = s + s³/3 + s⁵/5 + ...
-/// Uses only basic arithmetic (+, -, *, /) — no @log.
-fn log1p_wide(comptime T: type, x: T) T {
-    if (x == 0) return x;
-    const one: T = 1.0;
-    const u = one + x;
-    if (u == one) return x;
-
-    // For large |x|, delegate to log_pure which does its own range reduction.
-    // Thresholds chosen so that log_pure's callback into log1p_wide always
-    // has |x| in [-0.293, 0.414], preventing infinite recursion.
-    if (x > 0.5 or x < -0.3) return log_pure(T, u);
-
-    // log(1+x) = 2*atanh(s) where s = x/(x+2)
-    const s = x / (x + 2.0);
-    const s2 = s * s;
-
-    // Horner evaluation: atanh(s)/s = 1 + s²/3 + s⁴/5 + ...
-    // For |x| <= 0.5: |s| <= 0.2, s² <= 0.04, 30 terms → error < 2^(-130).
-    const num_terms = 30;
-    var w: T = one / @as(T, @floatFromInt(2 * num_terms + 1));
-    comptime var i: u32 = num_terms;
-    inline while (i > 0) : (i -= 1) {
-        w = w * s2 + one / @as(T, @floatFromInt(2 * i - 1));
-    }
-    return 2 * s * w;
-}
-
-/// Compute log(x) for x > 0 using frexp range reduction + log1p_wide.
-/// Uses only basic arithmetic — no @log.
-fn log_pure(comptime T: type, x: T) T {
-    const fr = math.frexp(x);
-    var sig = fr.significand;
-    var exp_val = fr.exponent;
-    // Adjust so significand ∈ [√2/2, √2) for tighter log1p_wide input range
-    const sqrt2_over_2: T = 0.70710678118654752440084436210484903928;
-    if (sig < sqrt2_over_2) {
-        sig *= 2.0;
-        exp_val -= 1;
-    }
-    const ln2: T = 0.6931471805599453094172321214581765680755001343602552541206800094;
-    const k: T = @floatFromInt(exp_val);
-    return k * ln2 + log1p_wide(T, sig - 1.0);
-}
-
-/// Taylor series for exp(x)-1: x + x²/2! + x³/3! + ...
-fn taylor_expm1(comptime T: type, x: T) T {
-    var term: T = x;
-    var sum: T = x;
-    var n: u32 = 2;
-    while (n < 50) : (n += 1) {
-        term *= x / @as(T, @floatFromInt(n));
-        const old = sum;
-        sum += term;
-        if (sum == old) break;
-    }
-    return sum;
-}
-
-/// Compute exp(x)-1 using Taylor series with range reduction.
-/// Uses only basic arithmetic — no @exp.
-fn expm1_wide(comptime T: type, x: T) T {
-    if (x == 0) return x;
-    if (math.isNan(x)) return x;
-    if (!math.isFinite(x)) {
-        if (x > 0) return math.inf(T);
-        return -1.0;
-    }
-
-    if (@abs(x) < 0.5) return taylor_expm1(T, x);
-
-    // Range reduction: x = k*ln2 + r, |r| <= ln2/2
-    const ln2: T = 0.6931471805599453094172321214581765680755001343602552541206800094;
-    const inv_ln2: T = 1.4426950408889634073599246810018921374266459541529859341354494069;
-    const k_f: T = @round(x * inv_ln2);
-    const r = x - k_f * ln2;
-
-    if (k_f > 0x1p30 or k_f < -0x1p30) {
-        if (x > 0) return math.inf(T);
-        return -1.0;
-    }
-    const k: i32 = @intFromFloat(k_f);
-
-    const sum = taylor_expm1(T, r);
-    if (k == 0) return sum;
-    // expm1(x) = 2^k * (1 + expm1(r)) - 1 = 2^k * expm1(r) + (2^k - 1)
-    const two_k = math.scalbn(@as(T, 1.0), k);
-    return two_k * sum + (two_k - 1);
-}
-
-/// Compute exp(x) using expm1. Uses only basic arithmetic — no @exp.
-fn exp_pure(comptime T: type, x: T) T {
-    return 1.0 + expm1_wide(T, x);
-}
-
-/// Port of musl asinh.c using f128 intermediates for < 1.5 ULP accuracy.
-/// The extra mantissa bits of f128 (112 vs 52 for f64) eliminate the log1p
-/// precision issue that causes 1.5+ ULP errors in the f64 [0.125,0.5] range.
-/// f128 is available on all targets via software emulation.
-fn asinh_(x_: f64) callconv(.c) f64 {
-    @setFloatMode(.strict);
-    const u: u64 = @bitCast(x_);
-    const e = (u >> 52) & 0x7FF;
-    const s = u >> 63;
-    const x: f128 = @floatCast(@as(f64, @bitCast(u & (std.math.maxInt(u64) >> 1))));
-
-    if (e >= 0x3FF + 26) {
-        // |x| >= 0x1p26 or inf or nan
-        const r: f64 = @floatCast(log_pure(f128, x) + @as(f128, 0.693147180559945309417232121458176568));
-        return if (s != 0) -r else r;
-    } else if (e >= 0x3FF + 1) {
-        // |x| >= 2
-        const r: f64 = @floatCast(log_pure(f128, 2 * x + 1 / (@sqrt(x * x + 1) + x)));
-        return if (s != 0) -r else r;
-    } else if (e >= 0x3FF - 26) {
-        // |x| >= 0x1p-26: compute in f128 to avoid log1p precision loss
-        const y = x + x * x / (@sqrt(x * x + 1) + 1);
-        const r: f64 = @floatCast(log1p_wide(f128, y));
-        return if (s != 0) -r else r;
-    } else {
-        // |x| < 0x1p-26, raise inexact if x != 0
-        std.mem.doNotOptimizeAway(x + @as(f128, 0x1p120));
-        return x_;
-    }
-}
-
-fn asinhl_(x: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(c_longdouble).float.bits) {
-        64 => @bitCast(asinh_(@bitCast(x))),
-        else => asinhl_impl(c_longdouble, x),
-    };
-}
-
-/// Native long double asinh (port of musl asinhl.c).
-fn asinhl_impl(comptime T: type, x_: T) T {
-    @setFloatMode(.strict);
-    const ax = @abs(x_);
-
-    if (ax >= 0x1p32) {
-        const r = log_pure(T, ax) + @as(T, 0.693147180559945309417232121458176568);
-        return if (math.signbit(x_)) -r else r;
-    } else if (ax >= 2.0) {
-        const r = log_pure(T, 2 * ax + 1 / (@sqrt(ax * ax + 1) + ax));
-        return if (math.signbit(x_)) -r else r;
-    } else if (ax >= 0x1p-32) {
-        const y = ax + ax * ax / (@sqrt(ax * ax + 1) + 1);
-        const r = log1p_wide(T, y);
-        return if (math.signbit(x_)) -r else r;
-    } else {
-        // |x| < 0x1p-32, raise inexact if x != 0
-        std.mem.doNotOptimizeAway(ax + @as(T, 0x1p120));
-        return x_;
-    }
-}
-
-fn atan(x: f64) callconv(.c) f64 {
-    return math.atan(x);
-}
-
-fn atanf(x: f32) callconv(.c) f32 {
-    return math.atan(x);
-}
-
-fn atanh_(x: f64) callconv(.c) f64 {
-    return math.atanh(x);
-}
-
-fn atanhf_(x: f32) callconv(.c) f32 {
-    return math.atanh(x);
-}
-
-fn atanhl_(x: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(c_longdouble).float.bits) {
-        64 => math.atanh(@as(f64, @bitCast(x))),
-        else => @floatCast(math.atanh(@as(f64, @floatCast(x)))),
-    };
-fn atan2(y: f64, x: f64) callconv(.c) f64 {
-    return math.atan2(y, x);
-}
-
-fn atan2f(y: f32, x: f32) callconv(.c) f32 {
-    return math.atan2(y, x);
-}
-
-fn atanl(x: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(@TypeOf(x)).float.bits) {
-        16 => math.atan(@as(f16, @floatCast(x))),
-        32 => math.atan(@as(f32, @floatCast(x))),
-        64 => math.atan(@as(f64, @floatCast(x))),
-        80 => math.atan(@as(f80, @floatCast(x))),
-        128 => math.atan(@as(f128, @floatCast(x))),
-        else => unreachable,
-    };
-}
-
-fn cbrt(x: f64) callconv(.c) f64 {
-    return math.cbrt(x);
-}
-
-fn cbrtf(x: f32) callconv(.c) f32 {
-    return math.cbrt(x);
-}
-
-/// musl FP classification constants (from math.h):
-/// FP_NAN=0, FP_INFINITE=1, FP_ZERO=2, FP_SUBNORMAL=3, FP_NORMAL=4
-
-fn __fpclassify(x: f64) callconv(.c) c_int {
-    const u: u64 = @bitCast(x);
-    const e: u32 = @truncate((u >> 52) & 0x7ff);
-    if (e == 0) return if ((u << 1) != 0) 3 else 2;
-    if (e == 0x7ff) return if ((u << 12) != 0) 0 else 1;
-    return 4;
-}
-
-fn __fpclassifyf(x: f32) callconv(.c) c_int {
-    const u: u32 = @bitCast(x);
-    const e: u32 = (u >> 23) & 0xff;
-    if (e == 0) return if ((u << 1) != 0) 3 else 2;
-    if (e == 0xff) return if ((u << 9) != 0) 0 else 1;
-    return 4;
-}
-
-fn __fpclassifyl(x: c_longdouble) callconv(.c) c_int {
-    return switch (@typeInfo(c_longdouble).float.bits) {
-        16 => __fpclassifyf(@floatCast(x)),
-        32 => __fpclassifyf(@floatCast(x)),
-        64 => __fpclassify(@floatCast(x)),
-        80 => blk: {
-            const ux: u80 = @bitCast(x);
-            const e: u32 = @truncate((ux >> 64) & 0x7fff);
-            if (e == 0) break :blk if ((ux << 1) != 0) @as(c_int, 3) else @as(c_int, 2);
-            const msb: u1 = @truncate(ux >> 63);
-            if (e == 0x7fff) {
-                if (msb == 0) break :blk @as(c_int, 0);
-                break :blk if ((ux & ((@as(u80, 1) << 63) - 1)) != 0) @as(c_int, 0) else @as(c_int, 1);
-            }
-            break :blk if (msb != 0) @as(c_int, 4) else @as(c_int, 0);
-        },
-        128 => blk: {
-            const ux: u128 = @bitCast(x);
-            const e: u32 = @truncate((ux >> 112) & 0x7fff);
-            if (e == 0) break :blk if ((ux << 1) != 0) @as(c_int, 3) else @as(c_int, 2);
-            if (e == 0x7fff) break :blk if ((ux << 17) != 0) @as(c_int, 0) else @as(c_int, 1);
-            break :blk @as(c_int, 4);
-        },
-        else => unreachable,
-    };
-}
-
-fn __signbit(x: f64) callconv(.c) c_int {
-    const u: u64 = @bitCast(x);
-    return @intCast(u >> 63);
-}
-
-fn __signbitf(x: f32) callconv(.c) c_int {
-    const u: u32 = @bitCast(x);
-    return @intCast(u >> 31);
-}
-
-fn __signbitl(x: c_longdouble) callconv(.c) c_int {
-    return switch (@typeInfo(c_longdouble).float.bits) {
-        16, 32 => __signbitf(@floatCast(x)),
-        64 => __signbit(@floatCast(x)),
-        80 => blk: {
-            const ux: u80 = @bitCast(x);
-            break :blk @intCast(ux >> 79);
-        },
-        128 => blk: {
-            const ux: u128 = @bitCast(x);
-            break :blk @intCast(ux >> 127);
-        },
-        else => unreachable,
-    };
-}
-
-fn copysign(x: f64, y: f64) callconv(.c) f64 {
-    return math.copysign(x, y);
-}
-
-fn copysignf(x: f32, y: f32) callconv(.c) f32 {
-    return math.copysign(x, y);
-}
-
-fn copysignl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    return math.copysign(x, y);
-}
-
-fn cosh(x: f64) callconv(.c) f64 {
-    return math.cosh(x);
-}
-
-fn coshf(x: f32) callconv(.c) f32 {
-    return math.cosh(x);
-}
-
-fn coshl_(x: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(c_longdouble).float.bits) {
-        64 => math.cosh(@as(f64, @bitCast(x))),
-        else => @floatCast(math.cosh(@as(f64, @floatCast(x)))),
-    };
-}
-
-/// Port of musl sinh.c using f128 intermediates.
-/// f128 exp handles values up to ~11356 without overflow, so the
-/// overflow path (|x| > log(DBL_MAX) ≈ 710) works without the
-/// exp(x/2)² trick that causes directed rounding errors.
-/// f128 is available on all targets via software emulation.
-fn sinh_(x_: f64) callconv(.c) f64 {
-    @setFloatMode(.strict);
-    const u: u64 = @bitCast(x_);
-    const absu = u & (std.math.maxInt(u64) >> 1);
-    const w: u32 = @intCast(absu >> 32);
-    const absx: f128 = @abs(@as(f128, @floatCast(x_)));
-    var h: f128 = 0.5;
-    if (u >> 63 != 0) h = -h;
-
-    // |x| < log(DBL_MAX)
-    if (w < 0x40862e42) {
-        const t: f128 = expm1_wide(f128, absx);
-        if (w < 0x3ff00000) {
-            if (w < 0x3ff00000 - (26 << 20))
-                return x_;
-            return @floatCast(h * (2 * t - t * t / (t + 1)));
-        }
-        return @floatCast(h * (t + t / (t + 1)));
-    }
-
-    // |x| > log(DBL_MAX) or nan: f128 exp won't overflow here
-    const t: f128 = exp_pure(f128, absx);
-    return @floatCast(h * t);
-}
-
-fn sinhl_(x: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(c_longdouble).float.bits) {
-        64 => @bitCast(sinh_(@bitCast(x))),
-        else => sinhl_impl(c_longdouble, x),
-    };
-}
-
-/// Native long double sinh (port of musl sinhl.c).
-fn sinhl_impl(comptime T: type, x_: T) T {
-    @setFloatMode(.strict);
-    const absx = @abs(x_);
-    var h: T = 0.5;
-    if (math.signbit(x_)) h = -h;
-
-    // |x| < log(FLT_MAX) for extended/f128 (≈ 11356.52)
-    if (absx < @as(T, 0x1.62e42fefa39efp+13)) {
-        const t = expm1_wide(T, absx);
-        if (absx < 1.0) {
-            if (absx < 0x1p-32)
-                return x_;
-            return h * (2 * t - t * t / (t + 1));
-        }
-        return h * (t + t / (t + 1));
-    }
-
-    // |x| > log(FLT_MAX) or nan
-    const t = exp_pure(T, @as(T, 0.5) * absx);
-    return h * t * t;
-}
-
-fn exp10(x: f64) callconv(.c) f64 {
-    return math.pow(f64, 10.0, x);
-}
-
-fn exp10f(x: f32) callconv(.c) f32 {
-    return math.pow(f32, 10.0, x);
-}
-
-fn fdim(x: f64, y: f64) callconv(.c) f64 {
-    if (math.isNan(x)) {
-        return x;
-    }
-    if (math.isNan(y)) {
-        return y;
-    }
-    if (x > y) {
-        return x - y;
-    }
-    return 0;
-}
-
-fn finite(x: f64) callconv(.c) c_int {
-    return if (math.isFinite(x)) 1 else 0;
-}
-
-fn finitef(x: f32) callconv(.c) c_int {
-    return if (math.isFinite(x)) 1 else 0;
-}
-
-fn frexpGeneric(comptime T: type, x: T, e: *c_int) T {
-    // libc expects `*e` to be unspecified in this case; an unspecified C value
-    // should be a valid value of the relevant type, yet Zig's std
-    // implementation sets it to `undefined` -- which can even be nonsense
-    // according to the type (int). Therefore, we're setting it to a valid
-    // int value in Zig -- a zero.
-    //
-    // This mirrors the handling of infinities, where libc also expects
-    // unspecified for the value of `*e` and Zig std sets it to a zero.
-    if (math.isNan(x)) {
-        e.* = 0;
-        return x;
-    }
-
-fn frexp_(x: f64, e: *c_int) callconv(.c) f64 {
-    const r = math.frexp(x);
-    e.* = r.exponent;
-    return r.significand;
-}
-
-fn frexp(x: f64, e: *c_int) callconv(.c) f64 {
-    return frexpGeneric(f64, x, e);
-}
-
-fn frexpf(x: f32, e: *c_int) callconv(.c) f32 {
-    return frexpGeneric(f32, x, e);
-}
-
-fn frexpl(x: c_longdouble, e: *c_int) callconv(.c) c_longdouble {
-    return frexpGeneric(c_longdouble, x, e);
-fn fdimGeneric(comptime T: type, x: T, y: T) T {
-    if (math.isNan(x)) return x;
-    if (math.isNan(y)) return y;
-    // Use early return to prevent LLVM from converting to branchless select,
-    // which would speculatively compute x - y even when x <= y,
-    // raising an invalid FP exception for cases like fdim(-inf, -inf).
-    if (x > y) return x - y;
-    return 0;
-}
-
-fn fdim_(x: f64, y: f64) callconv(.c) f64 {
-    return fdimGeneric(f64, x, y);
-}
-
-fn fdimf_(x: f32, y: f32) callconv(.c) f32 {
-    return fdimGeneric(f32, x, y);
-}
-
-fn fdiml_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    return switch (@typeInfo(c_longdouble).float.bits) {
-        64 => @bitCast(fdim_(@bitCast(x), @bitCast(y))),
-        else => fdimGeneric(c_longdouble, x, y),
-    };
-}
-
-test "fdim" {
-    try expectEqual(@as(f64, 3.0), fdim_(5.0, 2.0));
-    try expectEqual(@as(f64, 0.0), fdim_(2.0, 5.0));
-    try expect(math.isNan(fdim_(math.nan(f64), 1.0)));
-    try expect(math.isNan(fdim_(1.0, math.nan(f64))));
-    try expectEqual(@as(f64, 0.0), fdim_(-math.inf(f64), -math.inf(f64)));
-    try expectEqual(@as(f64, 0.0), fdim_(math.inf(f64), math.inf(f64)));
-    try expectEqual(math.inf(f64), fdim_(math.inf(f64), -math.inf(f64)));
-    try expectEqual(@as(f32, 3.0), fdimf_(5.0, 2.0));
-    try expectEqual(@as(f32, 0.0), fdimf_(2.0, 5.0));
-    try expectEqual(@as(f32, 0.0), fdimf_(-math.inf(f32), -math.inf(f32)));
-}
-
-fn finite_(x: f64) callconv(.c) c_int {
-    return if (math.isFinite(x)) 1 else 0;
-}
-
-fn finitef_(x: f32) callconv(.c) c_int {
-    return if (math.isFinite(x)) 1 else 0;
-}
-
-test "finite" {
-    try expectEqual(@as(c_int, 1), finite_(1.0));
-    try expectEqual(@as(c_int, 0), finite_(math.inf(f64)));
-    try expectEqual(@as(c_int, 0), finite_(math.nan(f64)));
-    try expectEqual(@as(c_int, 1), finitef_(1.0));
-    try expectEqual(@as(c_int, 0), finitef_(math.inf(f32)));
-fn frexpf_(x: f32, e: *c_int) callconv(.c) f32 {
-    const r = math.frexp(x);
-    e.* = r.exponent;
-    return r.significand;
-}
-
-fn frexpl_(x: c_longdouble, e: *c_int) callconv(.c) c_longdouble {
-    const r = math.frexp(x);
-    e.* = r.exponent;
-    return r.significand;
-}
-
-test "frexp" {
-    var e: c_int = undefined;
-    try expectEqual(@as(f64, 0.75), frexp_(1.5, &e));
-    try expectEqual(@as(c_int, 1), e);
-    try expectEqual(@as(f64, 0.5), frexp_(1.0, &e));
-    try expectEqual(@as(c_int, 1), e);
-    try expectEqual(@as(f32, 0.75), frexpf_(1.5, &e));
-    try expectEqual(@as(c_int, 1), e);
-}
-
-fn ilogb_(x: f64) callconv(.c) c_int {
-    return math.ilogb(x);
-}
-
-fn ilogbf_(x: f32) callconv(.c) c_int {
-    return math.ilogb(x);
-}
-
-fn ilogbl_(x: c_longdouble) callconv(.c) c_int {
-    return math.ilogb(x);
-}
-
-test "ilogb" {
-    try expectEqual(@as(c_int, 0), ilogb_(1.0));
-    try expectEqual(@as(c_int, 3), ilogb_(10.0));
-    try expectEqual(@as(c_int, 0), ilogbf_(1.0));
-    try expectEqual(@as(c_int, 3), ilogbf_(10.0));
-}
-
-fn ldexp_(x: f64, n: c_int) callconv(.c) f64 {
-    return math.ldexp(x, n);
-}
-
-fn ldexpf_(x: f32, n: c_int) callconv(.c) f32 {
-    return math.ldexp(x, n);
-}
-
-fn ldexpl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
-    return math.ldexp(x, n);
-}
-
-test "ldexp" {
-    try expectEqual(@as(f64, 8.0), ldexp_(1.0, 3));
-    try expectEqual(@as(f64, 0.5), ldexp_(1.0, -1));
-    try expectEqual(@as(f32, 8.0), ldexpf_(1.0, 3));
-}
-
-fn logbGeneric(comptime T: type, x: T) T {
-    if (math.isNan(x)) return x;
-    if (math.isInf(x)) return math.inf(T);
-    if (x == 0) {
-        return -1.0 / @as(T, 0.0);
-    }
-    return @floatFromInt(math.ilogb(x));
-}
-
-fn logb_(x: f64) callconv(.c) f64 {
-    return logbGeneric(f64, x);
-}
-
-fn logbf_(x: f32) callconv(.c) f32 {
-    return logbGeneric(f32, x);
-}
-
-fn logbl_(x: c_longdouble) callconv(.c) c_longdouble {
-    return logbGeneric(c_longdouble, x);
-}
-
-test "logb" {
-    try expectEqual(@as(f64, 0.0), logb_(1.0));
-    try expectEqual(@as(f64, 3.0), logb_(10.0));
-    try expectEqual(math.inf(f64), logb_(math.inf(f64)));
-    try expect(math.isNan(logb_(math.nan(f64))));
-    try expectEqual(@as(f32, 0.0), logbf_(1.0));
-    try expectEqual(@as(f32, 3.0), logbf_(10.0));
-fn fma(x: f64, y: f64, z: f64) callconv(.c) f64 {
-    return @mulAdd(f64, x, y, z);
-fn fmal(x: c_longdouble, y: c_longdouble, z: c_longdouble) callconv(.c) c_longdouble {
-    return @mulAdd(c_longdouble, x, y, z);
-}
-
-fn hypot(x: f64, y: f64) callconv(.c) f64 {
-    return math.hypot(x, y);
-}
-
-fn hypotf(x: f32, y: f32) callconv(.c) f32 {
-    return math.hypot(x, y);
-}
-
-fn hypotl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    return math.hypot(x, y);
-}
-
-fn intFromFloat(comptime I: type, x: anytype) I {
-    const F = @TypeOf(x);
-    if (math.isNan(x) or !math.isFinite(x)) return math.minInt(I);
-    const upper: F = @floatFromInt(@as(comptime_int, math.maxInt(I)) + 1);
-    const lower: F = @floatFromInt(math.minInt(I));
-    if (x >= upper or x < lower) return math.minInt(I);
-    return @intFromFloat(x);
-}
-
-fn isnan(x: f64) callconv(.c) c_int {
-    return if (math.isNan(x)) 1 else 0;
-}
-
-fn isnanf(x: f32) callconv(.c) c_int {
-    return if (math.isNan(x)) 1 else 0;
-}
-
-fn isnanl(x: c_longdouble) callconv(.c) c_int {
-    return if (math.isNan(x)) 1 else 0;
-}
-
-fn lrint(x: f64) callconv(.c) c_long {
-    return @intFromFloat(rint(x));
-}
-
-fn lrintf(x: f32) callconv(.c) c_long {
-    return @intFromFloat(rintf(x));
-fn llrint(x: f64) callconv(.c) c_longlong {
-    return intFromFloat(c_longlong, rint(x));
-}
-
-fn lrint(x: f64) callconv(.c) c_long {
-    return intFromFloat(c_long, rint(x));
-}
-
-fn modfGeneric(comptime T: type, x: T, iptr: *T) T {
-    if (math.isNegativeInf(x)) {
-        iptr.* = -math.inf(T);
-        return -0.0;
-    }
-
-    if (math.isPositiveInf(x)) {
-        iptr.* = math.inf(T);
-        return 0.0;
-    }
-
-    if (math.isNan(x)) {
-        iptr.* = math.nan(T);
-        return math.nan(T);
-    }
-
-    const r = math.modf(x);
-    iptr.* = r.ipart;
-
-    // If the result is a negative zero, we must be explicit about
-    // returning a negative zero.
-    return if (math.isNegativeZero(x) or (x < 0.0 and x == r.ipart)) -0.0 else r.fpart;
-}
-
-fn modf(x: f64, iptr: *f64) callconv(.c) f64 {
-    return modfGeneric(f64, x, iptr);
-}
-
-fn modff(x: f32, iptr: *f32) callconv(.c) f32 {
-    return modfGeneric(f32, x, iptr);
-}
-
-fn modfl(x: c_longdouble, iptr: *c_longdouble) callconv(.c) c_longdouble {
-    return modfGeneric(c_longdouble, x, iptr);
-}
-
-fn testModf(comptime T: type) !void {
-    // Choose the appropriate `modf` impl to test based on type
-    const f = switch (T) {
-        f32 => modff,
-        f64 => modf,
-        c_longdouble => modfl,
-        else => @compileError("modf not implemented for " ++ @typeName(T)),
-    };
-
-    var int: T = undefined;
-    const iptr = &int;
-    const eps_val: comptime_float = @max(1e-6, math.floatEps(T));
-
-    const normal_frac = f(@as(T, 1234.567), iptr);
-    // Account for precision error
-    const expected = 1234.567 - @as(T, 1234);
-    try expectApproxEqAbs(expected, normal_frac, eps_val);
-    try expectApproxEqRel(@as(T, 1234.0), iptr.*, eps_val);
-
-    // When `x` is a NaN, NaN is returned and `*iptr` is set to NaN
-    const nan_frac = f(math.nan(T), iptr);
-    try expect(math.isNan(nan_frac));
-    try expect(math.isNan(iptr.*));
-
-    // When `x` is positive infinity, +0 is returned and `*iptr` is set to
-    // positive infinity
-    const pos_zero_frac = f(math.inf(T), iptr);
-    try expect(math.isPositiveZero(pos_zero_frac));
-    try expect(math.isPositiveInf(iptr.*));
-
-    // When `x` is negative infinity, -0 is returned and `*iptr` is set to
-    // negative infinity
-    const neg_zero_frac = f(-math.inf(T), iptr);
-    try expect(math.isNegativeZero(neg_zero_frac));
-    try expect(math.isNegativeInf(iptr.*));
-
-    // Return -0 when `x` is a negative integer
-    const nz_frac = f(@as(T, -1000.0), iptr);
-    try expect(math.isNegativeZero(nz_frac));
-    try expectEqual(@as(T, -1000.0), iptr.*);
-
-    // Return +0 when `x` is a positive integer
-    const pz_frac = f(@as(T, 1000.0), iptr);
-    try expect(math.isPositiveZero(pz_frac));
-    try expectEqual(@as(T, 1000.0), iptr.*);
-}
-
-test "modf" {
-    try testModf(f32);
-    try testModf(f64);
-    try testModf(c_longdouble);
-}
-
-fn nearbyint(x: f64) callconv(.c) f64 {
-    return rint(x);
-}
-
-fn nan(_: [*:0]const c_char) callconv(.c) f64 {
-    return math.nan(f64);
-}
-
-fn nanf(_: [*:0]const c_char) callconv(.c) f32 {
-    return math.nan(f32);
-}
-
-fn nanl(_: [*:0]const c_char) callconv(.c) c_longdouble {
-    return math.nan(c_longdouble);
-}
-
-fn pow(x: f64, y: f64) callconv(.c) f64 {
-    return math.pow(f64, x, y);
-}
-
-/// Port of musl powf — IEEE 754 conformant single-precision power function.
-/// Uses double-precision log2+exp2 internally for 0.82 ULP accuracy.
-/// Copyright (c) 2017-2018, Arm Limited. SPDX-License-Identifier: MIT
-fn powf(x: f32, y: f32) callconv(.c) f32 {
-    return powf_impl.call(x, y);
-}
-
 const powf_impl = struct {
     const POWF_LOG2_TABLE_BITS = 4;
     const POWF_LOG2_POLY_ORDER = 5;
@@ -1271,667 +247,121 @@ const powf_impl = struct {
         return exp2Inline(ylogx, sign_bias);
     }
 };
-
-fn powl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    return math.pow(c_longdouble, x, y);
-}
-
-fn pow10(x: f64) callconv(.c) f64 {
-    return exp10(x);
-}
-
-fn pow10f(x: f32) callconv(.c) f32 {
-    return exp10f(x);
-}
-
-fn remainder_(x: f64, y: f64) callconv(.c) f64 {
-    var q: c_int = undefined;
-    return remquo_(x, y, &q);
-}
-
-fn remainderf_(x: f32, y: f32) callconv(.c) f32 {
-    var q: c_int = undefined;
-    return remquof_(x, y, &q);
-}
-
-fn remainderl_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    var q: c_int = undefined;
-    return remquol_(x, y, &q);
-}
-
-/// Translated from musl/src/math/remquof.c
-fn remquof_(x_: f32, y_: f32, quo: *c_int) callconv(.c) f32 {
-    var x: f32 = x_;
-    var y: f32 = y_;
-    var uxi: u32 = @bitCast(x);
-    var uyi: u32 = @bitCast(y);
-    var ex: i32 = @intCast(uxi >> 23 & 0xff);
-    var ey: i32 = @intCast(uyi >> 23 & 0xff);
-    const sx: u32 = uxi >> 31;
-    const sy: u32 = uyi >> 31;
-    var q: u32 = undefined;
-
-    quo.* = 0;
-    if (uyi << 1 == 0 or math.isNan(y) or ex == 0xff)
-        return (x * y) / (x * y);
-    if (uxi << 1 == 0)
-        return x;
-
-    // normalize x and y
-    if (ex == 0) {
-        var i = uxi << 9;
-        while (i >> 31 == 0) : (i <<= 1) {
-            ex -= 1;
-        }
-        uxi <<= @intCast(@as(u32, @bitCast(-ex + 1)));
-    } else {
-        uxi &= 0x007fffff;
-        uxi |= 0x00800000;
-    }
-    if (ey == 0) {
-        var i = uyi << 9;
-        while (i >> 31 == 0) : (i <<= 1) {
-            ey -= 1;
-        }
-        uyi <<= @intCast(@as(u32, @bitCast(-ey + 1)));
-    } else {
-        uyi &= 0x007fffff;
-        uyi |= 0x00800000;
-    }
-
-    q = 0;
-    if (ex >= ey) {
-        // x mod y
-        while (ex > ey) : (ex -= 1) {
-            const i = uxi -% uyi;
-            if (i >> 31 == 0) {
-                uxi = i;
-                q +%= 1;
-            }
-            uxi <<= 1;
-            q = q *% 2;
-        }
-        {
-            const i = uxi -% uyi;
-            if (i >> 31 == 0) {
-                uxi = i;
-                q +%= 1;
-            }
-        }
-        if (uxi == 0) {
-            ex = -30;
-        } else {
-            while (uxi >> 23 == 0) {
-                uxi <<= 1;
-                ex -= 1;
-            }
-        }
-    } else if (ex + 1 != ey) {
-        return x;
-    }
-
-    // scale result and decide between |x| and |x|-|y|
-    if (ex > 0) {
-        uxi -= 1 << 23;
-        uxi |= @as(u32, @intCast(ex)) << 23;
-    } else {
-        uxi >>= @intCast(@as(u32, @bitCast(-ex + 1)));
-    }
-    x = @bitCast(uxi);
-    if (sy != 0) y = -y;
-    if (ex == ey or (ex + 1 == ey and (2.0 * x > y or (2.0 * x == y and q % 2 != 0)))) {
-        x -= y;
-        q +%= 1;
-    }
-    q &= 0x7fffffff;
-    const qi: c_int = @intCast(q);
-    quo.* = if (sx ^ sy != 0) -qi else qi;
-    return if (sx != 0) -x else x;
-}
-
-/// Translated from musl/src/math/remquo.c
-fn remquo_(x_: f64, y_: f64, quo: *c_int) callconv(.c) f64 {
-    var x: f64 = x_;
-    var y: f64 = y_;
-    var uxi: u64 = @bitCast(x);
-    var uyi: u64 = @bitCast(y);
-    var ex: i32 = @intCast(uxi >> 52 & 0x7ff);
-    var ey: i32 = @intCast(uyi >> 52 & 0x7ff);
-    const sx: u64 = uxi >> 63;
-    const sy: u64 = uyi >> 63;
-    var q: u32 = undefined;
-
-    quo.* = 0;
-    if (uyi << 1 == 0 or math.isNan(y) or ex == 0x7ff)
-        return (x * y) / (x * y);
-    if (uxi << 1 == 0)
-        return x;
-
-    // normalize x and y
-    if (ex == 0) {
-        var i = uxi << 12;
-        while (i >> 63 == 0) : (i <<= 1) {
-            ex -= 1;
-        }
-        uxi <<= @intCast(@as(u32, @bitCast(-ex + 1)));
-    } else {
-        uxi &= 0x000fffffffffffff;
-        uxi |= 0x0010000000000000;
-    }
-    if (ey == 0) {
-        var i = uyi << 12;
-        while (i >> 63 == 0) : (i <<= 1) {
-            ey -= 1;
-        }
-        uyi <<= @intCast(@as(u32, @bitCast(-ey + 1)));
-    } else {
-        uyi &= 0x000fffffffffffff;
-        uyi |= 0x0010000000000000;
-    }
-
-    q = 0;
-    if (ex >= ey) {
-        // x mod y
-        while (ex > ey) : (ex -= 1) {
-            const i = uxi -% uyi;
-            if (i >> 63 == 0) {
-                uxi = i;
-                q +%= 1;
-            }
-            uxi <<= 1;
-            q = q *% 2;
-        }
-        {
-            const i = uxi -% uyi;
-            if (i >> 63 == 0) {
-                uxi = i;
-                q +%= 1;
-            }
-        }
-        if (uxi == 0) {
-            ex = -60;
-        } else {
-            while (uxi >> 52 == 0) {
-                uxi <<= 1;
-                ex -= 1;
-            }
-        }
-    } else if (ex + 1 != ey) {
-        return x;
-    }
-
-    // scale result and decide between |x| and |x|-|y|
-    if (ex > 0) {
-        uxi -= @as(u64, 1) << 52;
-        uxi |= @as(u64, @intCast(ex)) << 52;
-    } else {
-        uxi >>= @intCast(@as(u32, @bitCast(-ex + 1)));
-    }
-    x = @bitCast(uxi);
-    if (sy != 0) y = -y;
-    if (ex == ey or (ex + 1 == ey and (2.0 * x > y or (2.0 * x == y and q % 2 != 0)))) {
-        x -= y;
-        q +%= 1;
-    }
-    q &= 0x7fffffff;
-    const qi: c_int = @intCast(q);
-    quo.* = if (sx ^ sy != 0) -qi else qi;
-    return if (sx != 0) -x else x;
-}
-
-/// Translated from musl/src/math/remquol.c
-fn remquol_(x_: c_longdouble, y_: c_longdouble, quo: *c_int) callconv(.c) c_longdouble {
-    const ld = @typeInfo(c_longdouble).float;
-    if (ld.bits == 64) {
-        return @floatCast(remquo_(@as(f64, @floatCast(x_)), @as(f64, @floatCast(y_)), quo));
-    }
-    if (ld.bits == 80) {
-        return remquox(f80, x_, y_, quo);
-    }
-    if (ld.bits == 128) {
-        return remquox(f128, x_, y_, quo);
-    }
-    unreachable;
-}
-
-fn remquox(comptime F: type, x_: c_longdouble, y_: c_longdouble, quo: *c_int) c_longdouble {
-    const bits = @typeInfo(F).float.bits;
-    const Bits = std.meta.Int(.unsigned, bits);
-    const se_shift: comptime_int = bits - 16;
-    const se_mask: Bits = @as(Bits, 0xFFFF) << se_shift;
-
-    var x: F = @floatCast(x_);
-    var y: F = @floatCast(y_);
-    var ux: Bits = @bitCast(x);
-    var uy: Bits = @bitCast(y);
-    var ux_se: u16 = @truncate(ux >> se_shift);
-    const uy_se: u16 = @truncate(uy >> se_shift);
-    var ex: i32 = @intCast(ux_se & 0x7fff);
-    var ey: i32 = @intCast(uy_se & 0x7fff);
-    const sx: u16 = ux_se >> 15;
-    const sy: u16 = uy_se >> 15;
-    var q: u32 = 0;
-
-    quo.* = 0;
-    if (y == 0 or math.isNan(y) or ex == 0x7fff)
-        return @floatCast((x * y) / (x * y));
-    if (x == 0)
-        return @floatCast(x);
-
-    // normalize x
-    if (ex == 0) {
-        ux = ux & ~se_mask;
-        x = @bitCast(ux);
-        x *= 0x1p120;
-        ux = @bitCast(x);
-        ux_se = @truncate(ux >> se_shift);
-        ex = @as(i32, @intCast(ux_se & 0x7fff)) - 120;
-    }
-    // normalize y
-    if (ey == 0) {
-        uy = uy & ~se_mask;
-        y = @bitCast(uy);
-        y *= 0x1p120;
-        uy = @bitCast(y);
-        ey = @as(i32, @intCast(@as(u16, @truncate(uy >> se_shift)) & 0x7fff)) - 120;
-    }
-
-    q = 0;
-    if (ex >= ey) {
-        if (bits == 80) {
-            // f80: 64-bit mantissa in bits[63:0]
-            var mx: u64 = @truncate(ux);
-            const my: u64 = @truncate(uy);
-            while (ex > ey) : (ex -= 1) {
-                if (mx >= my) {
-                    mx = (mx - my) *% 2;
-                    q +%= 1;
-                    q = q *% 2;
-                } else if (mx *% 2 < mx) {
-                    mx = mx *% 2 -% my;
-                    q = q *% 2;
-                    q +%= 1;
-                } else {
-                    mx = mx * 2;
-                    q = q *% 2;
-                }
-            }
-            if (mx >= my) {
-                mx = mx - my;
-                q +%= 1;
-            }
-            if (mx == 0) {
-                ex = -120;
-            } else {
-                while (mx >> 63 == 0) {
-                    mx *%= 2;
-                    ex -= 1;
-                }
-            }
-            ux = (ux & se_mask) | @as(Bits, mx);
-        } else {
-            // f128: mantissa split into hi (48 bits) and lo (64 bits)
-            var xhi: u64 = (@as(u64, @truncate(ux >> 64)) & (std.math.maxInt(u64) >> 16)) | (@as(u64, 1) << 48);
-            const yhi: u64 = (@as(u64, @truncate(uy >> 64)) & (std.math.maxInt(u64) >> 16)) | (@as(u64, 1) << 48);
-            var xlo: u64 = @truncate(ux);
-            const ylo: u64 = @truncate(uy);
-            while (ex > ey) : (ex -= 1) {
-                var hi = xhi -% yhi;
-                const lo = xlo -% ylo;
-                if (xlo < ylo)
-                    hi -%= 1;
-                if (hi >> 63 == 0) {
-                    xhi = hi *% 2 +% (lo >> 63);
-                    xlo = lo *% 2;
-                    q +%= 1;
-                } else {
-                    xhi = xhi *% 2 +% (xlo >> 63);
-                    xlo = xlo *% 2;
-                }
-                q = q *% 2;
-            }
-            {
-                var hi = xhi -% yhi;
-                const lo = xlo -% ylo;
-                if (xlo < ylo)
-                    hi -%= 1;
-                if (hi >> 63 == 0) {
-                    xhi = hi;
-                    xlo = lo;
-                    q +%= 1;
-                }
-            }
-            if ((xhi | xlo) == 0) {
-                ex = -120;
-            } else {
-                while (xhi >> 48 == 0) {
-                    xhi = xhi *% 2 +% (xlo >> 63);
-                    xlo = xlo *% 2;
-                    ex -= 1;
-                }
-            }
-            ux = (@as(Bits, xhi) << 64) | @as(Bits, xlo);
-        }
-    }
-
-    // scale result and decide between |x| and |x|-|y|
-    if (ex <= 0) {
-        ux_se = @intCast(@as(u32, @bitCast(ex + 120)));
-        ux = (ux & ~se_mask) | (@as(Bits, ux_se) << se_shift);
-        x = @bitCast(ux);
-        x *= 0x1p-120;
-    } else {
-        ux_se = @intCast(@as(u32, @bitCast(ex)));
-        ux = (ux & ~se_mask) | (@as(Bits, ux_se) << se_shift);
-        x = @bitCast(ux);
-    }
-    if (sy != 0) y = -y;
-    if (ex == ey or (ex + 1 == ey and (2.0 * x > y or (2.0 * x == y and q % 2 != 0)))) {
-        x -= y;
-        q +%= 1;
-    }
-    q &= 0x7fffffff;
-    const qi: c_int = @intCast(q);
-    quo.* = if (sx ^ sy != 0) -qi else qi;
-    return @floatCast(if (sx != 0) -x else x);
-}
-
-test "remquof" {
-    var q: c_int = undefined;
-
-    // basic: 10 mod 3 = 1, quotient 3
-    try expectEqual(@as(f32, 1.0), remquof_(10.0, 3.0, &q));
-    try expectEqual(@as(c_int, 3), q & 0x7);
-
-    // negative x: -10 mod 3 = -1, quotient -3
-    try expectEqual(@as(f32, -1.0), remquof_(-10.0, 3.0, &q));
-    try expectEqual(@as(c_int, -3), q);
-
-    // remainder rounds to nearest: remquo(5.5, 2) -> -0.5 quotient 3
-    try expectEqual(@as(f32, -0.5), remquof_(5.5, 2.0, &q));
-    try expectEqual(@as(c_int, 3), q);
-
-    // y == 0 -> NaN
-    try expect(math.isNan(remquof_(1.0, 0.0, &q)));
-
-    // x == NaN -> NaN
-    try expect(math.isNan(remquof_(math.nan(f32), 1.0, &q)));
-
-    // x == inf -> NaN
-    try expect(math.isNan(remquof_(math.inf(f32), 1.0, &q)));
-
-    // x == 0 -> 0
-    try expectEqual(@as(f32, 0.0), remquof_(0.0, 1.0, &q));
-    try expectEqual(@as(c_int, 0), q);
-}
-
-test "remquo" {
-    var q: c_int = undefined;
-
-    try expectEqual(@as(f64, 1.0), remquo_(10.0, 3.0, &q));
-    try expectEqual(@as(c_int, 3), q & 0x7);
-
-    try expectEqual(@as(f64, -1.0), remquo_(-10.0, 3.0, &q));
-    try expectEqual(@as(c_int, -3), q);
-
-    try expectEqual(@as(f64, -0.5), remquo_(5.5, 2.0, &q));
-    try expectEqual(@as(c_int, 3), q);
-
-    try expect(math.isNan(remquo_(1.0, 0.0, &q)));
-    try expect(math.isNan(remquo_(math.nan(f64), 1.0, &q)));
-    try expect(math.isNan(remquo_(math.inf(f64), 1.0, &q)));
-
-    try expectEqual(@as(f64, 0.0), remquo_(0.0, 1.0, &q));
-    try expectEqual(@as(c_int, 0), q);
-}
-
-test "remainderf" {
-    try expectEqual(@as(f32, 1.0), remainderf_(10.0, 3.0));
-    try expectEqual(@as(f32, -1.0), remainderf_(-10.0, 3.0));
-    try expectEqual(@as(f32, -0.5), remainderf_(5.5, 2.0));
-    try expect(math.isNan(remainderf_(1.0, 0.0)));
-}
-
-test "remainder" {
-    try expectEqual(@as(f64, 1.0), remainder_(10.0, 3.0));
-    try expectEqual(@as(f64, -1.0), remainder_(-10.0, 3.0));
-    try expectEqual(@as(f64, -0.5), remainder_(5.5, 2.0));
-    try expect(math.isNan(remainder_(1.0, 0.0)));
-}
-
-fn rint(x: f64) callconv(.c) f64 {
-    const toint: f64 = 1.0 / math.floatEps(f64);
-    const a: u64 = @bitCast(x);
-    const e = a >> 52 & 0x7ff;
-    const s = a >> 63;
-    var y: f64 = undefined;
-
-    if (e >= 0x3ff + 52) {
-        return x;
-    }
-    if (s == 1) {
-        y = x - toint + toint;
-    } else {
-        y = x + toint - toint;
-    }
-    if (y == 0) {
-        return if (s == 1) -0.0 else 0;
-    }
-    return y;
-}
-
-fn rintf(x: f32) callconv(.c) f32 {
-    const toint: f32 = 1.0 / math.floatEps(f32);
-    const a: u32 = @bitCast(x);
-    const e = a >> 23 & 0xff;
-    const s = a >> 31;
-    var y: f32 = undefined;
-
-    if (e >= 0x7f + 23) {
-        return x;
-    }
-
-    if (s == 1) {
-        y = x - toint + toint;
-    } else {
-        y = x + toint - toint;
-    }
-
-    if (y == 0) {
-        return if (s == 1) -0.0 else 0;
-    }
-    return y;
-}
-
-fn testRint(comptime T: type) !void {
-    const f = switch (T) {
-        f32 => rintf,
-        f64 => rint,
-        else => @compileError("rint not implemented for" ++ @typeName(T)),
-    };
-
-    // Positive numbers round correctly
-    try expectEqual(@as(T, 42.0), f(42.2));
-    try expectEqual(@as(T, 42.0), f(41.8));
-
-    // Negative numbers round correctly
-    try expectEqual(@as(T, -6.0), f(-5.9));
-    try expectEqual(@as(T, -6.0), f(-6.1));
-
-    // No rounding needed test
-    try expectEqual(@as(T, 5.0), f(5.0));
-    try expectEqual(@as(T, -10.0), f(-10.0));
-    try expectEqual(@as(T, 0.0), f(0.0));
-
-    // Very large numbers return unchanged
-    const large: T = 9007199254740992.0; // 2^53
-    try expectEqual(large, f(large));
-    try expectEqual(-large, f(-large));
-
-    // Small positive numbers round to zero
-    const pos_result = f(0.3);
-    try expect(math.isPositiveZero(pos_result));
-
-    // Small negative numbers round to negative zero
-    const neg_result = f(-0.3);
-    try expect(math.isNegativeZero(neg_result));
-
-    // Exact half rounds to nearest even (banker's rounding)
-    try expectEqual(@as(T, 2.0), f(2.5));
-    try expectEqual(@as(T, 4.0), f(3.5));
-}
-
-test "rint" {
-    try testRint(f32);
-    try testRint(f64);
-}
-
-fn scalbln_(x: f64, n: c_long) callconv(.c) f64 {
-    const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
-    return math.scalbn(x, ni);
-}
-
-fn scalblnf_(x: f32, n: c_long) callconv(.c) f32 {
-    const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
-    return math.scalbn(x, ni);
-}
-
-fn scalblnl_(x: c_longdouble, n: c_long) callconv(.c) c_longdouble {
-    const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
-    return math.scalbn(x, ni);
-}
-
-test "scalbln" {
-    try expectEqual(@as(f64, 8.0), scalbln_(1.0, 3));
-    try expectEqual(@as(f64, 0.5), scalbln_(1.0, -1));
-    try expectEqual(@as(f32, 8.0), scalblnf_(1.0, 3));
-}
-
-fn scalbn_(x: f64, n: c_int) callconv(.c) f64 {
-    return math.scalbn(x, n);
-}
-
-fn scalbnf_(x: f32, n: c_int) callconv(.c) f32 {
-    return math.scalbn(x, n);
-}
-
-fn scalbnl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
-    return math.scalbn(x, n);
-}
-
-test "scalbn" {
-    try expectEqual(@as(f64, 8.0), scalbn_(1.0, 3));
-    try expectEqual(@as(f64, 0.5), scalbn_(1.0, -1));
-    try expectEqual(@as(f32, 8.0), scalbnf_(1.0, 3));
-}
-
-fn significand_(x: f64) callconv(.c) f64 {
-    return math.scalbn(x, -math.ilogb(x));
-}
-
-fn significandf_(x: f32) callconv(.c) f32 {
-    return math.scalbn(x, -math.ilogb(x));
-}
-
-test "significand" {
-    try expectEqual(@as(f64, 1.5), significand_(3.0));
-    try expectEqual(@as(f64, 1.25), significand_(10.0));
-    try expectEqual(@as(f32, 1.5), significandf_(3.0));
-}
-
-fn rintf(x: f32) callconv(.c) f32 {
-    const toint: f32 = 1.0 / @as(f32, math.floatEps(f32));
-    const a: u32 = @bitCast(x);
-    const e = a >> 23 & 0xff;
-    const s = a >> 31;
-    var y: f32 = undefined;
-
-    if (e >= 0x7f + 23) {
-        return x;
-    }
-    if (s == 1) {
-        y = x - toint + toint;
-    } else {
-        y = x + toint - toint;
-    }
-    if (y == 0) {
-        return if (s == 1) @as(f32, -0.0) else 0;
-    }
-    return y;
-}
-
-test "rintf" {
-    try expectEqual(@as(f32, 42.0), rintf(42.2));
-    try expectEqual(@as(f32, 42.0), rintf(41.8));
-    try expectEqual(@as(f32, -6.0), rintf(-5.9));
-    try expectEqual(@as(f32, -6.0), rintf(-6.1));
-    try expectEqual(@as(f32, 5.0), rintf(5.0));
-    try expectEqual(@as(f32, 0.0), rintf(0.0));
-    try expectEqual(@as(f32, 2.0), rintf(2.5));
-    try expectEqual(@as(f32, 4.0), rintf(3.5));
-}
-
-fn rintl(x: c_longdouble) callconv(.c) c_longdouble {
-    const toint: c_longdouble = 1.0 / @as(c_longdouble, math.floatEps(c_longdouble));
-
-    // NaN or already-integer (includes Inf since Inf >= toint)
-    if (x != x or @abs(x) >= toint) return x;
-
-    // Use copysign to detect negative zero
-    const is_neg = math.copysign(@as(c_longdouble, 1.0), x) < 0;
-    const y = if (is_neg) x - toint + toint else x + toint - toint;
-    if (y == 0) return if (is_neg) @as(c_longdouble, -0.0) else @as(c_longdouble, 0);
-    return y;
-}
-
-fn rintf(x: f32) callconv(.c) f32 {
-    const toint: f32 = 1.0 / @as(f32, math.floatEps(f32));
-    const a: u32 = @bitCast(x);
-    const e = a >> 23 & 0xff;
-    const s = a >> 31;
-    var y: f32 = undefined;
-
-    if (e >= 0x7f + 23) {
-        return x;
-    }
-    if (s == 1) {
-        y = x - toint + toint;
-    } else {
-        y = x + toint - toint;
-    }
-    if (y == 0) {
-        return if (s == 1) @as(f32, -0.0) else 0;
-    }
-    return y;
-}
-
-test "rintf" {
-    try expectEqual(@as(f32, 42.0), rintf(42.2));
-    try expectEqual(@as(f32, 42.0), rintf(41.8));
-    try expectEqual(@as(f32, -6.0), rintf(-5.9));
-    try expectEqual(@as(f32, -6.0), rintf(-6.1));
-    try expectEqual(@as(f32, 5.0), rintf(5.0));
-    try expectEqual(@as(f32, 0.0), rintf(0.0));
-    try expectEqual(@as(f32, 2.0), rintf(2.5));
-    try expectEqual(@as(f32, 4.0), rintf(3.5));
-}
-
-fn rintl(x: c_longdouble) callconv(.c) c_longdouble {
-    const toint: c_longdouble = 1.0 / @as(c_longdouble, math.floatEps(c_longdouble));
-
-    // NaN or already-integer (includes Inf since Inf >= toint)
-    if (x != x or @abs(x) >= toint) return x;
-
-    // Use copysign to detect negative zero
-    const is_neg = math.copysign(@as(c_longdouble, 1.0), x) < 0;
-    const y = if (is_neg) x - toint + toint else x + toint - toint;
-    if (y == 0) return if (is_neg) @as(c_longdouble, -0.0) else @as(c_longdouble, 0);
-    return y;
-}
-
-// ==================================================================// lgamma — logarithm of the absolute value of the Gamma function
-// Ported from musl libc (origin: FreeBSD /usr/src/lib/msun/src/e_lgamma_r.c)
-// ===========================================================// lgamma_r f64 polynomial coefficients
+const maxInt = std.math.maxInt;
+const minInt = std.math.minInt;
+const erf_erx: f64 = 8.45062911510467529297e-01; // 0x3FEB0AC1, 0x60000000
+const erf_efx8: f64 = 1.02703333676410069053e+00; // 0x3FF06EBA, 0x8214DB69
+const erf_pp0: f64 = 1.28379167095512558561e-01; // 0x3FC06EBA, 0x8214DB68
+const erf_pp1: f64 = -3.25042107247001499370e-01; // 0xBFD4CD7D, 0x691CB913
+const erf_pp2: f64 = -2.84817495755985104766e-02; // 0xBF9D2A51, 0xDBD7194F
+const erf_pp3: f64 = -5.77027029648944159157e-03; // 0xBF77A291, 0x236668E4
+const erf_pp4: f64 = -2.37630166566501626084e-05; // 0xBEF8EAD6, 0x120016AC
+const erf_qq1: f64 = 3.97917223959155352819e-01; // 0x3FD97779, 0xCDDADC09
+const erf_qq2: f64 = 6.50222499887672944485e-02; // 0x3FB0A54C, 0x5536CEBA
+const erf_qq3: f64 = 5.08130628187576562776e-03; // 0x3F74D022, 0xC4D36B0F
+const erf_qq4: f64 = 1.32494738004321644526e-04; // 0x3F215DC9, 0x221C1A10
+const erf_qq5: f64 = -3.96022827877536812320e-06; // 0xBED09C43, 0x42A26120
+
+// Coefficients for approximation to erf in [0.84375,1.25]
+const erf_pa0: f64 = -2.36211856075265944077e-03;
+const erf_pa1: f64 = 4.14856118683748331666e-01;
+const erf_pa2: f64 = -3.72207876035701323847e-01;
+const erf_pa3: f64 = 3.18346619901161753674e-01;
+const erf_pa4: f64 = -1.10894694282396677476e-01;
+const erf_pa5: f64 = 3.54783043256182359371e-02;
+const erf_pa6: f64 = -2.16637559486879084300e-03;
+const erf_qa1: f64 = 1.06420880400844228286e-01;
+const erf_qa2: f64 = 5.40397917702171048937e-01;
+const erf_qa3: f64 = 7.18286544141962662868e-02;
+const erf_qa4: f64 = 1.26171219808761642112e-01;
+const erf_qa5: f64 = 1.36370839120290507362e-02;
+const erf_qa6: f64 = 1.19844998467991074170e-02;
+const erf_ra0: f64 = -9.86494403484714822705e-03;
+const erf_ra1: f64 = -6.93858572707181764372e-01;
+const erf_ra2: f64 = -1.05586262253232909814e+01;
+const erf_ra3: f64 = -6.23753324503260060396e+01;
+const erf_ra4: f64 = -1.62396669462573470355e+02;
+const erf_ra5: f64 = -1.84605092906711035994e+02;
+const erf_ra6: f64 = -8.12874355063065934246e+01;
+const erf_ra7: f64 = -9.81432934416914548592e+00;
+const erf_sa1: f64 = 1.96512716674392571292e+01;
+const erf_sa2: f64 = 1.37657754143519042600e+02;
+const erf_sa3: f64 = 4.34565877475229228821e+02;
+const erf_sa4: f64 = 6.45387271733267880336e+02;
+const erf_sa5: f64 = 4.29008140027567833386e+02;
+const erf_sa6: f64 = 1.08635005541779435134e+02;
+const erf_sa7: f64 = 6.57024977031928170135e+00;
+const erf_sa8: f64 = -6.04244152148580987438e-02;
+const erf_rb0: f64 = -9.86494292470009928597e-03;
+const erf_rb1: f64 = -7.99283237680523006574e-01;
+const erf_rb2: f64 = -1.77579549177547519889e+01;
+const erf_rb3: f64 = -1.60636384855821916062e+02;
+const erf_rb4: f64 = -6.37566443368389627722e+02;
+const erf_rb5: f64 = -1.02509513161107724954e+03;
+const erf_rb6: f64 = -4.83519191608651397019e+02;
+const erf_sb1: f64 = 3.03380607434824582924e+01;
+const erf_sb2: f64 = 3.25792512996573918826e+02;
+const erf_sb3: f64 = 1.53672958608443695994e+03;
+const erf_sb4: f64 = 3.19985821950859553908e+03;
+const erf_sb5: f64 = 2.55305040643316442583e+03;
+const erf_sb6: f64 = 4.74528541206955367215e+02;
+const erf_sb7: f64 = -2.24409524465858183362e+01;
+const erff_erx: f32 = 8.4506291151e-01;
+const erff_efx8: f32 = 1.0270333290e+00;
+const erff_pp0: f32 = 1.2837916613e-01;
+const erff_pp1: f32 = -3.2504209876e-01;
+const erff_pp2: f32 = -2.8481749818e-02;
+const erff_pp3: f32 = -5.7702702470e-03;
+const erff_pp4: f32 = -2.3763017452e-05;
+const erff_qq1: f32 = 3.9791721106e-01;
+const erff_qq2: f32 = 6.5022252500e-02;
+const erff_qq3: f32 = 5.0813062117e-03;
+const erff_qq4: f32 = 1.3249473704e-04;
+const erff_qq5: f32 = -3.9602282413e-06;
+const erff_pa0: f32 = -2.3621185683e-03;
+const erff_pa1: f32 = 4.1485610604e-01;
+const erff_pa2: f32 = -3.7220788002e-01;
+const erff_pa3: f32 = 3.1834661961e-01;
+const erff_pa4: f32 = -1.1089469492e-01;
+const erff_pa5: f32 = 3.5478305072e-02;
+const erff_pa6: f32 = -2.1663755178e-03;
+const erff_qa1: f32 = 1.0642088205e-01;
+const erff_qa2: f32 = 5.4039794207e-01;
+const erff_qa3: f32 = 7.1828655899e-02;
+const erff_qa4: f32 = 1.2617121637e-01;
+const erff_qa5: f32 = 1.3637083583e-02;
+const erff_qa6: f32 = 1.1984500103e-02;
+const erff_ra0: f32 = -9.8649440333e-03;
+const erff_ra1: f32 = -6.9385856390e-01;
+const erff_ra2: f32 = -1.0558626175e+01;
+const erff_ra3: f32 = -6.2375331879e+01;
+const erff_ra4: f32 = -1.6239666748e+02;
+const erff_ra5: f32 = -1.8460508728e+02;
+const erff_ra6: f32 = -8.1287437439e+01;
+const erff_ra7: f32 = -9.8143291473e+00;
+const erff_sa1: f32 = 1.9651271820e+01;
+const erff_sa2: f32 = 1.3765776062e+02;
+const erff_sa3: f32 = 4.3456588745e+02;
+const erff_sa4: f32 = 6.4538726807e+02;
+const erff_sa5: f32 = 4.2900814819e+02;
+const erff_sa6: f32 = 1.0863500214e+02;
+const erff_sa7: f32 = 6.5702495575e+00;
+const erff_sa8: f32 = -6.0424413532e-02;
+const erff_rb0: f32 = -9.8649431020e-03;
+const erff_rb1: f32 = -7.9928326607e-01;
+const erff_rb2: f32 = -1.7757955551e+01;
+const erff_rb3: f32 = -1.6063638306e+02;
+const erff_rb4: f32 = -6.3756646729e+02;
+const erff_rb5: f32 = -1.0250950928e+03;
+const erff_rb6: f32 = -4.8351919556e+02;
+const erff_sb1: f32 = 3.0338060379e+01;
+const erff_sb2: f32 = 3.2579251099e+02;
+const erff_sb3: f32 = 1.5367296143e+03;
+const erff_sb4: f32 = 3.1998581543e+03;
+const erff_sb5: f32 = 2.5530502930e+03;
+const erff_sb6: f32 = 4.7452853394e+02;
+const erff_sb7: f32 = -2.2440952301e+01;
+const mem = std.mem;
 const lg_pi: f64 = 3.14159265358979311600e+00; // 0x400921FB, 0x54442D18
 const lg_a0: f64 = 7.72156649015328655494e-02; // 0x3FB3C467, 0xE37DB0C8
 const lg_a1: f64 = 3.22467033424113591611e-01; // 0x3FD4A34C, 0xC4A60FAD
@@ -2133,9 +563,12 @@ fn lgamma_(x: f64) callconv(.c) f64 {
     return lgamma_r(x, &__signgam);
 }
 
-// ==================================================================// lgammaf — float version
+// =========================================================================
+// lgammaf — float version
 // Ported from musl libc (origin: FreeBSD /usr/src/lib/msun/src/e_lgammaf_r.c)
-// ===========================================================// lgammaf_r f32 polynomial coefficients
+// =========================================================================
+
+// lgammaf_r f32 polynomial coefficients
 const lgf_pi: f32 = 3.1415927410e+00; // 0x40490fdb
 const lgf_a0: f32 = 7.7215664089e-02; // 0x3d9e233f
 const lgf_a1: f32 = 3.2246702909e-01; // 0x3ea51a66
@@ -2338,12 +771,404 @@ fn lgammaf_(x: f32) callconv(.c) f32 {
     return lgammaf_r(x, &__signgam);
 }
 
-fn sinh(x: f64) callconv(.c) f64 {
-    return math.sinh(x);
+fn tanh(x: f64) callconv(.c) f64 {
+    return math.tanh(x);
 }
 
-fn sinhf(x: f32) callconv(.c) f32 {
-    return math.sinh(x);
+fn tanhf(x: f32) callconv(.c) f32 {
+    return math.tanh(x);
+}
+
+comptime {
+    if (builtin.target.isMinGW()) {
+        symbol(&isnan, "isnan");
+        symbol(&isnan, "__isnan");
+        symbol(&isnanf, "isnanf");
+        symbol(&isnanf, "__isnanf");
+        symbol(&isnanl, "isnanl");
+        symbol(&isnanl, "__isnanl");
+        symbol(&math.floatTrueMin(f64), "__DENORM");
+        symbol(&math.inf(f64), "__INF");
+        symbol(&math.nan(f64), "__QNAN");
+        symbol(&math.snan(f64), "__SNAN");
+        symbol(&math.floatTrueMin(f32), "__DENORMF");
+        symbol(&math.inf(f32), "__INFF");
+        symbol(&math.nan(f32), "__QNANF");
+        symbol(&math.snan(f32), "__SNANF");
+        symbol(&math.floatTrueMin(c_longdouble), "__DENORML");
+        symbol(&math.inf(c_longdouble), "__INFL");
+        symbol(&math.nan(c_longdouble), "__QNANL");
+        symbol(&math.snan(c_longdouble), "__SNANL");
+    }
+    if (builtin.target.isMinGW() or builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
+        symbol(&coshf, "coshf");
+        symbol(&hypotf, "hypotf");
+        symbol(&hypotl, "hypotl");
+        symbol(&modff, "modff");
+        symbol(&modfl, "modfl");
+        symbol(&nan, "nan");
+        symbol(&nanf, "nanf");
+        symbol(&nanl, "nanl");
+        symbol(&tanhf, "tanhf");
+    }
+    if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
+        symbol(&acos, "acos");
+        symbol(&acosf, "acosf");
+        symbol(&acoshf, "acoshf");
+        symbol(&acosl, "acosl");
+        symbol(&asin, "asin");
+        symbol(&asinhf, "asinhf");
+        symbol(&asinl, "asinl");
+        symbol(&atan, "atan");
+        symbol(&atanf, "atanf");
+        symbol(&atanhf, "atanhf");
+        symbol(&atanl, "atanl");
+        symbol(&cbrt, "cbrt");
+        symbol(&cbrtf, "cbrtf");
+        symbol(&cosh, "cosh");
+        symbol(&cosl, "cosl");
+        symbol(&exp10, "exp10");
+        symbol(&exp10f, "exp10f");
+        symbol(&expm1f, "expm1f");
+        symbol(&fdimf, "fdimf");
+        symbol(&fdiml, "fdiml");
+        symbol(&fmaf, "fmaf");
+        symbol(&fmal, "fmal");
+        symbol(&frexpf, "frexpf");
+        symbol(&frexpl, "frexpl");
+        symbol(&hypot, "hypot");
+        symbol(&ilogbf, "ilogbf");
+        symbol(&ilogbl, "ilogbl");
+        symbol(&ldexpf, "ldexpf");
+        symbol(&ldexpl, "ldexpl");
+        symbol(&llrintf, "llrintf");
+        symbol(&llrintl, "llrintl");
+        symbol(&llroundf, "llroundf");
+        symbol(&llroundl, "llroundl");
+        symbol(&log1pf, "log1pf");
+        symbol(&lrintf, "lrintf");
+        symbol(&lrintl, "lrintl");
+        symbol(&lroundf, "lroundf");
+        symbol(&lroundl, "lroundl");
+        symbol(&modf, "modf");
+        symbol(&nearbyintf, "nearbyintf");
+        symbol(&nearbyintl, "nearbyintl");
+        symbol(&nextafterf, "nextafterf");
+        symbol(&nextafterl, "nextafterl");
+        symbol(&nexttowardf, "nexttowardf");
+        symbol(&nexttowardl, "nexttowardl");
+        symbol(&pow, "pow");
+        symbol(&pow10, "pow10");
+        symbol(&pow10f, "pow10f");
+        symbol(&sincosl, "sincosl");
+        symbol(&sinhf, "sinhf");
+        symbol(&sinl, "sinl");
+        symbol(&tanh, "tanh");
+        symbol(&tanl, "tanl");
+        symbol(&exp2l, "exp2l");
+        symbol(&expl, "expl");
+        symbol(&log10l, "log10l");
+        symbol(&log2l, "log2l");
+        symbol(&logbf, "logbf");
+        symbol(&logbl, "logbl");
+        symbol(&logl, "logl");
+        symbol(&scalblnf, "scalblnf");
+        symbol(&scalblnl, "scalblnl");
+        symbol(&scalbnf, "scalbnf");
+        symbol(&scalbnl, "scalbnl");
+        symbol(&fdim, "fdim");
+        symbol(&powf, "powf");
+        symbol(&asinf, "asinf");
+        symbol(&finite_, "finite");
+        symbol(&finitef_, "finitef");
+        symbol(&frexp_, "frexp");
+        symbol(&ilogb_, "ilogb");
+        symbol(&ldexp_, "ldexp");
+        symbol(&logb_, "logb");
+        symbol(&scalbln_, "scalbln");
+        symbol(&scalbn_, "scalbn");
+        symbol(&significand_, "significand");
+        symbol(&significandf_, "significandf");
+        symbol(&rintl, "rintl");
+        symbol(&acosh_, "acosh");
+        symbol(&acoshl_, "acoshl");
+        symbol(&asinh_, "asinh");
+        symbol(&asinhl_, "asinhl");
+        symbol(&atanh_, "atanh");
+        symbol(&atanhl_, "atanhl");
+        symbol(&coshl_, "coshl");
+        symbol(&sinh_, "sinh");
+        symbol(&sinhl_, "sinhl");
+        symbol(&tanhl_, "tanhl");
+        symbol(&remainder_, "remainder");
+        symbol(&remainder_, "drem");
+        symbol(&remainderf_, "remainderf");
+        symbol(&remainderf_, "dremf");
+        symbol(&remainderl_, "remainderl");
+        symbol(&remquo_, "remquo");
+        symbol(&remquof_, "remquof");
+        symbol(&remquol_, "remquol");
+        symbol(&erf_, "erf");
+        symbol(&erfc_, "erfc");
+        symbol(&erff_, "erff");
+        symbol(&erfcf_, "erfcf");
+        symbol(&atan2, "atan2");
+        symbol(&atan2f, "atan2f");
+        symbol(&fma, "fma");
+        symbol(&llrint, "llrint");
+        symbol(&lrint, "lrint");
+        symbol(&lgamma_, "lgamma");
+        symbol(&lgammaf_, "lgammaf");
+        symbol(&lgamma_r, "__lgamma_r");
+        symbol(&lgamma_r, "lgamma_r");
+        symbol(&lgammaf_r, "__lgammaf_r");
+        symbol(&lgammaf_r, "lgammaf_r");
+        symbol(&powl, "powl");
+    }
+    if (builtin.target.isMuslLibC()) {
+        symbol(&copysign, "copysign");
+        symbol(&copysignf, "copysignf");
+        symbol(&finitef, "finitef");
+        symbol(&rint, "rint");
+        symbol(&significandf, "significandf");
+        symbol(&scalbf, "scalbf");
+        symbol(&rintf, "rintf");
+        symbol(&__fpclassify, "__fpclassify");
+        symbol(&__fpclassifyf, "__fpclassifyf");
+        symbol(&__fpclassifyl, "__fpclassifyl");
+        symbol(&__signbit, "__signbit");
+        symbol(&__signbitf, "__signbitf");
+        symbol(&__signbitl, "__signbitl");
+        symbol(&nextafter, "nextafter");
+        symbol(&nexttoward, "nexttoward");
+        symbol(&scalb, "scalb");
+        symbol(&nearbyint, "nearbyint");
+    }
+    symbol(&copysignl, "copysignl");
+    @export(&__signgam, .{ .name = "signgam", .linkage = .weak });
+}
+
+fn acos(x: f64) callconv(.c) f64 {
+    return math.acos(x);
+}
+
+fn acosf(x: f32) callconv(.c) f32 {
+    return math.acos(x);
+}
+
+fn acoshf(x: f32) callconv(.c) f32 {
+    return math.acosh(x);
+}
+
+fn asin(x: f64) callconv(.c) f64 {
+    return math.asin(x);
+}
+
+fn atan(x: f64) callconv(.c) f64 {
+    return math.atan(x);
+}
+
+fn atanf(x: f32) callconv(.c) f32 {
+    return math.atan(x);
+}
+
+fn atanl(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(@TypeOf(x)).float.bits) {
+        16 => math.atan(@as(f16, @floatCast(x))),
+        32 => math.atan(@as(f32, @floatCast(x))),
+        64 => math.atan(@as(f64, @floatCast(x))),
+        80 => math.atan(@as(f80, @floatCast(x))),
+        128 => math.atan(@as(f128, @floatCast(x))),
+        else => unreachable,
+    };
+}
+
+fn cbrt(x: f64) callconv(.c) f64 {
+    return math.cbrt(x);
+}
+
+fn cbrtf(x: f32) callconv(.c) f32 {
+    return math.cbrt(x);
+}
+
+fn copysign(x: f64, y: f64) callconv(.c) f64 {
+    return math.copysign(x, y);
+}
+
+fn copysignf(x: f32, y: f32) callconv(.c) f32 {
+    return math.copysign(x, y);
+}
+
+fn copysignl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return math.copysign(x, y);
+}
+
+fn cosh(x: f64) callconv(.c) f64 {
+    return math.cosh(x);
+}
+
+fn coshf(x: f32) callconv(.c) f32 {
+    return math.cosh(x);
+}
+
+fn exp10(x: f64) callconv(.c) f64 {
+    return math.pow(f64, 10.0, x);
+}
+
+fn exp10f(x: f32) callconv(.c) f32 {
+    return math.pow(f32, 10.0, x);
+}
+
+fn hypot(x: f64, y: f64) callconv(.c) f64 {
+    return math.hypot(x, y);
+}
+
+fn hypotf(x: f32, y: f32) callconv(.c) f32 {
+    return math.hypot(x, y);
+}
+
+fn hypotl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return math.hypot(x, y);
+}
+
+fn isnan(x: f64) callconv(.c) c_int {
+    return if (math.isNan(x)) 1 else 0;
+}
+
+fn isnanf(x: f32) callconv(.c) c_int {
+    return if (math.isNan(x)) 1 else 0;
+}
+
+fn isnanl(x: c_longdouble) callconv(.c) c_int {
+    return if (math.isNan(x)) 1 else 0;
+}
+
+fn modfGeneric(comptime T: type, x: T, iptr: *T) T {
+    if (math.isNegativeInf(x)) {
+        iptr.* = -math.inf(T);
+        return -0.0;
+    }
+
+    if (math.isPositiveInf(x)) {
+        iptr.* = math.inf(T);
+        return 0.0;
+    }
+
+    if (math.isNan(x)) {
+        iptr.* = math.nan(T);
+        return math.nan(T);
+    }
+
+    const r = math.modf(x);
+    iptr.* = r.ipart;
+
+    // If the result is a negative zero, we must be explicit about
+    // returning a negative zero.
+    return if (math.isNegativeZero(x) or (x < 0.0 and x == r.ipart)) -0.0 else r.fpart;
+}
+
+fn modf(x: f64, iptr: *f64) callconv(.c) f64 {
+    return modfGeneric(f64, x, iptr);
+}
+
+fn modff(x: f32, iptr: *f32) callconv(.c) f32 {
+    return modfGeneric(f32, x, iptr);
+}
+
+fn modfl(x: c_longdouble, iptr: *c_longdouble) callconv(.c) c_longdouble {
+    return modfGeneric(c_longdouble, x, iptr);
+}
+
+fn testModf(comptime T: type) !void {
+    // Choose the appropriate `modf` impl to test based on type
+    const f = switch (T) {
+        f32 => modff,
+        f64 => modf,
+        c_longdouble => modfl,
+        else => @compileError("modf not implemented for " ++ @typeName(T)),
+    };
+
+    var int: T = undefined;
+    const iptr = &int;
+    const eps_val: comptime_float = @max(1e-6, math.floatEps(T));
+
+    const normal_frac = f(@as(T, 1234.567), iptr);
+    // Account for precision error
+    const expected = 1234.567 - @as(T, 1234);
+    try expectApproxEqAbs(expected, normal_frac, eps_val);
+    try expectApproxEqRel(@as(T, 1234.0), iptr.*, eps_val);
+
+    // When `x` is a NaN, NaN is returned and `*iptr` is set to NaN
+    const nan_frac = f(math.nan(T), iptr);
+    try expect(math.isNan(nan_frac));
+    try expect(math.isNan(iptr.*));
+
+    // When `x` is positive infinity, +0 is returned and `*iptr` is set to
+    // positive infinity
+    const pos_zero_frac = f(math.inf(T), iptr);
+    try expect(math.isPositiveZero(pos_zero_frac));
+    try expect(math.isPositiveInf(iptr.*));
+
+    // When `x` is negative infinity, -0 is returned and `*iptr` is set to
+    // negative infinity
+    const neg_zero_frac = f(-math.inf(T), iptr);
+    try expect(math.isNegativeZero(neg_zero_frac));
+    try expect(math.isNegativeInf(iptr.*));
+
+    // Return -0 when `x` is a negative integer
+    const nz_frac = f(@as(T, -1000.0), iptr);
+    try expect(math.isNegativeZero(nz_frac));
+    try expectEqual(@as(T, -1000.0), iptr.*);
+
+    // Return +0 when `x` is a positive integer
+    const pz_frac = f(@as(T, 1000.0), iptr);
+    try expect(math.isPositiveZero(pz_frac));
+    try expectEqual(@as(T, 1000.0), iptr.*);
+}
+
+fn nan(_: [*:0]const c_char) callconv(.c) f64 {
+    return math.nan(f64);
+}
+
+fn nanf(_: [*:0]const c_char) callconv(.c) f32 {
+    return math.nan(f32);
+}
+
+fn nanl(_: [*:0]const c_char) callconv(.c) c_longdouble {
+    return math.nan(c_longdouble);
+}
+
+fn pow(x: f64, y: f64) callconv(.c) f64 {
+    return math.pow(f64, x, y);
+}
+
+fn pow10(x: f64) callconv(.c) f64 {
+    return exp10(x);
+}
+
+fn pow10f(x: f32) callconv(.c) f32 {
+    return exp10f(x);
+}
+
+fn rint(x: f64) callconv(.c) f64 {
+    const toint: f64 = 1.0 / @as(f64, math.floatEps(f64));
+    const a: u64 = @bitCast(x);
+    const e = a >> 52 & 0x7ff;
+    const s = a >> 63;
+    var y: f64 = undefined;
+
+    if (e >= 0x3ff + 52) {
+        return x;
+    }
+    if (s == 1) {
+        y = x - toint + toint;
+    } else {
+        y = x + toint - toint;
+    }
+    if (y == 0) {
+        return if (s == 1) -0.0 else 0;
+    }
+    return y;
 }
 
 fn tanh(x: f64) callconv(.c) f64 {
@@ -2372,14 +1197,6 @@ fn atanhf(x: f32) callconv(.c) f32 {
 
 fn cosl(x: c_longdouble) callconv(.c) c_longdouble {
     return math.cos(x);
-}
-
-fn exp2l(x: c_longdouble) callconv(.c) c_longdouble {
-    return math.exp2(x);
-}
-
-fn expl(x: c_longdouble) callconv(.c) c_longdouble {
-    return math.exp(x);
 }
 
 fn expm1f(x: f32) callconv(.c) f32 {
@@ -2458,34 +1275,8 @@ fn llroundl(x: c_longdouble) callconv(.c) c_longlong {
     return @intFromFloat(math.round(x));
 }
 
-fn log10l(x: c_longdouble) callconv(.c) c_longdouble {
-    return math.log10(x);
-}
-
 fn log1pf(x: f32) callconv(.c) f32 {
     return math.log1p(x);
-}
-
-fn log2l(x: c_longdouble) callconv(.c) c_longdouble {
-    return math.log2(x);
-}
-
-fn logbGeneric(comptime T: type, x: T) T {
-    if (!math.isFinite(x)) return x * x;
-    if (x == 0) return -math.inf(T);
-    return @floatFromInt(math.ilogb(x));
-}
-
-fn logbf(x: f32) callconv(.c) f32 {
-    return logbGeneric(f32, x);
-}
-
-fn logbl(x: c_longdouble) callconv(.c) c_longdouble {
-    return logbGeneric(c_longdouble, x);
-}
-
-fn logl(x: c_longdouble) callconv(.c) c_longdouble {
-    return @log(x);
 }
 
 fn lrintf(x: f32) callconv(.c) c_long {
@@ -2540,32 +1331,6 @@ fn nexttowardf(x: f32, y: c_longdouble) callconv(.c) f32 {
         } else {
             ux -= 1;
         }
-fn nextafter(x: f64, y: f64) callconv(.c) f64 {
-    var ux: u64 = @bitCast(x);
-    const uy: u64 = @bitCast(y);
-
-    if (math.isNan(x) or math.isNan(y)) return x + y;
-    if (ux == uy) return y;
-
-    const ax = ux & (math.maxInt(u64) >> 1);
-    const ay = uy & (math.maxInt(u64) >> 1);
-    if (ax == 0) {
-        if (ay == 0) return y;
-        ux = (uy & (@as(u64, 1) << 63)) | 1;
-    } else if (ax > ay or ((ux ^ uy) & (@as(u64, 1) << 63)) != 0) {
-        ux -= 1;
-    } else {
-        ux += 1;
-    }
-    const e: u32 = @truncate((ux >> 52) & 0x7ff);
-    // raise overflow if ux is infinite and x is finite
-    if (e == 0x7ff) {
-        mem.doNotOptimizeAway(x + x);
-    }
-    // raise underflow if ux is subnormal or zero
-    if (e == 0) {
-        const val: f64 = @bitCast(ux);
-        mem.doNotOptimizeAway(val * val);
     }
     return @bitCast(ux);
 }
@@ -2574,8 +1339,6 @@ fn nexttowardl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
     return math.nextAfter(c_longdouble, x, y);
 }
 
-
-/// Generic rint for any IEEE 754 float type.
 fn rintGeneric(comptime T: type, x: T) T {
     const toint: T = 1.0 / math.floatEps(T);
     const FloatBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
@@ -2597,6 +1360,61 @@ fn rintGeneric(comptime T: type, x: T) T {
     return y;
 }
 
+fn significandf(x: f32) callconv(.c) f32 {
+    const e = math.ilogb(x);
+    return math.scalbn(x, if (e == std.math.minInt(i32)) 0 else -e);
+}
+
+fn sincosl(x: c_longdouble, sin_ptr: *c_longdouble, cos_ptr: *c_longdouble) callconv(.c) void {
+    sin_ptr.* = math.sin(x);
+    cos_ptr.* = math.cos(x);
+}
+
+fn sinhf(x: f32) callconv(.c) f32 {
+    return math.sinh(x);
+}
+
+fn sinl(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.sin(x);
+}
+
+fn tanl(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.tan(x);
+}
+
+fn exp2l(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.exp2(x);
+}
+
+fn expl(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.exp(x);
+}
+
+fn log10l(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.log10(x);
+}
+
+fn log2l(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.log2(x);
+}
+
+fn logbGeneric(comptime T: type, x: T) T {
+    if (!math.isFinite(x)) return x * x;
+    if (x == 0) return -math.inf(T);
+    return @floatFromInt(math.ilogb(x));
+}
+
+fn logbf(x: f32) callconv(.c) f32 {
+    return logbGeneric(f32, x);
+}
+
+fn logbl(x: c_longdouble) callconv(.c) c_longdouble {
+    return logbGeneric(c_longdouble, x);
+}
+
+fn logl(x: c_longdouble) callconv(.c) c_longdouble {
+    return @log(x);
+}
 
 fn scalbf(x: f32, fn_arg: f32) callconv(.c) f32 {
     if (math.isNan(x) or math.isNan(fn_arg)) return x * fn_arg;
@@ -2636,26 +1454,406 @@ fn scalbnl(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
     return math.scalbn(x, n);
 }
 
-fn significandf(x: f32) callconv(.c) f32 {
-    const e = math.ilogb(x);
-    return math.scalbn(x, if (e == std.math.minInt(i32)) 0 else -e);
+fn fdim(x: f64, y: f64) callconv(.c) f64 {
+    if (math.isNan(x)) {
+        return x;
+    }
+    if (math.isNan(y)) {
+        return y;
+    }
+    if (x > y) {
+        return x - y;
+    }
+    return 0;
 }
 
-fn sincosl(x: c_longdouble, sin_ptr: *c_longdouble, cos_ptr: *c_longdouble) callconv(.c) void {
-    sin_ptr.* = math.sin(x);
-    cos_ptr.* = math.cos(x);
+fn powf(x: f32, y: f32) callconv(.c) f32 {
+    return powf_impl.call(x, y);
 }
 
-fn sinhf(x: f32) callconv(.c) f32 {
-    return math.sinh(x);
+fn asinf(x: f32) callconv(.c) f32 {
+    return math.asin(x);
 }
 
-fn sinl(x: c_longdouble) callconv(.c) c_longdouble {
-    return math.sin(x);
+fn fdim_(x: f64, y: f64) callconv(.c) f64 {
+    return fdimGeneric(f64, x, y);
 }
 
-fn tanl(x: c_longdouble) callconv(.c) c_longdouble {
-    return math.tan(x);
+fn fdimf_(x: f32, y: f32) callconv(.c) f32 {
+    return fdimGeneric(f32, x, y);
+}
+
+fn fdiml_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => @bitCast(fdim_(@bitCast(x), @bitCast(y))),
+        else => fdimGeneric(c_longdouble, x, y),
+    };
+}
+
+fn finite_(x: f64) callconv(.c) c_int {
+    return if (math.isFinite(x)) 1 else 0;
+}
+
+fn finitef_(x: f32) callconv(.c) c_int {
+    return if (math.isFinite(x)) 1 else 0;
+}
+
+fn frexp_(x: f64, e: *c_int) callconv(.c) f64 {
+    const r = math.frexp(x);
+    e.* = r.exponent;
+    return r.significand;
+}
+
+fn frexpf_(x: f32, e: *c_int) callconv(.c) f32 {
+    const r = math.frexp(x);
+    e.* = r.exponent;
+    return r.significand;
+}
+
+fn frexpl_(x: c_longdouble, e: *c_int) callconv(.c) c_longdouble {
+    const r = math.frexp(x);
+    e.* = r.exponent;
+    return r.significand;
+}
+
+fn ilogb_(x: f64) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ilogbf_(x: f32) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ilogbl_(x: c_longdouble) callconv(.c) c_int {
+    return math.ilogb(x);
+}
+
+fn ldexp_(x: f64, n: c_int) callconv(.c) f64 {
+    return math.ldexp(x, n);
+}
+
+fn ldexpf_(x: f32, n: c_int) callconv(.c) f32 {
+    return math.ldexp(x, n);
+}
+
+fn ldexpl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
+    return math.ldexp(x, n);
+}
+
+fn logb_(x: f64) callconv(.c) f64 {
+    return logbGeneric(f64, x);
+}
+
+fn logbf_(x: f32) callconv(.c) f32 {
+    return logbGeneric(f32, x);
+}
+
+fn logbl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return logbGeneric(c_longdouble, x);
+}
+
+fn scalbln_(x: f64, n: c_long) callconv(.c) f64 {
+    const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
+    return math.scalbn(x, ni);
+}
+
+fn scalblnf_(x: f32, n: c_long) callconv(.c) f32 {
+    const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
+    return math.scalbn(x, ni);
+}
+
+fn scalblnl_(x: c_longdouble, n: c_long) callconv(.c) c_longdouble {
+    const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
+    return math.scalbn(x, ni);
+}
+
+fn scalbn_(x: f64, n: c_int) callconv(.c) f64 {
+    return math.scalbn(x, n);
+}
+
+fn scalbnf_(x: f32, n: c_int) callconv(.c) f32 {
+    return math.scalbn(x, n);
+}
+
+fn scalbnl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
+    return math.scalbn(x, n);
+}
+
+fn significand_(x: f64) callconv(.c) f64 {
+    return math.scalbn(x, -math.ilogb(x));
+}
+
+fn significandf_(x: f32) callconv(.c) f32 {
+    return math.scalbn(x, -math.ilogb(x));
+}
+
+fn rintf(x: f32) callconv(.c) f32 {
+    const toint: f32 = 1.0 / @as(f32, math.floatEps(f32));
+    const a: u32 = @bitCast(x);
+    const e = a >> 23 & 0xff;
+    const s = a >> 31;
+    var y: f32 = undefined;
+
+    if (e >= 0x7f + 23) {
+        return x;
+    }
+    if (s == 1) {
+        y = x - toint + toint;
+    } else {
+        y = x + toint - toint;
+    }
+    if (y == 0) {
+        return if (s == 1) @as(f32, -0.0) else 0;
+    }
+    return y;
+}
+
+fn rintl(x: c_longdouble) callconv(.c) c_longdouble {
+    const toint: c_longdouble = 1.0 / @as(c_longdouble, math.floatEps(c_longdouble));
+
+    // NaN or already-integer (includes Inf since Inf >= toint)
+    if (x != x or @abs(x) >= toint) return x;
+
+    // Use copysign to detect negative zero
+    const is_neg = math.copysign(@as(c_longdouble, 1.0), x) < 0;
+    const y = if (is_neg) x - toint + toint else x + toint - toint;
+    if (y == 0) return if (is_neg) @as(c_longdouble, -0.0) else @as(c_longdouble, 0);
+    return y;
+}
+
+fn acosh_(x: f64) callconv(.c) f64 {
+    return math.acosh(x);
+}
+
+fn acoshl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => math.acosh(@as(f64, @bitCast(x))),
+        else => @floatCast(math.acosh(@as(f64, @floatCast(x)))),
+    };
+}
+
+fn asinhf_(x: f32) callconv(.c) f32 {
+    return math.asinh(x);
+}
+
+fn log1p_wide(comptime T: type, x: T) T {
+    if (x == 0) return x;
+    const one: T = 1.0;
+    const u = one + x;
+    if (u == one) return x;
+
+    // For large |x|, delegate to log_pure which does its own range reduction.
+    // Thresholds chosen so that log_pure's callback into log1p_wide always
+    // has |x| in [-0.293, 0.414], preventing infinite recursion.
+    if (x > 0.5 or x < -0.3) return log_pure(T, u);
+
+    // log(1+x) = 2*atanh(s) where s = x/(x+2)
+    const s = x / (x + 2.0);
+    const s2 = s * s;
+
+    // Horner evaluation: atanh(s)/s = 1 + s²/3 + s⁴/5 + ...
+    // For |x| <= 0.5: |s| <= 0.2, s² <= 0.04, 30 terms → error < 2^(-130).
+    const num_terms = 30;
+    var w: T = one / @as(T, @floatFromInt(2 * num_terms + 1));
+    comptime var i: u32 = num_terms;
+    inline while (i > 0) : (i -= 1) {
+        w = w * s2 + one / @as(T, @floatFromInt(2 * i - 1));
+    }
+    return 2 * s * w;
+}
+
+fn log_pure(comptime T: type, x: T) T {
+    const fr = math.frexp(x);
+    var sig = fr.significand;
+    var exp_val = fr.exponent;
+    // Adjust so significand ∈ [√2/2, √2) for tighter log1p_wide input range
+    const sqrt2_over_2: T = 0.70710678118654752440084436210484903928;
+    if (sig < sqrt2_over_2) {
+        sig *= 2.0;
+        exp_val -= 1;
+    }
+    const ln2: T = 0.6931471805599453094172321214581765680755001343602552541206800094;
+    const k: T = @floatFromInt(exp_val);
+    return k * ln2 + log1p_wide(T, sig - 1.0);
+}
+
+fn taylor_expm1(comptime T: type, x: T) T {
+    var term: T = x;
+    var sum: T = x;
+    var n: u32 = 2;
+    while (n < 50) : (n += 1) {
+        term *= x / @as(T, @floatFromInt(n));
+        const old = sum;
+        sum += term;
+        if (sum == old) break;
+    }
+    return sum;
+}
+
+fn expm1_wide(comptime T: type, x: T) T {
+    if (x == 0) return x;
+    if (math.isNan(x)) return x;
+    if (!math.isFinite(x)) {
+        if (x > 0) return math.inf(T);
+        return -1.0;
+    }
+
+    if (@abs(x) < 0.5) return taylor_expm1(T, x);
+
+    // Range reduction: x = k*ln2 + r, |r| <= ln2/2
+    const ln2: T = 0.6931471805599453094172321214581765680755001343602552541206800094;
+    const inv_ln2: T = 1.4426950408889634073599246810018921374266459541529859341354494069;
+    const k_f: T = @round(x * inv_ln2);
+    const r = x - k_f * ln2;
+
+    if (k_f > 0x1p30 or k_f < -0x1p30) {
+        if (x > 0) return math.inf(T);
+        return -1.0;
+    }
+    const k: i32 = @intFromFloat(k_f);
+
+    const sum = taylor_expm1(T, r);
+    if (k == 0) return sum;
+    // expm1(x) = 2^k * (1 + expm1(r)) - 1 = 2^k * expm1(r) + (2^k - 1)
+    const two_k = math.scalbn(@as(T, 1.0), k);
+    return two_k * sum + (two_k - 1);
+}
+
+fn exp_pure(comptime T: type, x: T) T {
+    return 1.0 + expm1_wide(T, x);
+}
+
+fn asinh_(x_: f64) callconv(.c) f64 {
+    @setFloatMode(.strict);
+    const u: u64 = @bitCast(x_);
+    const e = (u >> 52) & 0x7FF;
+    const s = u >> 63;
+    const x: f128 = @floatCast(@as(f64, @bitCast(u & (std.math.maxInt(u64) >> 1))));
+
+    if (e >= 0x3FF + 26) {
+        // |x| >= 0x1p26 or inf or nan
+        const r: f64 = @floatCast(log_pure(f128, x) + @as(f128, 0.693147180559945309417232121458176568));
+        return if (s != 0) -r else r;
+    } else if (e >= 0x3FF + 1) {
+        // |x| >= 2
+        const r: f64 = @floatCast(log_pure(f128, 2 * x + 1 / (@sqrt(x * x + 1) + x)));
+        return if (s != 0) -r else r;
+    } else if (e >= 0x3FF - 26) {
+        // |x| >= 0x1p-26: compute in f128 to avoid log1p precision loss
+        const y = x + x * x / (@sqrt(x * x + 1) + 1);
+        const r: f64 = @floatCast(log1p_wide(f128, y));
+        return if (s != 0) -r else r;
+    } else {
+        // |x| < 0x1p-26, raise inexact if x != 0
+        std.mem.doNotOptimizeAway(x + @as(f128, 0x1p120));
+        return x_;
+    }
+}
+
+fn asinhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => @bitCast(asinh_(@bitCast(x))),
+        else => asinhl_impl(c_longdouble, x),
+    };
+}
+
+fn asinhl_impl(comptime T: type, x_: T) T {
+    @setFloatMode(.strict);
+    const ax = @abs(x_);
+
+    if (ax >= 0x1p32) {
+        const r = log_pure(T, ax) + @as(T, 0.693147180559945309417232121458176568);
+        return if (math.signbit(x_)) -r else r;
+    } else if (ax >= 2.0) {
+        const r = log_pure(T, 2 * ax + 1 / (@sqrt(ax * ax + 1) + ax));
+        return if (math.signbit(x_)) -r else r;
+    } else if (ax >= 0x1p-32) {
+        const y = ax + ax * ax / (@sqrt(ax * ax + 1) + 1);
+        const r = log1p_wide(T, y);
+        return if (math.signbit(x_)) -r else r;
+    } else {
+        // |x| < 0x1p-32, raise inexact if x != 0
+        std.mem.doNotOptimizeAway(ax + @as(T, 0x1p120));
+        return x_;
+    }
+}
+
+fn atanh_(x: f64) callconv(.c) f64 {
+    return math.atanh(x);
+}
+
+fn atanhf_(x: f32) callconv(.c) f32 {
+    return math.atanh(x);
+}
+
+fn atanhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => math.atanh(@as(f64, @bitCast(x))),
+        else => @floatCast(math.atanh(@as(f64, @floatCast(x)))),
+    };
+}
+
+fn coshl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => math.cosh(@as(f64, @bitCast(x))),
+        else => @floatCast(math.cosh(@as(f64, @floatCast(x)))),
+    };
+}
+
+fn sinh_(x_: f64) callconv(.c) f64 {
+    @setFloatMode(.strict);
+    const u: u64 = @bitCast(x_);
+    const absu = u & (std.math.maxInt(u64) >> 1);
+    const w: u32 = @intCast(absu >> 32);
+    const absx: f128 = @abs(@as(f128, @floatCast(x_)));
+    var h: f128 = 0.5;
+    if (u >> 63 != 0) h = -h;
+
+    // |x| < log(DBL_MAX)
+    if (w < 0x40862e42) {
+        const t: f128 = expm1_wide(f128, absx);
+        if (w < 0x3ff00000) {
+            if (w < 0x3ff00000 - (26 << 20))
+                return x_;
+            return @floatCast(h * (2 * t - t * t / (t + 1)));
+        }
+        return @floatCast(h * (t + t / (t + 1)));
+    }
+
+    // |x| > log(DBL_MAX) or nan: f128 exp won't overflow here
+    const t: f128 = exp_pure(f128, absx);
+    return @floatCast(h * t);
+}
+
+fn sinhl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => @bitCast(sinh_(@bitCast(x))),
+        else => sinhl_impl(c_longdouble, x),
+    };
+}
+
+fn sinhl_impl(comptime T: type, x_: T) T {
+    @setFloatMode(.strict);
+    const absx = @abs(x_);
+    var h: T = 0.5;
+    if (math.signbit(x_)) h = -h;
+
+    // |x| < log(FLT_MAX) for extended/f128 (≈ 11356.52)
+    if (absx < @as(T, 0x1.62e42fefa39efp+13)) {
+        const t = expm1_wide(T, absx);
+        if (absx < 1.0) {
+            if (absx < 0x1p-32)
+                return x_;
+            return h * (2 * t - t * t / (t + 1));
+        }
+        return h * (t + t / (t + 1));
+    }
+
+    // |x| > log(FLT_MAX) or nan
+    const t = exp_pure(T, @as(T, 0.5) * absx);
+    return h * t * t;
+}
+
 fn tanhl_(x: c_longdouble) callconv(.c) c_longdouble {
     return switch (@typeInfo(c_longdouble).float.bits) {
         64 => math.tanh(@as(f64, @bitCast(x))),
@@ -2663,82 +1861,354 @@ fn tanhl_(x: c_longdouble) callconv(.c) c_longdouble {
     };
 }
 
-test "hyperbolic" {
-    try expectApproxEqRel(@as(f64, 0.0), acosh_(1.0), 1e-15);
-    try expectApproxEqRel(@as(f64, 1.31695789692481670862), acosh_(2.0), 1e-15);
-    try expectApproxEqAbs(@as(f32, 0.0), asinhf_(0.0), 1e-6);
-    try expectApproxEqRel(@as(f32, 0.88137358), asinhf_(1.0), 1e-6);
-    try expectApproxEqAbs(@as(f64, 0.0), asinh_(0.0), 1e-15);
-    try expectApproxEqRel(@as(f64, 0.88137358701954302519), asinh_(1.0), 1e-15);
-    try expectApproxEqAbs(@as(f64, 0.0), atanh_(0.0), 1e-15);
-    try expectApproxEqRel(@as(f64, 0.54930614433405484570), atanh_(0.5), 1e-15);
-    try expectApproxEqAbs(@as(f64, 0.0), sinh_(0.0), 1e-15);
-    try expectApproxEqRel(@as(f64, 1.17520119364380145688), sinh_(1.0), 1e-15);
+fn remainder_(x: f64, y: f64) callconv(.c) f64 {
+    var q: c_int = undefined;
+    return remquo_(x, y, &q);
 }
-// Error function implementations - ported from musl erf.c, erff.c
 
-// Constants for f64 erf/erfc implementation
-const erf_erx: f64 = 8.45062911510467529297e-01; // 0x3FEB0AC1, 0x60000000
-const erf_efx8: f64 = 1.02703333676410069053e+00; // 0x3FF06EBA, 0x8214DB69
-const erf_pp0: f64 = 1.28379167095512558561e-01; // 0x3FC06EBA, 0x8214DB68
-const erf_pp1: f64 = -3.25042107247001499370e-01; // 0xBFD4CD7D, 0x691CB913
-const erf_pp2: f64 = -2.84817495755985104766e-02; // 0xBF9D2A51, 0xDBD7194F
-const erf_pp3: f64 = -5.77027029648944159157e-03; // 0xBF77A291, 0x236668E4
-const erf_pp4: f64 = -2.37630166566501626084e-05; // 0xBEF8EAD6, 0x120016AC
-const erf_qq1: f64 = 3.97917223959155352819e-01; // 0x3FD97779, 0xCDDADC09
-const erf_qq2: f64 = 6.50222499887672944485e-02; // 0x3FB0A54C, 0x5536CEBA
-const erf_qq3: f64 = 5.08130628187576562776e-03; // 0x3F74D022, 0xC4D36B0F
-const erf_qq4: f64 = 1.32494738004321644526e-04; // 0x3F215DC9, 0x221C1A10
-const erf_qq5: f64 = -3.96022827877536812320e-06; // 0xBED09C43, 0x42A26120
+fn remainderf_(x: f32, y: f32) callconv(.c) f32 {
+    var q: c_int = undefined;
+    return remquof_(x, y, &q);
+}
 
-// Coefficients for approximation to erf in [0.84375,1.25]
-const erf_pa0: f64 = -2.36211856075265944077e-03;
-const erf_pa1: f64 = 4.14856118683748331666e-01;
-const erf_pa2: f64 = -3.72207876035701323847e-01;
-const erf_pa3: f64 = 3.18346619901161753674e-01;
-const erf_pa4: f64 = -1.10894694282396677476e-01;
-const erf_pa5: f64 = 3.54783043256182359371e-02;
-const erf_pa6: f64 = -2.16637559486879084300e-03;
-const erf_qa1: f64 = 1.06420880400844228286e-01;
-const erf_qa2: f64 = 5.40397917702171048937e-01;
-const erf_qa3: f64 = 7.18286544141962662868e-02;
-const erf_qa4: f64 = 1.26171219808761642112e-01;
-const erf_qa5: f64 = 1.36370839120290507362e-02;
-const erf_qa6: f64 = 1.19844998467991074170e-02;
+fn remainderl_(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    var q: c_int = undefined;
+    return remquol_(x, y, &q);
+}
 
-// Coefficients for approximation to erfc in [1.25,1/0.35]
-const erf_ra0: f64 = -9.86494403484714822705e-03;
-const erf_ra1: f64 = -6.93858572707181764372e-01;
-const erf_ra2: f64 = -1.05586262253232909814e+01;
-const erf_ra3: f64 = -6.23753324503260060396e+01;
-const erf_ra4: f64 = -1.62396669462573470355e+02;
-const erf_ra5: f64 = -1.84605092906711035994e+02;
-const erf_ra6: f64 = -8.12874355063065934246e+01;
-const erf_ra7: f64 = -9.81432934416914548592e+00;
-const erf_sa1: f64 = 1.96512716674392571292e+01;
-const erf_sa2: f64 = 1.37657754143519042600e+02;
-const erf_sa3: f64 = 4.34565877475229228821e+02;
-const erf_sa4: f64 = 6.45387271733267880336e+02;
-const erf_sa5: f64 = 4.29008140027567833386e+02;
-const erf_sa6: f64 = 1.08635005541779435134e+02;
-const erf_sa7: f64 = 6.57024977031928170135e+00;
-const erf_sa8: f64 = -6.04244152148580987438e-02;
+fn remquof_(x_: f32, y_: f32, quo: *c_int) callconv(.c) f32 {
+    var x: f32 = x_;
+    var y: f32 = y_;
+    var uxi: u32 = @bitCast(x);
+    var uyi: u32 = @bitCast(y);
+    var ex: i32 = @intCast(uxi >> 23 & 0xff);
+    var ey: i32 = @intCast(uyi >> 23 & 0xff);
+    const sx: u32 = uxi >> 31;
+    const sy: u32 = uyi >> 31;
+    var q: u32 = undefined;
 
-// Coefficients for approximation to erfc in [1/.35,28]
-const erf_rb0: f64 = -9.86494292470009928597e-03;
-const erf_rb1: f64 = -7.99283237680523006574e-01;
-const erf_rb2: f64 = -1.77579549177547519889e+01;
-const erf_rb3: f64 = -1.60636384855821916062e+02;
-const erf_rb4: f64 = -6.37566443368389627722e+02;
-const erf_rb5: f64 = -1.02509513161107724954e+03;
-const erf_rb6: f64 = -4.83519191608651397019e+02;
-const erf_sb1: f64 = 3.03380607434824582924e+01;
-const erf_sb2: f64 = 3.25792512996573918826e+02;
-const erf_sb3: f64 = 1.53672958608443695994e+03;
-const erf_sb4: f64 = 3.19985821950859553908e+03;
-const erf_sb5: f64 = 2.55305040643316442583e+03;
-const erf_sb6: f64 = 4.74528541206955367215e+02;
-const erf_sb7: f64 = -2.24409524465858183362e+01;
+    quo.* = 0;
+    if (uyi << 1 == 0 or math.isNan(y) or ex == 0xff)
+        return (x * y) / (x * y);
+    if (uxi << 1 == 0)
+        return x;
+
+    // normalize x and y
+    if (ex == 0) {
+        var i = uxi << 9;
+        while (i >> 31 == 0) : (i <<= 1) {
+            ex -= 1;
+        }
+        uxi <<= @intCast(@as(u32, @bitCast(-ex + 1)));
+    } else {
+        uxi &= 0x007fffff;
+        uxi |= 0x00800000;
+    }
+    if (ey == 0) {
+        var i = uyi << 9;
+        while (i >> 31 == 0) : (i <<= 1) {
+            ey -= 1;
+        }
+        uyi <<= @intCast(@as(u32, @bitCast(-ey + 1)));
+    } else {
+        uyi &= 0x007fffff;
+        uyi |= 0x00800000;
+    }
+
+    q = 0;
+    if (ex >= ey) {
+        // x mod y
+        while (ex > ey) : (ex -= 1) {
+            const i = uxi -% uyi;
+            if (i >> 31 == 0) {
+                uxi = i;
+                q +%= 1;
+            }
+            uxi <<= 1;
+            q = q *% 2;
+        }
+        {
+            const i = uxi -% uyi;
+            if (i >> 31 == 0) {
+                uxi = i;
+                q +%= 1;
+            }
+        }
+        if (uxi == 0) {
+            ex = -30;
+        } else {
+            while (uxi >> 23 == 0) {
+                uxi <<= 1;
+                ex -= 1;
+            }
+        }
+    } else if (ex + 1 != ey) {
+        return x;
+    }
+
+    // scale result and decide between |x| and |x|-|y|
+    if (ex > 0) {
+        uxi -= 1 << 23;
+        uxi |= @as(u32, @intCast(ex)) << 23;
+    } else {
+        uxi >>= @intCast(@as(u32, @bitCast(-ex + 1)));
+    }
+    x = @bitCast(uxi);
+    if (sy != 0) y = -y;
+    if (ex == ey or (ex + 1 == ey and (2.0 * x > y or (2.0 * x == y and q % 2 != 0)))) {
+        x -= y;
+        q +%= 1;
+    }
+    q &= 0x7fffffff;
+    const qi: c_int = @intCast(q);
+    quo.* = if (sx ^ sy != 0) -qi else qi;
+    return if (sx != 0) -x else x;
+}
+
+fn remquo_(x_: f64, y_: f64, quo: *c_int) callconv(.c) f64 {
+    var x: f64 = x_;
+    var y: f64 = y_;
+    var uxi: u64 = @bitCast(x);
+    var uyi: u64 = @bitCast(y);
+    var ex: i32 = @intCast(uxi >> 52 & 0x7ff);
+    var ey: i32 = @intCast(uyi >> 52 & 0x7ff);
+    const sx: u64 = uxi >> 63;
+    const sy: u64 = uyi >> 63;
+    var q: u32 = undefined;
+
+    quo.* = 0;
+    if (uyi << 1 == 0 or math.isNan(y) or ex == 0x7ff)
+        return (x * y) / (x * y);
+    if (uxi << 1 == 0)
+        return x;
+
+    // normalize x and y
+    if (ex == 0) {
+        var i = uxi << 12;
+        while (i >> 63 == 0) : (i <<= 1) {
+            ex -= 1;
+        }
+        uxi <<= @intCast(@as(u32, @bitCast(-ex + 1)));
+    } else {
+        uxi &= 0x000fffffffffffff;
+        uxi |= 0x0010000000000000;
+    }
+    if (ey == 0) {
+        var i = uyi << 12;
+        while (i >> 63 == 0) : (i <<= 1) {
+            ey -= 1;
+        }
+        uyi <<= @intCast(@as(u32, @bitCast(-ey + 1)));
+    } else {
+        uyi &= 0x000fffffffffffff;
+        uyi |= 0x0010000000000000;
+    }
+
+    q = 0;
+    if (ex >= ey) {
+        // x mod y
+        while (ex > ey) : (ex -= 1) {
+            const i = uxi -% uyi;
+            if (i >> 63 == 0) {
+                uxi = i;
+                q +%= 1;
+            }
+            uxi <<= 1;
+            q = q *% 2;
+        }
+        {
+            const i = uxi -% uyi;
+            if (i >> 63 == 0) {
+                uxi = i;
+                q +%= 1;
+            }
+        }
+        if (uxi == 0) {
+            ex = -60;
+        } else {
+            while (uxi >> 52 == 0) {
+                uxi <<= 1;
+                ex -= 1;
+            }
+        }
+    } else if (ex + 1 != ey) {
+        return x;
+    }
+
+    // scale result and decide between |x| and |x|-|y|
+    if (ex > 0) {
+        uxi -= @as(u64, 1) << 52;
+        uxi |= @as(u64, @intCast(ex)) << 52;
+    } else {
+        uxi >>= @intCast(@as(u32, @bitCast(-ex + 1)));
+    }
+    x = @bitCast(uxi);
+    if (sy != 0) y = -y;
+    if (ex == ey or (ex + 1 == ey and (2.0 * x > y or (2.0 * x == y and q % 2 != 0)))) {
+        x -= y;
+        q +%= 1;
+    }
+    q &= 0x7fffffff;
+    const qi: c_int = @intCast(q);
+    quo.* = if (sx ^ sy != 0) -qi else qi;
+    return if (sx != 0) -x else x;
+}
+
+fn remquol_(x_: c_longdouble, y_: c_longdouble, quo: *c_int) callconv(.c) c_longdouble {
+    const ld = @typeInfo(c_longdouble).float;
+    if (ld.bits == 64) {
+        return @floatCast(remquo_(@as(f64, @floatCast(x_)), @as(f64, @floatCast(y_)), quo));
+    }
+    if (ld.bits == 80) {
+        return remquox(f80, x_, y_, quo);
+    }
+    if (ld.bits == 128) {
+        return remquox(f128, x_, y_, quo);
+    }
+    unreachable;
+}
+
+fn remquox(comptime F: type, x_: c_longdouble, y_: c_longdouble, quo: *c_int) c_longdouble {
+    const bits = @typeInfo(F).float.bits;
+    const Bits = std.meta.Int(.unsigned, bits);
+    const se_shift: comptime_int = bits - 16;
+    const se_mask: Bits = @as(Bits, 0xFFFF) << se_shift;
+
+    var x: F = @floatCast(x_);
+    var y: F = @floatCast(y_);
+    var ux: Bits = @bitCast(x);
+    var uy: Bits = @bitCast(y);
+    var ux_se: u16 = @truncate(ux >> se_shift);
+    const uy_se: u16 = @truncate(uy >> se_shift);
+    var ex: i32 = @intCast(ux_se & 0x7fff);
+    var ey: i32 = @intCast(uy_se & 0x7fff);
+    const sx: u16 = ux_se >> 15;
+    const sy: u16 = uy_se >> 15;
+    var q: u32 = 0;
+
+    quo.* = 0;
+    if (y == 0 or math.isNan(y) or ex == 0x7fff)
+        return @floatCast((x * y) / (x * y));
+    if (x == 0)
+        return @floatCast(x);
+
+    // normalize x
+    if (ex == 0) {
+        ux = ux & ~se_mask;
+        x = @bitCast(ux);
+        x *= 0x1p120;
+        ux = @bitCast(x);
+        ux_se = @truncate(ux >> se_shift);
+        ex = @as(i32, @intCast(ux_se & 0x7fff)) - 120;
+    }
+    // normalize y
+    if (ey == 0) {
+        uy = uy & ~se_mask;
+        y = @bitCast(uy);
+        y *= 0x1p120;
+        uy = @bitCast(y);
+        ey = @as(i32, @intCast(@as(u16, @truncate(uy >> se_shift)) & 0x7fff)) - 120;
+    }
+
+    q = 0;
+    if (ex >= ey) {
+        if (bits == 80) {
+            // f80: 64-bit mantissa in bits[63:0]
+            var mx: u64 = @truncate(ux);
+            const my: u64 = @truncate(uy);
+            while (ex > ey) : (ex -= 1) {
+                if (mx >= my) {
+                    mx = (mx - my) *% 2;
+                    q +%= 1;
+                    q = q *% 2;
+                } else if (mx *% 2 < mx) {
+                    mx = mx *% 2 -% my;
+                    q = q *% 2;
+                    q +%= 1;
+                } else {
+                    mx = mx * 2;
+                    q = q *% 2;
+                }
+            }
+            if (mx >= my) {
+                mx = mx - my;
+                q +%= 1;
+            }
+            if (mx == 0) {
+                ex = -120;
+            } else {
+                while (mx >> 63 == 0) {
+                    mx *%= 2;
+                    ex -= 1;
+                }
+            }
+            ux = (ux & se_mask) | @as(Bits, mx);
+        } else {
+            // f128: mantissa split into hi (48 bits) and lo (64 bits)
+            var xhi: u64 = (@as(u64, @truncate(ux >> 64)) & (std.math.maxInt(u64) >> 16)) | (@as(u64, 1) << 48);
+            const yhi: u64 = (@as(u64, @truncate(uy >> 64)) & (std.math.maxInt(u64) >> 16)) | (@as(u64, 1) << 48);
+            var xlo: u64 = @truncate(ux);
+            const ylo: u64 = @truncate(uy);
+            while (ex > ey) : (ex -= 1) {
+                var hi = xhi -% yhi;
+                const lo = xlo -% ylo;
+                if (xlo < ylo)
+                    hi -%= 1;
+                if (hi >> 63 == 0) {
+                    xhi = hi *% 2 +% (lo >> 63);
+                    xlo = lo *% 2;
+                    q +%= 1;
+                } else {
+                    xhi = xhi *% 2 +% (xlo >> 63);
+                    xlo = xlo *% 2;
+                }
+                q = q *% 2;
+            }
+            {
+                var hi = xhi -% yhi;
+                const lo = xlo -% ylo;
+                if (xlo < ylo)
+                    hi -%= 1;
+                if (hi >> 63 == 0) {
+                    xhi = hi;
+                    xlo = lo;
+                    q +%= 1;
+                }
+            }
+            if ((xhi | xlo) == 0) {
+                ex = -120;
+            } else {
+                while (xhi >> 48 == 0) {
+                    xhi = xhi *% 2 +% (xlo >> 63);
+                    xlo = xlo *% 2;
+                    ex -= 1;
+                }
+            }
+            ux = (@as(Bits, xhi) << 64) | @as(Bits, xlo);
+        }
+    }
+
+    // scale result and decide between |x| and |x|-|y|
+    if (ex <= 0) {
+        ux_se = @intCast(@as(u32, @bitCast(ex + 120)));
+        ux = (ux & ~se_mask) | (@as(Bits, ux_se) << se_shift);
+        x = @bitCast(ux);
+        x *= 0x1p-120;
+    } else {
+        ux_se = @intCast(@as(u32, @bitCast(ex)));
+        ux = (ux & ~se_mask) | (@as(Bits, ux_se) << se_shift);
+        x = @bitCast(ux);
+    }
+    if (sy != 0) y = -y;
+    if (ex == ey or (ex + 1 == ey and (2.0 * x > y or (2.0 * x == y and q % 2 != 0)))) {
+        x -= y;
+        q +%= 1;
+    }
+    q &= 0x7fffffff;
+    const qi: c_int = @intCast(q);
+    quo.* = if (sx ^ sy != 0) -qi else qi;
+    return @floatCast(if (sx != 0) -x else x);
+}
 
 fn erf_erfc1(x: f64) f64 {
     const s = @abs(x) - 1;
@@ -2839,69 +2309,6 @@ fn erfc_(x: f64) callconv(.c) f64 {
     return if (sign != 0) 2 - 0x1p-1022 else 0x1p-1022 * 0x1p-1022;
 }
 
-// f32 erf/erfc constants and implementation
-const erff_erx: f32 = 8.4506291151e-01;
-const erff_efx8: f32 = 1.0270333290e+00;
-const erff_pp0: f32 = 1.2837916613e-01;
-const erff_pp1: f32 = -3.2504209876e-01;
-const erff_pp2: f32 = -2.8481749818e-02;
-const erff_pp3: f32 = -5.7702702470e-03;
-const erff_pp4: f32 = -2.3763017452e-05;
-const erff_qq1: f32 = 3.9791721106e-01;
-const erff_qq2: f32 = 6.5022252500e-02;
-const erff_qq3: f32 = 5.0813062117e-03;
-const erff_qq4: f32 = 1.3249473704e-04;
-const erff_qq5: f32 = -3.9602282413e-06;
-
-// Coefficients for approximation to erf in [0.84375,1.25]
-const erff_pa0: f32 = -2.3621185683e-03;
-const erff_pa1: f32 = 4.1485610604e-01;
-const erff_pa2: f32 = -3.7220788002e-01;
-const erff_pa3: f32 = 3.1834661961e-01;
-const erff_pa4: f32 = -1.1089469492e-01;
-const erff_pa5: f32 = 3.5478305072e-02;
-const erff_pa6: f32 = -2.1663755178e-03;
-const erff_qa1: f32 = 1.0642088205e-01;
-const erff_qa2: f32 = 5.4039794207e-01;
-const erff_qa3: f32 = 7.1828655899e-02;
-const erff_qa4: f32 = 1.2617121637e-01;
-const erff_qa5: f32 = 1.3637083583e-02;
-const erff_qa6: f32 = 1.1984500103e-02;
-
-// Coefficients for approximation to erfc in [1.25,1/0.35]
-const erff_ra0: f32 = -9.8649440333e-03;
-const erff_ra1: f32 = -6.9385856390e-01;
-const erff_ra2: f32 = -1.0558626175e+01;
-const erff_ra3: f32 = -6.2375331879e+01;
-const erff_ra4: f32 = -1.6239666748e+02;
-const erff_ra5: f32 = -1.8460508728e+02;
-const erff_ra6: f32 = -8.1287437439e+01;
-const erff_ra7: f32 = -9.8143291473e+00;
-const erff_sa1: f32 = 1.9651271820e+01;
-const erff_sa2: f32 = 1.3765776062e+02;
-const erff_sa3: f32 = 4.3456588745e+02;
-const erff_sa4: f32 = 6.4538726807e+02;
-const erff_sa5: f32 = 4.2900814819e+02;
-const erff_sa6: f32 = 1.0863500214e+02;
-const erff_sa7: f32 = 6.5702495575e+00;
-const erff_sa8: f32 = -6.0424413532e-02;
-
-// Coefficients for approximation to erfc in [1/.35,28]
-const erff_rb0: f32 = -9.8649431020e-03;
-const erff_rb1: f32 = -7.9928326607e-01;
-const erff_rb2: f32 = -1.7757955551e+01;
-const erff_rb3: f32 = -1.6063638306e+02;
-const erff_rb4: f32 = -6.3756646729e+02;
-const erff_rb5: f32 = -1.0250950928e+03;
-const erff_rb6: f32 = -4.8351919556e+02;
-const erff_sb1: f32 = 3.0338060379e+01;
-const erff_sb2: f32 = 3.2579251099e+02;
-const erff_sb3: f32 = 1.5367296143e+03;
-const erff_sb4: f32 = 3.1998581543e+03;
-const erff_sb5: f32 = 2.5530502930e+03;
-const erff_sb6: f32 = 4.7452853394e+02;
-const erff_sb7: f32 = -2.2440952301e+01;
-
 fn erff_erfc1(x: f32) f32 {
     const s = @abs(x) - 1;
     const P = erff_pa0 + s * (erff_pa1 + s * (erff_pa2 + s * (erff_pa3 + s * (erff_pa4 + s * (erff_pa5 + s * erff_pa6)))));
@@ -2999,6 +2406,117 @@ fn erfcf_(x: f32) callconv(.c) f32 {
     return if (sign != 0) 2 - 0x1p-120 else 0x1p-120 * 0x1p-120;
 }
 
+fn atan2(y: f64, x: f64) callconv(.c) f64 {
+    return math.atan2(y, x);
+}
+
+fn atan2f(y: f32, x: f32) callconv(.c) f32 {
+    return math.atan2(y, x);
+}
+
+fn fma(x: f64, y: f64, z: f64) callconv(.c) f64 {
+    return @mulAdd(f64, x, y, z);
+}
+
+fn __fpclassify(x: f64) callconv(.c) c_int {
+    const u: u64 = @bitCast(x);
+    const e: u32 = @truncate((u >> 52) & 0x7ff);
+    if (e == 0) return if ((u << 1) != 0) 3 else 2;
+    if (e == 0x7ff) return if ((u << 12) != 0) 0 else 1;
+    return 4;
+}
+
+fn __fpclassifyf(x: f32) callconv(.c) c_int {
+    const u: u32 = @bitCast(x);
+    const e: u32 = (u >> 23) & 0xff;
+    if (e == 0) return if ((u << 1) != 0) 3 else 2;
+    if (e == 0xff) return if ((u << 9) != 0) 0 else 1;
+    return 4;
+}
+
+fn __fpclassifyl(x: c_longdouble) callconv(.c) c_int {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        16 => __fpclassifyf(@floatCast(x)),
+        32 => __fpclassifyf(@floatCast(x)),
+        64 => __fpclassify(@floatCast(x)),
+        80 => blk: {
+            const ux: u80 = @bitCast(x);
+            const e: u32 = @truncate((ux >> 64) & 0x7fff);
+            if (e == 0) break :blk if ((ux << 1) != 0) @as(c_int, 3) else @as(c_int, 2);
+            const msb: u1 = @truncate(ux >> 63);
+            if (e == 0x7fff) {
+                if (msb == 0) break :blk @as(c_int, 0);
+                break :blk if ((ux & ((@as(u80, 1) << 63) - 1)) != 0) @as(c_int, 0) else @as(c_int, 1);
+            }
+            break :blk if (msb != 0) @as(c_int, 4) else @as(c_int, 0);
+        },
+        128 => blk: {
+            const ux: u128 = @bitCast(x);
+            const e: u32 = @truncate((ux >> 112) & 0x7fff);
+            if (e == 0) break :blk if ((ux << 1) != 0) @as(c_int, 3) else @as(c_int, 2);
+            if (e == 0x7fff) break :blk if ((ux << 17) != 0) @as(c_int, 0) else @as(c_int, 1);
+            break :blk @as(c_int, 4);
+        },
+        else => unreachable,
+    };
+}
+
+fn __signbit(x: f64) callconv(.c) c_int {
+    const u: u64 = @bitCast(x);
+    return @intCast(u >> 63);
+}
+
+fn __signbitf(x: f32) callconv(.c) c_int {
+    const u: u32 = @bitCast(x);
+    return @intCast(u >> 31);
+}
+
+fn __signbitl(x: c_longdouble) callconv(.c) c_int {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        16, 32 => __signbitf(@floatCast(x)),
+        64 => __signbit(@floatCast(x)),
+        80 => blk: {
+            const ux: u80 = @bitCast(x);
+            break :blk @intCast(ux >> 79);
+        },
+        128 => blk: {
+            const ux: u128 = @bitCast(x);
+            break :blk @intCast(ux >> 127);
+        },
+        else => unreachable,
+    };
+}
+
+fn nextafter(x: f64, y: f64) callconv(.c) f64 {
+    var ux: u64 = @bitCast(x);
+    const uy: u64 = @bitCast(y);
+
+    if (math.isNan(x) or math.isNan(y)) return x + y;
+    if (ux == uy) return y;
+
+    const ax = ux & (math.maxInt(u64) >> 1);
+    const ay = uy & (math.maxInt(u64) >> 1);
+    if (ax == 0) {
+        if (ay == 0) return y;
+        ux = (uy & (@as(u64, 1) << 63)) | 1;
+    } else if (ax > ay or ((ux ^ uy) & (@as(u64, 1) << 63)) != 0) {
+        ux -= 1;
+    } else {
+        ux += 1;
+    }
+    const e: u32 = @truncate((ux >> 52) & 0x7ff);
+    // raise overflow if ux is infinite and x is finite
+    if (e == 0x7ff) {
+        mem.doNotOptimizeAway(x + x);
+    }
+    // raise underflow if ux is subnormal or zero
+    if (e == 0) {
+        const val: f64 = @bitCast(ux);
+        mem.doNotOptimizeAway(val * val);
+    }
+    return @bitCast(ux);
+}
+
 fn nexttoward(x: f64, y: c_longdouble) callconv(.c) f64 {
     var ux: u64 = @bitCast(x);
 
@@ -3040,4 +2558,33 @@ fn scalb(x: f64, fn_: f64) callconv(.c) f64 {
     if (-fn_ > 65000.0) return math.scalbn(x, -65000);
     const n: i32 = @intFromFloat(fn_);
     return math.scalbn(x, n);
+}
+
+fn intFromFloat(comptime I: type, x: anytype) I {
+    const F = @TypeOf(x);
+    if (math.isNan(x) or !math.isFinite(x)) return math.minInt(I);
+    const upper: F = @floatFromInt(@as(comptime_int, math.maxInt(I)) + 1);
+    const lower: F = @floatFromInt(math.minInt(I));
+    if (x >= upper or x < lower) return math.minInt(I);
+    return @intFromFloat(x);
+}
+
+fn llrint(x: f64) callconv(.c) c_longlong {
+    return intFromFloat(c_longlong, rint(x));
+}
+
+fn lrint(x: f64) callconv(.c) c_long {
+    return intFromFloat(c_long, rint(x));
+}
+
+fn nearbyint(x: f64) callconv(.c) f64 {
+    return rint(x);
+}
+
+fn powl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return math.pow(c_longdouble, x, y);
+}
+
+fn sinh(x: f64) callconv(.c) f64 {
+    return math.sinh(x);
 }

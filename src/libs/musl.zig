@@ -959,7 +959,6 @@ const src_files = [_][]const u8{
     "musl/src/math/x86_64/rintl.c",
     "musl/src/misc/getauxval.c",
     "musl/src/misc/getdomainname.c",
-    "musl/src/misc/ioctl.c",
     "musl/src/misc/issetugid.c",
     "musl/src/misc/nftw.c",
     "musl/src/misc/syscall.c",

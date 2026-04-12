@@ -96,6 +96,7 @@ comptime {
     _ = @import("c/legacy.zig");
     _ = @import("c/passwd.zig");
     _ = @import("c/multibyte.zig");
+    _ = @import("c/regex.zig");
     _ = @import("c/search.zig");
     _ = @import("c/stat.zig");
     _ = @import("c/stdlib.zig");

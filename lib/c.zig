@@ -99,6 +99,7 @@ comptime {
     _ = @import("c/sys/utsname.zig");
 
     _ = @import("c/signal.zig");
+    _ = @import("c/time.zig");
     _ = @import("c/unistd.zig");
     _ = @import("c/wchar.zig");
 }

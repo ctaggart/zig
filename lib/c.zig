@@ -82,6 +82,7 @@ comptime {
     _ = @import("c/ctype.zig");
     _ = @import("c/errno.zig");
     _ = @import("c/exit.zig");
+    _ = @import("c/dirent.zig");
     _ = @import("c/fcntl.zig");
     _ = @import("c/fenv.zig");
     _ = @import("c/inttypes.zig");

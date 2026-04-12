@@ -127,7 +127,7 @@ fn l64a(x0: c_long) callconv(.c) [*:0]u8 {
 }
 
 fn basenameImpl(s: ?[*:0]u8) callconv(.c) [*:0]u8 {
-    const dot: *const [2:0]u8 = ".";
+    const dot: *const [1:0]u8 = ".";
 
     const str = s orelse return @constCast(@ptrCast(dot));
     if (str[0] == 0) return @constCast(@ptrCast(dot));
@@ -149,8 +149,8 @@ fn basenameImpl(s: ?[*:0]u8) callconv(.c) [*:0]u8 {
 }
 
 fn dirnameImpl(s: ?[*:0]u8) callconv(.c) [*:0]u8 {
-    const dot: *const [2:0]u8 = ".";
-    const slash: *const [2:0]u8 = "/";
+    const dot: *const [1:0]u8 = ".";
+    const slash: *const [1:0]u8 = "/";
 
     const str = s orelse return @constCast(@ptrCast(dot));
     if (str[0] == 0) return @constCast(@ptrCast(dot));

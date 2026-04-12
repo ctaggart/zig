@@ -1471,14 +1471,11 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_cond_timedwait.c",
     "musl/src/thread/pthread_cond_wait.c",
     "musl/src/thread/pthread_create.c",
-    "musl/src/thread/pthread_detach.c",
-    //"musl/src/thread/pthread_equal.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_getattr_np.c",
     //"musl/src/thread/pthread_getconcurrency.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_getcpuclockid.c",
     "musl/src/thread/pthread_getname_np.c",
     "musl/src/thread/pthread_getschedparam.c",
-    "musl/src/thread/pthread_getspecific.c",
     "musl/src/thread/pthread_join.c",
     "musl/src/thread/pthread_key_create.c",
     "musl/src/thread/pthread_kill.c",
@@ -1510,22 +1507,11 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_rwlock_trywrlock.c",
     "musl/src/thread/pthread_rwlock_unlock.c",
     "musl/src/thread/pthread_rwlock_wrlock.c",
-    "musl/src/thread/pthread_self.c",
     "musl/src/thread/pthread_setattr_default_np.c",
-    "musl/src/thread/pthread_setcancelstate.c",
-    "musl/src/thread/pthread_setcanceltype.c",
-    //"musl/src/thread/pthread_setconcurrency.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_setname_np.c",
     "musl/src/thread/pthread_setschedparam.c",
     "musl/src/thread/pthread_setschedprio.c",
-    "musl/src/thread/pthread_setspecific.c",
     "musl/src/thread/pthread_sigmask.c",
-    //"musl/src/thread/pthread_spin_destroy.c", // migrated to lib/c/thread.zig
-    //"musl/src/thread/pthread_spin_init.c", // migrated to lib/c/thread.zig
-    //"musl/src/thread/pthread_spin_lock.c", // migrated to lib/c/thread.zig
-    //"musl/src/thread/pthread_spin_trylock.c", // migrated to lib/c/thread.zig
-    //"musl/src/thread/pthread_spin_unlock.c", // migrated to lib/c/thread.zig
-    "musl/src/thread/pthread_testcancel.c",
     "musl/src/thread/riscv32/clone.s",
     "musl/src/thread/riscv32/__set_thread_area.s",
     "musl/src/thread/riscv32/syscall_cp.s",
@@ -1543,11 +1529,7 @@ const src_files = [_][]const u8{
     //"musl/src/thread/sem_getvalue.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/sem_init.c", // migrated to lib/c/thread.zig
     "musl/src/thread/sem_open.c",
-    "musl/src/thread/sem_post.c",
     "musl/src/thread/sem_timedwait.c",
-    "musl/src/thread/sem_trywait.c",
-    "musl/src/thread/sem_unlink.c",
-    "musl/src/thread/sem_wait.c",
     "musl/src/thread/__set_thread_area.c",
     "musl/src/thread/synccall.c",
     "musl/src/thread/__syscall_cp.c",

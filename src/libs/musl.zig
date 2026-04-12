@@ -446,9 +446,6 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
 }
 
 const src_files = [_][]const u8{
-    "musl/src/aio/aio.c",
-    "musl/src/aio/aio_suspend.c",
-    "musl/src/aio/lio_listio.c",
     "musl/src/env/__init_tls.c",
     "musl/src/fenv/aarch64/fenv.s",
     "musl/src/fenv/arm/fenv.c",
@@ -850,7 +847,6 @@ const src_files = [_][]const u8{
 const compat_time32_files = [_][]const u8{
     "musl/compat/time32/adjtime32.c",
     "musl/compat/time32/adjtimex_time32.c",
-    "musl/compat/time32/aio_suspend_time32.c",
     "musl/compat/time32/clock_adjtime32.c",
     "musl/compat/time32/clock_getres_time32.c",
     "musl/compat/time32/clock_gettime32.c",

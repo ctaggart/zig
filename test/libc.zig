@@ -200,6 +200,8 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("math/fdim.c", true, .{});
     // cases.addLibcTestCase("math/fdimf.c", true, .{});
     // cases.addLibcTestCase("math/fdiml.c", true, .{});
+    cases.addLibcTestCase("math/fdimf.c", true, .{});
+    cases.addLibcTestCase("math/fdiml.c", true, .{});
     cases.addLibcTestCase("math/fenv.c", true, .{});
     cases.addLibcTestCase("math/floor.c", true, .{});
     cases.addLibcTestCase("math/floorf.c", true, .{});

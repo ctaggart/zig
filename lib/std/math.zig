@@ -176,24 +176,63 @@ test approxEqRel {
     }
 }
 
+/// Raise INVALID fpu exception.
+/// No-op on targets without floating-point exception support (e.g. wasm).
 pub fn raiseInvalid() void {
-    // Raise INVALID fpu exception
+    if (comptime !hasFenv()) return;
+    @setFloatMode(.strict);
+    var zero: f32 = 0;
+    _ = &zero;
+    mem.doNotOptimizeAway(zero / zero);
 }
 
+/// Raise UNDERFLOW fpu exception.
+/// No-op on targets without floating-point exception support (e.g. wasm).
 pub fn raiseUnderflow() void {
-    // Raise UNDERFLOW fpu exception
+    if (comptime !hasFenv()) return;
+    @setFloatMode(.strict);
+    var x: f32 = floatTrueMin(f32);
+    _ = &x;
+    mem.doNotOptimizeAway(x * x);
 }
 
+/// Raise OVERFLOW fpu exception.
+/// No-op on targets without floating-point exception support (e.g. wasm).
 pub fn raiseOverflow() void {
-    // Raise OVERFLOW fpu exception
+    if (comptime !hasFenv()) return;
+    @setFloatMode(.strict);
+    var x: f32 = floatMax(f32);
+    _ = &x;
+    mem.doNotOptimizeAway(x + x);
 }
 
+/// Raise INEXACT fpu exception.
+/// No-op on targets without floating-point exception support (e.g. wasm).
 pub fn raiseInexact() void {
-    // Raise INEXACT fpu exception
+    if (comptime !hasFenv()) return;
+    @setFloatMode(.strict);
+    var x: f32 = floatTrueMin(f32);
+    _ = &x;
+    mem.doNotOptimizeAway(@as(f32, 1.0) + x);
 }
 
+/// Raise DIVBYZERO fpu exception.
+/// No-op on targets without floating-point exception support (e.g. wasm).
 pub fn raiseDivByZero() void {
-    // Raise INEXACT fpu exception
+    if (comptime !hasFenv()) return;
+    @setFloatMode(.strict);
+    var zero: f32 = 0;
+    _ = &zero;
+    mem.doNotOptimizeAway(@as(f32, 1.0) / zero);
+}
+
+/// Whether the target supports floating-point exception flags (fenv).
+/// WebAssembly defines all FP operations as non-trapping with no exception flags.
+fn hasFenv() bool {
+    return switch (builtin.target.cpu.arch) {
+        .wasm32, .wasm64 => false,
+        else => true,
+    };
 }
 
 pub const isNan = @import("math/isnan.zig").isNan;

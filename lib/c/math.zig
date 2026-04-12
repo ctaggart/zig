@@ -6,14 +6,7 @@ const expectEqual = std.testing.expectEqual;
 const expectApproxEqAbs = std.testing.expectApproxEqAbs;
 const expectApproxEqRel = std.testing.expectApproxEqRel;
 const symbol = @import("../c.zig").symbol;
-    // Very large numbers return unchanged
-    const large: f64 = 9007199254740992.0; // 2^53
-    try expectEqual(large, rint(large));
-    // Small positive numbers round to zero
-    const pos_result = rint(0.3);
-    // Small negative numbers round to negative zero
-    const neg_result = rint(-0.3);
-    const bits: u64 = @bitCast(neg_result);
+
 const powf_impl = struct {
     const POWF_LOG2_TABLE_BITS = 4;
     const POWF_LOG2_POLY_ORDER = 5;

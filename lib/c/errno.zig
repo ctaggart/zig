@@ -9,10 +9,6 @@ comptime {
         symbol(&__errno_location, "__errno_location");
         symbol(&strerror, "strerror");
     }
-}
-
-/// Thread-local errno storage. Replaces musl's __pthread_self()->errno_val.
-    }
     if (builtin.link_libc) {
         symbol(&__strerror_l, "__strerror_l");
     }

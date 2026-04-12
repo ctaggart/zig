@@ -1057,7 +1057,6 @@ const src_files = [_][]const u8{
     "musl/src/mman/mremap.c",
     "musl/src/mman/msync.c",
     "musl/src/mman/munmap.c",
-    "musl/src/mman/shm_open.c",
     "musl/src/mq/mq_close.c",
     "musl/src/mq/mq_getattr.c",
     "musl/src/mq/mq_notify.c",

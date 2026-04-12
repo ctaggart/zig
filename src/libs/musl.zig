@@ -1166,7 +1166,6 @@ const src_files = [_][]const u8{
     "musl/src/process/execl.c",
     "musl/src/process/execle.c",
     "musl/src/process/execlp.c",
-    "musl/src/process/execvp.c",
     "musl/src/process/fexecve.c",
     "musl/src/process/fork.c",
     "musl/src/process/_Fork.c",

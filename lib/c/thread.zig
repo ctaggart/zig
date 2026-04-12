@@ -46,6 +46,33 @@ comptime {
         symbol(&pthread_rwlockattr_setpshared, "pthread_rwlockattr_setpshared");
         symbol(&pthread_barrierattr_setpshared, "pthread_barrierattr_setpshared");
         symbol(&pthread_attr_setscope, "pthread_attr_setscope");
+
+        // Attribute getters (all from pthread_attr_get.c)
+        symbol(&pthread_attr_getdetachstate, "pthread_attr_getdetachstate");
+        symbol(&pthread_attr_getguardsize, "pthread_attr_getguardsize");
+        symbol(&pthread_attr_getinheritsched, "pthread_attr_getinheritsched");
+        symbol(&pthread_attr_getschedparam, "pthread_attr_getschedparam");
+        symbol(&pthread_attr_getschedpolicy, "pthread_attr_getschedpolicy");
+        symbol(&pthread_attr_getscope, "pthread_attr_getscope");
+        symbol(&pthread_attr_getstack, "pthread_attr_getstack");
+        symbol(&pthread_attr_getstacksize, "pthread_attr_getstacksize");
+        symbol(&pthread_barrierattr_getpshared, "pthread_barrierattr_getpshared");
+        symbol(&pthread_condattr_getclock, "pthread_condattr_getclock");
+        symbol(&pthread_condattr_getpshared, "pthread_condattr_getpshared");
+        symbol(&pthread_mutexattr_getprotocol, "pthread_mutexattr_getprotocol");
+        symbol(&pthread_mutexattr_getpshared, "pthread_mutexattr_getpshared");
+        symbol(&pthread_mutexattr_getrobust, "pthread_mutexattr_getrobust");
+        symbol(&pthread_mutexattr_gettype, "pthread_mutexattr_gettype");
+        symbol(&pthread_rwlockattr_getpshared, "pthread_rwlockattr_getpshared");
+
+        // pthread_attr_t setters
+        symbol(&pthread_attr_setdetachstate, "pthread_attr_setdetachstate");
+        symbol(&pthread_attr_setguardsize, "pthread_attr_setguardsize");
+        symbol(&pthread_attr_setinheritsched, "pthread_attr_setinheritsched");
+        symbol(&pthread_attr_setschedparam, "pthread_attr_setschedparam");
+        symbol(&pthread_attr_setschedpolicy, "pthread_attr_setschedpolicy");
+        symbol(&pthread_attr_setstack, "pthread_attr_setstack");
+        symbol(&pthread_attr_setstacksize, "pthread_attr_setstacksize");
     }
 }
 
@@ -233,3 +260,160 @@ fn pthread_attr_setscope(a: ?*anyopaque, scope: c_int) callconv(.c) c_int {
         else => eint(.INVAL),
     };
 }
+
+// --- pthread_attr_t layout ---
+// Matches musl's union-based layout: three size_t fields followed by int fields.
+// See musl/src/internal/pthread_impl.h for the _a_* accessor macros.
+
+const pthread_attr_t = extern struct {
+    _a_stacksize: usize = 0,
+    _a_guardsize: usize = 0,
+    _a_stackaddr: usize = 0,
+    _a_detach: c_int = 0,
+    _a_sched: c_int = 0,
+    _a_policy: c_int = 0,
+    _a_prio: c_int = 0,
+    _padding: [attr_padding]u8 = [_]u8{0} ** attr_padding,
+
+    const attr_total = if (@sizeOf(c_ulong) == 8) @as(usize, 56) else 36;
+    const attr_padding = attr_total - 3 * @sizeOf(usize) - 4 * @sizeOf(c_int);
+};
+
+/// Only the first field is accessed; remaining musl sched_param fields are padding.
+const sched_param = extern struct {
+    sched_priority: c_int,
+};
+
+const PTHREAD_STACK_MIN: usize = 2048;
+
+// --- Attribute getters (all from pthread_attr_get.c) ---
+
+fn pthread_attr_getdetachstate(a: *const pthread_attr_t, state: *c_int) callconv(.c) c_int {
+    state.* = a._a_detach;
+    return 0;
+}
+
+fn pthread_attr_getguardsize(a: *const pthread_attr_t, size: *usize) callconv(.c) c_int {
+    size.* = a._a_guardsize;
+    return 0;
+}
+
+fn pthread_attr_getinheritsched(a: *const pthread_attr_t, inherit: *c_int) callconv(.c) c_int {
+    inherit.* = a._a_sched;
+    return 0;
+}
+
+fn pthread_attr_getschedparam(a: *const pthread_attr_t, param: *sched_param) callconv(.c) c_int {
+    param.sched_priority = a._a_prio;
+    return 0;
+}
+
+fn pthread_attr_getschedpolicy(a: *const pthread_attr_t, policy: *c_int) callconv(.c) c_int {
+    policy.* = a._a_policy;
+    return 0;
+}
+
+fn pthread_attr_getscope(a: *const pthread_attr_t, scope: *c_int) callconv(.c) c_int {
+    _ = a;
+    scope.* = 0; // PTHREAD_SCOPE_SYSTEM
+    return 0;
+}
+
+fn pthread_attr_getstack(a: *const pthread_attr_t, addr: *usize, size: *usize) callconv(.c) c_int {
+    if (a._a_stackaddr == 0) return eint(.INVAL);
+    size.* = a._a_stacksize;
+    addr.* = a._a_stackaddr -% size.*;
+    return 0;
+}
+
+fn pthread_attr_getstacksize(a: *const pthread_attr_t, size: *usize) callconv(.c) c_int {
+    size.* = a._a_stacksize;
+    return 0;
+}
+
+fn pthread_barrierattr_getpshared(a: *const pthread_barrierattr_t, pshared: *c_int) callconv(.c) c_int {
+    pshared.* = @intCast(@intFromBool(a.__attr != 0));
+    return 0;
+}
+
+fn pthread_condattr_getclock(a: *const pthread_condattr_t, clk: *c_int) callconv(.c) c_int {
+    clk.* = @bitCast(a.__attr & 0x7fffffff);
+    return 0;
+}
+
+fn pthread_condattr_getpshared(a: *const pthread_condattr_t, pshared: *c_int) callconv(.c) c_int {
+    pshared.* = @bitCast(a.__attr >> 31);
+    return 0;
+}
+
+fn pthread_mutexattr_getprotocol(a: *const pthread_mutexattr_t, protocol: *c_int) callconv(.c) c_int {
+    protocol.* = @bitCast(a.__attr / 8 % 2);
+    return 0;
+}
+
+fn pthread_mutexattr_getpshared(a: *const pthread_mutexattr_t, pshared: *c_int) callconv(.c) c_int {
+    pshared.* = @bitCast(a.__attr / 128 % 2);
+    return 0;
+}
+
+fn pthread_mutexattr_getrobust(a: *const pthread_mutexattr_t, robust: *c_int) callconv(.c) c_int {
+    robust.* = @bitCast(a.__attr / 4 % 2);
+    return 0;
+}
+
+fn pthread_mutexattr_gettype(a: *const pthread_mutexattr_t, @"type": *c_int) callconv(.c) c_int {
+    @"type".* = @bitCast(a.__attr & 3);
+    return 0;
+}
+
+fn pthread_rwlockattr_getpshared(a: *const pthread_rwlockattr_t, pshared: *c_int) callconv(.c) c_int {
+    pshared.* = @bitCast(a.__attr[0]);
+    return 0;
+}
+
+// --- pthread_attr_t setters ---
+
+fn pthread_attr_setdetachstate(a: *pthread_attr_t, state: c_int) callconv(.c) c_int {
+    const s: c_uint = @bitCast(state);
+    if (s > 1) return eint(.INVAL);
+    a._a_detach = state;
+    return 0;
+}
+
+fn pthread_attr_setguardsize(a: *pthread_attr_t, size: usize) callconv(.c) c_int {
+    if (size > std.math.maxInt(usize) / 8) return eint(.INVAL);
+    a._a_guardsize = size;
+    return 0;
+}
+
+fn pthread_attr_setinheritsched(a: *pthread_attr_t, inherit: c_int) callconv(.c) c_int {
+    const i: c_uint = @bitCast(inherit);
+    if (i > 1) return eint(.INVAL);
+    a._a_sched = inherit;
+    return 0;
+}
+
+fn pthread_attr_setschedparam(a: *pthread_attr_t, param: *const sched_param) callconv(.c) c_int {
+    a._a_prio = param.sched_priority;
+    return 0;
+}
+
+fn pthread_attr_setschedpolicy(a: *pthread_attr_t, policy: c_int) callconv(.c) c_int {
+    a._a_policy = policy;
+    return 0;
+}
+
+fn pthread_attr_setstack(a: *pthread_attr_t, addr: usize, size: usize) callconv(.c) c_int {
+    if (size -% PTHREAD_STACK_MIN > std.math.maxInt(usize) / 4) return eint(.INVAL);
+    a._a_stackaddr = addr +% size;
+    a._a_stacksize = size;
+    return 0;
+}
+
+fn pthread_attr_setstacksize(a: *pthread_attr_t, size: usize) callconv(.c) c_int {
+    if (size -% PTHREAD_STACK_MIN > std.math.maxInt(usize) / 4) return eint(.INVAL);
+    a._a_stackaddr = 0;
+    a._a_stacksize = size;
+    return 0;
+}
+

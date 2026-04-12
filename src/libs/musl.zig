@@ -1442,16 +1442,16 @@ const src_files = [_][]const u8{
     "musl/src/thread/powerpc/__unmapself.s",
     "musl/src/thread/pthread_atfork.c",
     //"musl/src/thread/pthread_attr_destroy.c", // migrated to lib/c/thread.zig
-    "musl/src/thread/pthread_attr_get.c",
+    //"musl/src/thread/pthread_attr_get.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_attr_init.c",
-    "musl/src/thread/pthread_attr_setdetachstate.c",
-    "musl/src/thread/pthread_attr_setguardsize.c",
-    "musl/src/thread/pthread_attr_setinheritsched.c",
-    "musl/src/thread/pthread_attr_setschedparam.c",
-    "musl/src/thread/pthread_attr_setschedpolicy.c",
+    //"musl/src/thread/pthread_attr_setdetachstate.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_attr_setguardsize.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_attr_setinheritsched.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_attr_setschedparam.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_attr_setschedpolicy.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_attr_setscope.c", // migrated to lib/c/thread.zig
-    "musl/src/thread/pthread_attr_setstack.c",
-    "musl/src/thread/pthread_attr_setstacksize.c",
+    //"musl/src/thread/pthread_attr_setstack.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_attr_setstacksize.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_barrierattr_destroy.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_barrierattr_init.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_barrierattr_setpshared.c", // migrated to lib/c/thread.zig

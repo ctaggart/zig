@@ -111,6 +111,7 @@ comptime {
         symbol(&finite_, "finite");
         symbol(&finitef_, "finitef");
         symbol(&fma, "fma");
+        symbol(&fmal, "fmal");
         symbol(&hypot, "hypot");
         symbol(&lrint, "lrint");
         symbol(&lrintf, "lrintf");
@@ -167,6 +168,7 @@ comptime {
         symbol(&nexttowardf, "nexttowardf");
         symbol(&nexttowardl, "nexttowardl");
         symbol(&pow, "pow");
+        symbol(&powl, "powl");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
 
@@ -230,6 +232,8 @@ comptime {
         symbol(&remquo_, "remquo");
         symbol(&remquof_, "remquof");
         symbol(&remquol_, "remquol");
+        symbol(&sinh, "sinh");
+        symbol(&sinhf, "sinhf");
         symbol(&tanh, "tanh");
         symbol(&tanl, "tanl");
         symbol(&rintl, "rintl");
@@ -859,6 +863,8 @@ test "logb" {
     try expectEqual(@as(f32, 3.0), logbf_(10.0));
 fn fma(x: f64, y: f64, z: f64) callconv(.c) f64 {
     return @mulAdd(f64, x, y, z);
+fn fmal(x: c_longdouble, y: c_longdouble, z: c_longdouble) callconv(.c) c_longdouble {
+    return @mulAdd(c_longdouble, x, y, z);
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
@@ -1265,6 +1271,10 @@ const powf_impl = struct {
         return exp2Inline(ylogx, sign_bias);
     }
 };
+
+fn powl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
+    return math.pow(c_longdouble, x, y);
+}
 
 fn pow10(x: f64) callconv(.c) f64 {
     return exp10(x);
@@ -1921,8 +1931,7 @@ fn rintl(x: c_longdouble) callconv(.c) c_longdouble {
 
 // ==================================================================// lgamma — logarithm of the absolute value of the Gamma function
 // Ported from musl libc (origin: FreeBSD /usr/src/lib/msun/src/e_lgamma_r.c)
-// ==================================================================
-// lgamma_r f64 polynomial coefficients
+// ===========================================================// lgamma_r f64 polynomial coefficients
 const lg_pi: f64 = 3.14159265358979311600e+00; // 0x400921FB, 0x54442D18
 const lg_a0: f64 = 7.72156649015328655494e-02; // 0x3FB3C467, 0xE37DB0C8
 const lg_a1: f64 = 3.22467033424113591611e-01; // 0x3FD4A34C, 0xC4A60FAD
@@ -2126,8 +2135,7 @@ fn lgamma_(x: f64) callconv(.c) f64 {
 
 // ==================================================================// lgammaf — float version
 // Ported from musl libc (origin: FreeBSD /usr/src/lib/msun/src/e_lgammaf_r.c)
-// ==================================================================
-// lgammaf_r f32 polynomial coefficients
+// ===========================================================// lgammaf_r f32 polynomial coefficients
 const lgf_pi: f32 = 3.1415927410e+00; // 0x40490fdb
 const lgf_a0: f32 = 7.7215664089e-02; // 0x3d9e233f
 const lgf_a1: f32 = 3.2246702909e-01; // 0x3ea51a66
@@ -2328,6 +2336,14 @@ fn lgammaf_r(x_: f32, signgamp: *c_int) callconv(.c) f32 {
 
 fn lgammaf_(x: f32) callconv(.c) f32 {
     return lgammaf_r(x, &__signgam);
+}
+
+fn sinh(x: f64) callconv(.c) f64 {
+    return math.sinh(x);
+}
+
+fn sinhf(x: f32) callconv(.c) f32 {
+    return math.sinh(x);
 }
 
 fn tanh(x: f64) callconv(.c) f64 {

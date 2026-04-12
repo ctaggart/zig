@@ -624,8 +624,6 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/libc-top-half/musl/src/internal/intscan.c",
     "wasi/libc-top-half/musl/src/internal/libc.c",
     "wasi/libc-top-half/musl/src/internal/shgetc.c",
-    "wasi/libc-top-half/musl/src/math/__expo2.c",
-    "wasi/libc-top-half/musl/src/math/powl.c",
     "wasi/libc-top-half/musl/src/regex/glob.c",
     "wasi/libc-top-half/musl/src/regex/regcomp.c",
     "wasi/libc-top-half/musl/src/regex/regexec.c",

@@ -601,8 +601,6 @@ const src_files = [_][]const u8{
     "musl/src/linux/wait4.c",
     "musl/src/linux/x32/sysinfo.c",
     "musl/src/linux/xattr.c",
-    "musl/src/math/erf.c",
-    "musl/src/math/erff.c",
     "musl/src/math/erfl.c",
     "musl/src/math/exp10l.c",
     "musl/src/math/expm1.c",

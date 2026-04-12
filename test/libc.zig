@@ -330,6 +330,9 @@ pub fn addCases(cases: *tests.LibcContext) void {
     cases.addLibcTestCase("math/tanhf.c", true, .{});
     cases.addLibcTestCase("math/tanhl.c", true, .{});
     cases.addLibcTestCase("math/tanl.c", true, .{});
+    // known musl accuracy issue: tgamma (f64) fails on x86_64; tgammaf and tgammal
+    // delegate to tgamma and fail on arm/thumb/powerpc where there is no x87 extended
+    // precision and c_longdouble == f64.
     // cases.addLibcTestCase("math/tgamma.c", true, .{});
     // cases.addLibcTestCase("math/tgammaf.c", true, .{});
     // cases.addLibcTestCase("math/tgammal.c", true, .{});

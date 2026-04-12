@@ -561,8 +561,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/atanhl.c",
     "musl/src/math/cbrtl.c",
     "musl/src/math/coshl.c",
-    "musl/src/math/erf.c",
-    "musl/src/math/erff.c",
     "musl/src/math/erfl.c",
     "musl/src/math/exp10l.c",
     "musl/src/math/expm1.c",

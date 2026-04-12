@@ -225,7 +225,6 @@ fn sigpauseLinux(sig: c_int) callconv(.c) c_int {
 }
 
 fn signalImpl(sig: c_int, func: ?*const fn (c_int) callconv(.c) void) callconv(.c) ?*const fn (c_int) callconv(.c) void {
-    const SIG_ERR: ?*const fn (c_int) callconv(.c) void = @ptrFromInt(std.math.maxInt(usize));
     var sa_old: c_sigaction = undefined;
     var sa: c_sigaction = .{
         .handler = func,

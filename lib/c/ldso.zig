@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const symbol = @import("../c.zig").symbol;
+extern fn __tls_get_addr(v: *const [2]usize) callconv(.c) ?*anyopaque;
 const RTLD_DI_LINKMAP = 2;
 const std = @import("std");
 const elf = std.elf;
@@ -64,13 +65,13 @@ fn __tlsdesc_static() callconv(.c) isize {
 }
 
 fn dlclose(p: ?*anyopaque) callconv(.c) c_int {
-    return __dl_invalid_handle(p);
+    return stub_invalid_handle(p);
 }
 
 fn dlinfo(dso: ?*anyopaque, req: c_int, res: ?*anyopaque) callconv(.c) c_int {
-    if (__dl_invalid_handle(dso) != 0) return -1;
+    if (stub_invalid_handle(dso) != 0) return -1;
     if (req != RTLD_DI_LINKMAP) {
-        __dl_seterr("Unsupported request %d", req);
+        dl_seterr_impl("Unsupported request %d", req);
         return -1;
     }
     const ptr: *?*anyopaque = @ptrCast(@alignCast(res));
@@ -81,7 +82,7 @@ fn dlinfo(dso: ?*anyopaque, req: c_int, res: ?*anyopaque) callconv(.c) c_int {
 fn dlopen(file: ?[*:0]const u8, mode: c_int) callconv(.c) ?*anyopaque {
     _ = file;
     _ = mode;
-    __dl_seterr("Dynamic loading not supported");
+    dl_seterr_impl("Dynamic loading not supported");
     return null;
 }
 
@@ -92,7 +93,7 @@ fn dlsym(p: ?*anyopaque, s: ?[*:0]const u8) callconv(.c) ?*anyopaque {
 fn __dlsym_stub(p: ?*anyopaque, s: ?[*:0]const u8, ra: ?*anyopaque) callconv(.c) ?*anyopaque {
     _ = p;
     _ = ra;
-    __dl_seterr("Symbol not found: %s", s);
+    dl_seterr_impl("Symbol not found: %s", s);
     return null;
 }
 

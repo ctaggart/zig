@@ -109,6 +109,33 @@ fn __reset_tls_fn() callconv(.c) void {
 fn dummy() callconv(.c) void {}
 
 extern const __init_array_start: *const fn () callconv(.c) void;
+extern const __init_array_end: *const fn () callconv(.c) void;
+
+// LibC runtime struct
+const tls_module = opaque {};
+const LibC = extern struct {
+    can_do_threads: u8,
+    threaded: u8,
+    secure: u8,
+    need_locks: i8,
+    threads_minus_1: c_int,
+    auxv: ?[*]usize,
+    tls_head: ?*tls_module,
+    tls_size: usize,
+    tls_align: usize,
+    tls_cnt: usize,
+    page_size: usize,
+};
+
+extern var __libc: LibC;
+extern var __hwcap: usize;
+extern var __sysinfo: usize;
+extern var __progname: ?[*:0]u8;
+extern var __progname_full: ?[*:0]u8;
+extern var __default_stacksize: c_uint;
+extern var __thread_list_lock: c_int;
+extern "c" fn __init_tls(aux: [*]usize) void;
+extern "c" fn __libc_start_init() void;
 
 comptime {
     if (builtin.target.isMuslLibC()) {

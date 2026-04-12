@@ -6,6 +6,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const wasi = std.os.wasi;
 const symbol = @import("../c.zig").symbol;
+extern "c" fn __wasilibc_rmdirat(fd: c_int, path: [*:0]const u8) c_int;
 const E = std.c.E;
 /// In WASI libc, clockid_t is `const struct __clockid *` (a pointer to a struct
 /// containing the raw WASI clock ID). This differs from Zig's std.c.clockid_t.
@@ -415,7 +416,6 @@ fn fcntlWasi(fd: c_int, cmd: c_int, ...) callconv(.c) c_int {
     const F_GETFL = 3;
     const F_SETFL = 4;
     const FD_CLOEXEC = 1;
-    const O_RDONLY = 0x04000000;
     const O_WRONLY = 0x10000000;
     const O_RDWR = 0x14000000;
     const O_SEARCH = 0x08000000;
@@ -468,7 +468,6 @@ fn fcntlWasi(fd: c_int, cmd: c_int, ...) callconv(.c) c_int {
 
 fn openatWasi(fd: c_int, path: [*]const u8, oflag: c_int) callconv(.c) c_int {
     const O_ACCMODE = 0x1c000000;
-    const O_RDONLY = 0x04000000;
     const O_WRONLY = 0x10000000;
     const O_RDWR = 0x14000000;
     const O_EXEC = 0x02000000;

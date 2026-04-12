@@ -1,6 +1,22 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const symbol = @import("../c.zig").symbol;
+
+const tls_module_t = opaque {};
+const LibC = extern struct {
+    can_do_threads: u8,
+    threaded: u8,
+    secure: u8,
+    need_locks: i8,
+    threads_minus_1: c_int,
+    auxv: ?[*]usize,
+    tls_head: ?*tls_module_t,
+    tls_size: usize,
+    tls_align: usize,
+    tls_cnt: usize,
+    page_size: usize,
+};
+extern var __libc: LibC;
 const E = std.os.linux.E;
 /// `typedef struct { unsigned __attr; } pthread_mutexattr_t;`
 const pthread_mutexattr_t = extern struct { __attr: c_uint = 0 };
@@ -1001,8 +1017,6 @@ fn sem_unlink_fn(name: [*:0]const u8) callconv(.c) c_int {
 }
 
 fn futex_wake(addr: *const c_int, cnt: c_int, priv: c_int) void {
-    const FUTEX_WAKE: usize = 1;
-    const FUTEX_PRIVATE: usize = 128;
     const p: usize = if (priv != 0) FUTEX_PRIVATE else 0;
     const max_int: c_int = std.math.maxInt(c_int);
     const c: usize = @intCast(if (cnt < 0) max_int else cnt);
@@ -1330,15 +1344,12 @@ fn pthread_sigmask_fn(how: c_int, set: ?*const anyopaque, old: ?*anyopaque) call
 }
 
 fn wake(addr: *anyopaque, cnt: c_int, priv_val: c_int) void {
-    const FUTEX_WAKE: usize = 1;
-    const FUTEX_PRIVATE: usize = 128;
     const p: usize = if (priv_val != 0) FUTEX_PRIVATE else 0;
     const n: usize = if (cnt < 0) @as(usize, @intCast(std.math.maxInt(c_int))) else @as(usize, @intCast(cnt));
     _ = linux.syscall3(.futex, @intFromPtr(addr), FUTEX_WAKE | p, n);
 }
 
 fn pthread_mutexattr_setprotocol_fn(a: *c_uint, protocol: c_int) callconv(.c) c_int {
-    const FUTEX_LOCK_PI: usize = 6;
     if (protocol == 0) { // PTHREAD_PRIO_NONE
         a.* &= ~@as(c_uint, 8);
         return 0;
@@ -2828,7 +2839,6 @@ fn tss_delete_fn(key: c_uint) callconv(.c) void {
 // Accesses self->tsd[k] - use struct pthread layout
 fn tss_set_fn(k: c_uint, x: ?*anyopaque) callconv(.c) c_int {
     const self_addr = selfAddr();
-    const off_tsd: usize = off_map_base + 7 * ptr_size;
     const tsd_pp: *[*]?*anyopaque = @ptrFromInt(self_addr + off_tsd);
     const tsd = tsd_pp.*;
     if (tsd[k] != x) {

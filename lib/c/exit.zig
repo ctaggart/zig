@@ -3,6 +3,11 @@ const std = @import("std");
 const linux = std.os.linux;
 const symbol = @import("../c.zig").symbol;
 extern "c" fn _Exit(code: c_int) noreturn;
+extern "c" fn __funcs_on_exit() void;
+extern "c" fn __stdio_exit() void;
+extern "c" fn _fini() void;
+extern const __fini_array_start: *const fn () callconv(.c) void;
+extern const __fini_array_end: *const fn () callconv(.c) void;
 // Internal musl lock functions (provided by the thread subsystem).
 extern "c" fn __lock(lock: *c_int) void;
 extern "c" fn __unlock(lock: *c_int) void;

@@ -510,13 +510,10 @@ const src_files = [_][]const u8{
     "musl/src/ldso/aarch64/tlsdesc.s",
     "musl/src/ldso/arm/dlsym.s",
     "musl/src/ldso/arm/dlsym_time64.S",
-    "musl/src/ldso/arm/find_exidx.c",
+    //"musl/src/ldso/arm/find_exidx.c", // migrated to lib/c/ldso.zig
     "musl/src/ldso/arm/tlsdesc.S",
     //"musl/src/ldso/dladdr.c", // migrated to lib/c/ldso.zig
     //"musl/src/ldso/dlclose.c", // migrated to lib/c/ldso.zig
-    "musl/src/ldso/dlerror.c",
-    //"musl/src/ldso/dlinfo.c", // migrated to lib/c/ldso.zig
-    "musl/src/ldso/dl_iterate_phdr.c",
     //"musl/src/ldso/dlopen.c", // migrated to lib/c/ldso.zig
     //"musl/src/ldso/__dlsym.c", // migrated to lib/c/ldso.zig
     //"musl/src/ldso/dlsym.c", // migrated to lib/c/ldso.zig

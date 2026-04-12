@@ -63,8 +63,6 @@ comptime {
     }
     if (builtin.link_libc) {
         symbol(&signalImpl, "signal");
-        symbol(&signalImpl, "bsd_signal");
-        symbol(&signalImpl, "__sysv_signal");
         symbol(&siginterruptImpl, "siginterrupt");
         symbol(&sigignoreImpl, "sigignore");
         symbol(&psiginfo, "psiginfo");

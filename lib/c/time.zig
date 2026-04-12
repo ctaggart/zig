@@ -43,8 +43,6 @@ extern "c" fn localtime(t: *const time_t) callconv(.c) ?*tm;
 extern "c" fn localtime_r(t: *const time_t, result: *tm) callconv(.c) ?*tm;
 // Internal helpers (remain as C or from other Zig PRs)
 extern "c" fn __secs_to_zone(t: c_longlong, local: c_int, isdst: *c_int, offset: *c_long, oppoff: ?*c_long, zonename: *?[*:0]const u8) callconv(.c) void;
-extern "c" fn __secs_to_tm(t: c_longlong, r: *tm) callconv(.c) c_int;
-extern "c" fn __tm_to_secs(t: *const tm) callconv(.c) c_longlong;
 var localtime_buf: tm = undefined;
 extern "c" fn getenv(name: [*:0]const u8) callconv(.c) ?[*:0]const u8;
 extern "c" fn fopen(path: [*:0]const u8, mode: [*:0]const u8) callconv(.c) ?*anyopaque;
@@ -69,18 +67,15 @@ comptime {
         symbol(&__tm_to_secs, "__tm_to_secs");
         symbol(&timegmImpl, "timegm");
         symbol(&__gmtime_r, "__gmtime_r");
-        symbol(&__gmtime_r, "gmtime_r");
         symbol(&gmtimeImpl, "gmtime");
         symbol(&__utc, "__utc");
         symbol(&__asctime_r, "__asctime_r");
-        symbol(&__asctime_r, "asctime_r");
         symbol(&asctimeImpl, "asctime");
     }
     if (builtin.link_libc) {
         symbol(&ctimeImpl, "ctime");
         symbol(&ctime_rImpl, "ctime_r");
         symbol(&__localtime_r, "__localtime_r");
-        symbol(&__localtime_r, "localtime_r");
         symbol(&localtimeImpl, "localtime");
         symbol(&mktimeImpl, "mktime");
         symbol(&getdate_err, "getdate_err");

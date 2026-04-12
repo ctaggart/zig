@@ -34,12 +34,6 @@ comptime {
         symbol(&strtoimax, "strtoimax");
         symbol(&strtoumax, "strtoumax");
 
-        symbol(&strtol, "__strtol_internal");
-        symbol(&strtoll, "__strtoll_internal");
-        symbol(&strtoul, "__strtoul_internal");
-        symbol(&strtoull, "__strtoull_internal");
-        symbol(&strtoimax, "__strtoimax_internal");
-        symbol(&strtoumax, "__strtoumax_internal");
 
         symbol(&qsort_r, "qsort_r");
         symbol(&qsort, "qsort");

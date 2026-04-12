@@ -204,7 +204,6 @@ comptime {
         symbol(&cnd_destroy, "cnd_destroy");
         symbol(&mtx_destroy, "mtx_destroy");
         symbol(&pthread_equal, "pthread_equal");
-        symbol(&pthread_equal, "thrd_equal");
         symbol(&pthread_mutexattr_init, "pthread_mutexattr_init");
         symbol(&pthread_condattr_init, "pthread_condattr_init");
         symbol(&pthread_rwlockattr_init, "pthread_rwlockattr_init");
@@ -254,15 +253,11 @@ comptime {
         symbol(&mtx_init, "mtx_init");
         symbol(&thrd_yield, "thrd_yield");
         symbol(&pthread_self_fn, "pthread_self");
-        symbol(&pthread_self_fn, "thrd_current");
         symbol(&pthread_getspecific_fn, "pthread_getspecific");
-        symbol(&pthread_getspecific_fn, "tss_get");
         symbol(&pthread_setspecific_fn, "pthread_setspecific");
         symbol(&pthread_setcancelstate_fn, "__pthread_setcancelstate");
-        symbol(&pthread_setcancelstate_fn, "pthread_setcancelstate");
         symbol(&pthread_setcanceltype_fn, "pthread_setcanceltype");
         symbol(&pthread_testcancel_fn, "__pthread_testcancel");
-        symbol(&pthread_testcancel_fn, "pthread_testcancel");
         symbol(&sem_trywait_fn, "sem_trywait");
         symbol(&sem_post_fn, "sem_post");
         symbol(&__clone_fn, "__clone");
@@ -283,7 +278,6 @@ comptime {
             symbol(&mtx_trylock, "mtx_trylock");
             symbol(&mtx_unlock, "mtx_unlock");
             symbol(&pthread_detach_fn, "pthread_detach");
-            symbol(&pthread_detach_fn, "thrd_detach");
             symbol(&sem_wait_fn, "sem_wait");
             symbol(&sem_unlink_fn, "sem_unlink");
             symbol(&do_cleanup_push_default, "__do_cleanup_push");
@@ -310,7 +304,6 @@ comptime {
             symbol(&acquire_ptc_fn, "__acquire_ptc");
             symbol(&release_ptc_fn, "__release_ptc");
             symbol(&__pthread_once_fn, "__pthread_once");
-            symbol(&__pthread_once_fn, "pthread_once");
             symbol(&__wait_fn, "__wait");
             symbol(&vm_wait_fn, "__vm_wait");
             symbol(&vm_lock_fn, "__vm_lock");
@@ -320,19 +313,12 @@ comptime {
             symbol(&rwlock_init_fn, "pthread_rwlock_init");
             symbol(&rwlock_destroy_fn, "pthread_rwlock_destroy");
             symbol(&rwlock_tryrdlock_fn, "__pthread_rwlock_tryrdlock");
-            symbol(&rwlock_tryrdlock_fn, "pthread_rwlock_tryrdlock");
             symbol(&rwlock_trywrlock_fn, "__pthread_rwlock_trywrlock");
-            symbol(&rwlock_trywrlock_fn, "pthread_rwlock_trywrlock");
             symbol(&rwlock_unlock_fn, "__pthread_rwlock_unlock");
-            symbol(&rwlock_unlock_fn, "pthread_rwlock_unlock");
             symbol(&rwlock_timedrdlock_fn, "__pthread_rwlock_timedrdlock");
-            symbol(&rwlock_timedrdlock_fn, "pthread_rwlock_timedrdlock");
             symbol(&rwlock_timedwrlock_fn, "__pthread_rwlock_timedwrlock");
-            symbol(&rwlock_timedwrlock_fn, "pthread_rwlock_timedwrlock");
             symbol(&rwlock_rdlock_fn, "__pthread_rwlock_rdlock");
-            symbol(&rwlock_rdlock_fn, "pthread_rwlock_rdlock");
             symbol(&rwlock_wrlock_fn, "__pthread_rwlock_wrlock");
-            symbol(&rwlock_wrlock_fn, "pthread_rwlock_wrlock");
             symbol(&barrier_init_fn, "pthread_barrier_init");
             symbol(&barrier_destroy_fn, "pthread_barrier_destroy");
             symbol(&barrier_wait_fn, "pthread_barrier_wait");
@@ -342,7 +328,6 @@ comptime {
             symbol(&cond_broadcast_fn, "pthread_cond_broadcast");
             symbol(&cond_wait_fn, "pthread_cond_wait");
             symbol(&mutex_lock_fn, "__pthread_mutex_lock");
-            symbol(&mutex_lock_fn, "pthread_mutex_lock");
             symbol(&mutex_consistent_fn, "pthread_mutex_consistent");
             symbol(&spin_init_fn, "pthread_spin_init");
             symbol(&spin_destroy_fn, "pthread_spin_destroy");
@@ -351,15 +336,11 @@ comptime {
             symbol(&spin_unlock_fn, "pthread_spin_unlock");
             symbol(&mutex_trylock_owner_fn, "__pthread_mutex_trylock_owner");
             symbol(&mutex_trylock_fn, "__pthread_mutex_trylock");
-            symbol(&mutex_trylock_fn, "pthread_mutex_trylock");
             symbol(&mutex_timedlock_fn, "__pthread_mutex_timedlock");
-            symbol(&mutex_timedlock_fn, "pthread_mutex_timedlock");
             symbol(&mutex_unlock_fn, "__pthread_mutex_unlock");
-            symbol(&mutex_unlock_fn, "pthread_mutex_unlock");
             symbol(&pthread_getconcurrency_fn, "pthread_getconcurrency");
             symbol(&pthread_setconcurrency_fn, "pthread_setconcurrency");
             symbol(&pthread_equal_fn, "pthread_equal");
-            symbol(&pthread_equal_fn, "thrd_equal");
             symbol(&thrd_yield_fn, "thrd_yield");
             symbol(&attr_destroy_fn, "pthread_attr_destroy");
             symbol(&attr_init_fn, "pthread_attr_init");
@@ -416,18 +397,6 @@ comptime {
             symbol(&getattr_default_np_fn, "pthread_getattr_default_np");
             symbol(&set_thread_area_fn, "__set_thread_area");
             symbol(&syscall_cp_fn, "__syscall_cp");
-            symbol(&sem_post_fn, "sem_post");
-            symbol(&sem_trywait_fn, "sem_trywait");
-            symbol(&pthread_self_fn, "pthread_self");
-            symbol(&pthread_self_fn, "thrd_current");
-            symbol(&pthread_getspecific_fn, "pthread_getspecific");
-            symbol(&pthread_getspecific_fn, "tss_get");
-            symbol(&pthread_setspecific_fn, "pthread_setspecific");
-            symbol(&pthread_setcancelstate_fn, "__pthread_setcancelstate");
-            symbol(&pthread_setcancelstate_fn, "pthread_setcancelstate");
-            symbol(&pthread_setcanceltype_fn, "pthread_setcanceltype");
-            symbol(&pthread_testcancel_fn, "__pthread_testcancel");
-            symbol(&pthread_testcancel_fn, "pthread_testcancel");
             symbol(&testcancel_fn, "__testcancel");
         }
     }

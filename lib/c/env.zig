@@ -41,7 +41,6 @@ const LibC = extern struct {
     page_size: usize,
 };
 extern "c" fn __init_tls(aux: [*]usize) void;
-extern "c" fn __init_ssp(entropy: ?*const anyopaque) void;
 extern "c" fn __set_thread_area(tp: *anyopaque) c_int;
 extern "c" fn memset(dst: *anyopaque, c: c_int, n: usize) *anyopaque;
 extern "c" fn _init() void;
@@ -120,12 +119,8 @@ comptime {
         symbol(&__stack_chk_guard, "__stack_chk_guard");
         symbol(&__init_ssp, "__init_ssp");
         symbol(&__stack_chk_fail, "__stack_chk_fail");
-        symbol(&__stack_chk_fail, "__stack_chk_fail_local");
         symbol(&__reset_tls_fn, "__reset_tls");
         symbol(&dummy, "_init");
-        symbol(&dummy, "__funcs_on_exit");
-        symbol(&dummy, "__stdio_exit");
-        symbol(&dummy, "_fini");
         symbol(&libc_start_init_fn, "__libc_start_init");
         symbol(&__init_libc_fn, "__init_libc");
         symbol(&__libc_start_main_fn, "__libc_start_main");

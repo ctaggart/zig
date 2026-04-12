@@ -7,19 +7,14 @@ const symbol = @import("../c.zig").symbol;
 comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&__errno_location, "__errno_location");
-        symbol(&__errno_location, "___errno_location");
         symbol(&strerror, "strerror");
-        symbol(&strerror, "__strerror_l");
-        symbol(&strerror, "strerror_l");
     }
 }
 
 /// Thread-local errno storage. Replaces musl's __pthread_self()->errno_val.
     }
     if (builtin.link_libc) {
-        symbol(&strerror, "strerror");
         symbol(&__strerror_l, "__strerror_l");
-        symbol(&__strerror_l, "strerror_l");
     }
 }
 
@@ -146,10 +141,6 @@ fn strerror(e: c_int, ...) callconv(.c) [*:0]const u8 {
     // strerror_l takes locale as second arg — we ignore it (no locale support)
     const idx: usize = if (e >= 0 and e < error_messages.len) @intCast(e) else 0;
     return error_messages[idx];
-fn strerror(e: c_int) callconv(.c) [*:0]const u8 {
-    const idx: usize = if (e >= 0 and e < MAX_ERRNO) @intCast(e) else 0;
-    return errmsg[idx];
-}
 
 fn __strerror_l(e: c_int, _: ?*anyopaque) callconv(.c) [*:0]const u8 {
     return strerror(e);

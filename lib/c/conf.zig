@@ -34,7 +34,6 @@ const values = [21]c_short{
     -1, // _PC_SYMLINK_MAX = 19
     1, // _PC_2_SYMLINKS = 20
 };
-extern "c" fn sysconf(name: c_int) c_long;
 const _SC_NPROCESSORS_CONF = 83;
 const _SC_NPROCESSORS_ONLN = 84;
 const _SC_PHYS_PAGES = 85;
@@ -67,8 +66,6 @@ comptime {
         symbol(&pathconf, "pathconf");
     }
     if (builtin.target.isWasiLibC()) {
-        symbol(&fpathconf, "fpathconf");
-        symbol(&pathconf, "pathconf");
     }
     if (builtin.link_libc) {
         symbol(&get_nprocs_conf, "get_nprocs_conf");

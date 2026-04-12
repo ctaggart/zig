@@ -801,11 +801,8 @@ fn tanhf(x: f32) callconv(.c) f32 {
 comptime {
     if (builtin.target.isMinGW()) {
         symbol(&isnan, "isnan");
-        symbol(&isnan, "__isnan");
         symbol(&isnanf, "isnanf");
-        symbol(&isnanf, "__isnanf");
         symbol(&isnanl, "isnanl");
-        symbol(&isnanl, "__isnanl");
         symbol(&math.floatTrueMin(f64), "__DENORM");
         symbol(&math.inf(f64), "__INF");
         symbol(&math.nan(f64), "__QNAN");
@@ -920,9 +917,7 @@ comptime {
         symbol(&sinhl_, "sinhl");
         symbol(&tanhl_, "tanhl");
         symbol(&remainder_, "remainder");
-        symbol(&remainder_, "drem");
         symbol(&remainderf_, "remainderf");
-        symbol(&remainderf_, "dremf");
         symbol(&remainderl_, "remainderl");
         symbol(&remquo_, "remquo");
         symbol(&remquof_, "remquof");
@@ -939,9 +934,7 @@ comptime {
         symbol(&lgamma_, "lgamma");
         symbol(&lgammaf_, "lgammaf");
         symbol(&lgamma_r, "__lgamma_r");
-        symbol(&lgamma_r, "lgamma_r");
         symbol(&lgammaf_r, "__lgammaf_r");
-        symbol(&lgammaf_r, "lgammaf_r");
         symbol(&powl, "powl");
     }
     if (builtin.target.isMuslLibC()) {
@@ -1190,13 +1183,7 @@ fn rint(x: f64) callconv(.c) f64 {
     return y;
 }
 
-fn tanh(x: f64) callconv(.c) f64 {
-    return math.tanh(x);
-}
 
-fn tanhf(x: f32) callconv(.c) f32 {
-    return math.tanh(x);
-}
 
 fn acosl(x: c_longdouble) callconv(.c) c_longdouble {
     return math.acos(x);

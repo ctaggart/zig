@@ -89,7 +89,6 @@ comptime {
         symbol(&readWasi, "read");
         symbol(&writeWasi, "write");
         symbol(&lseekWasi, "__lseek");
-        symbol(&lseekWasi, "lseek");
         symbol(&fdatasyncWasi, "fdatasync");
         symbol(&fsyncWasi, "fsync");
         symbol(&ftruncateWasi, "ftruncate");
@@ -121,9 +120,7 @@ comptime {
         symbol(&getsockoptWasi, "getsockopt");
         symbol(&clockGetresWasi, "clock_getres");
         symbol(&clockGettimeWasi, "__clock_gettime");
-        symbol(&clockGettimeWasi, "clock_gettime");
         symbol(&clockNanosleepWasi, "clock_nanosleep");
-        symbol(&clockNanosleepWasi, "__clock_nanosleep");
         symbol(&nanosleepWasi, "nanosleep");
         symbol(&timeWasi, "time");
         symbol(&gettimeofdayWasi, "gettimeofday");

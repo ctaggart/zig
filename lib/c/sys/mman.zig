@@ -9,7 +9,6 @@ const errno = @import("../../c.zig").errno;
 comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&madviseLinux, "madvise");
-        symbol(&madviseLinux, "__madvise");
 
         symbol(&mincoreLinux, "mincore");
 
@@ -17,11 +16,8 @@ comptime {
         symbol(&mlockallLinux, "mlockall");
 
         symbol(&mmapLinux, "mmap");
-        symbol(&mmapLinux, "__mmap");
-        symbol(&mmapLinux, "mmap64");
 
         symbol(&mprotectLinux, "mprotect");
-        symbol(&mprotectLinux, "__mprotect");
 
         symbol(&msyncLinux, "msync");
 
@@ -29,7 +25,6 @@ comptime {
         symbol(&munlockallLinux, "munlockall");
 
         symbol(&munmapLinux, "munmap");
-        symbol(&munmapLinux, "__munmap");
 
         symbol(&posix_madviseLinux, "posix_madvise");
 
@@ -148,7 +143,6 @@ fn shm_unlinkLinux(name: [*:0]const u8) callconv(.c) c_int {
 
     return errno(linux.unlink(path));
 }
-const linux = std.os.linux;
 
 const MAP_FAILED: ?*anyopaque = @ptrFromInt(std.math.maxInt(usize));
 
@@ -174,10 +168,4 @@ fn mmapLinux(addr: ?*anyopaque, len: usize, prot: c_int, flags: c_int, fd: c_int
     return @ptrFromInt(ret);
 }
 
-fn msyncLinux(addr: *anyopaque, len: usize, flags: c_int) callconv(.c) c_int {
-    return errno(linux.msync(@ptrCast(addr), len, flags));
-}
 
-fn munmapLinux(addr: *anyopaque, len: usize) callconv(.c) c_int {
-    return errno(linux.munmap(@ptrCast(addr), len));
-}

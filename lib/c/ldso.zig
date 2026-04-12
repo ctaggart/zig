@@ -29,7 +29,6 @@ comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&dladdr, "dladdr");
         symbol(&__tlsdesc_static, "__tlsdesc_static");
-        symbol(&__tlsdesc_static, "__tlsdesc_dynamic");
     }
     if (builtin.target.isMuslLibC()) {
         if (builtin.link_libc) {
@@ -49,7 +48,6 @@ comptime {
     if (builtin.target.isMuslLibC()) {
         if (builtin.link_libc) {
             if (@sizeOf(c_long) < 8) {
-                symbol(&__dlsym_stub, "__dlsym_redir_time64");
             }
         }
     }

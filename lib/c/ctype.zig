@@ -35,20 +35,6 @@ comptime {
         symbol(&__tolower_l, "__tolower_l");
         symbol(&__toupper_l, "__toupper_l");
 
-        symbol(&__isalnum_l, "isalnum_l");
-        symbol(&__isalpha_l, "isalpha_l");
-        symbol(&__isblank_l, "isblank_l");
-        symbol(&__iscntrl_l, "iscntrl_l");
-        symbol(&__isdigit_l, "isdigit_l");
-        symbol(&__isgraph_l, "isgraph_l");
-        symbol(&__islower_l, "islower_l");
-        symbol(&__isprint_l, "isprint_l");
-        symbol(&__ispunct_l, "ispunct_l");
-        symbol(&__isspace_l, "isspace_l");
-        symbol(&__isupper_l, "isupper_l");
-        symbol(&__isxdigit_l, "isxdigit_l");
-        symbol(&__tolower_l, "tolower_l");
-        symbol(&__toupper_l, "toupper_l");
 
         symbol(&isascii, "isascii");
         symbol(&toascii, "toascii");
@@ -99,24 +85,6 @@ comptime {
         symbol(&__towctrans_l, "__towctrans_l");
         symbol(&__wctrans_l, "__wctrans_l");
 
-        symbol(&__iswalnum_l, "iswalnum_l");
-        symbol(&__iswalpha_l, "iswalpha_l");
-        symbol(&__iswblank_l, "iswblank_l");
-        symbol(&__iswcntrl_l, "iswcntrl_l");
-        symbol(&__iswdigit_l, "iswdigit_l");
-        symbol(&__iswgraph_l, "iswgraph_l");
-        symbol(&__iswlower_l, "iswlower_l");
-        symbol(&__iswprint_l, "iswprint_l");
-        symbol(&__iswpunct_l, "iswpunct_l");
-        symbol(&__iswspace_l, "iswspace_l");
-        symbol(&__iswupper_l, "iswupper_l");
-        symbol(&__iswxdigit_l, "iswxdigit_l");
-        symbol(&__iswctype_l, "iswctype_l");
-        symbol(&__wctype_l, "wctype_l");
-        symbol(&__towupper_l, "towupper_l");
-        symbol(&__towlower_l, "towlower_l");
-        symbol(&__towctrans_l, "towctrans_l");
-        symbol(&__wctrans_l, "wctrans_l");
 
         // glibc compat
         symbol(&__ctype_b_loc, "__ctype_b_loc");

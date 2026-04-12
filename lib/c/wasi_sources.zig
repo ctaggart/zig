@@ -1444,11 +1444,9 @@ comptime {
 
         // getentropy.c
         symbol(&getentropyImpl, "__getentropy");
-        symbol(&getentropyImpl, "getentropy");
 
         // isatty.c
         symbol(&isattyImpl, "__isatty");
-        symbol(&isattyImpl, "isatty");
 
         // __wasilibc_tell.c
         symbol(&wasilibcTellImpl, "__wasilibc_tell");
@@ -1469,7 +1467,6 @@ comptime {
 
         // reallocarray.c
         symbol(&reallocarrayImpl, "__reallocarray");
-        symbol(&reallocarrayImpl, "reallocarray");
 
         // truncate.c
         symbol(&truncateImpl, "truncate");
@@ -1546,8 +1543,6 @@ comptime {
         symbol(&wasilibcMaybeReinitializeEnvironEagerlyImpl, "__wasilibc_maybe_reinitialize_environ_eagerly");
         symbol(&wasilibcInitializeEnvironEagerly, "__wasilibc_initialize_environ_eagerly");
         symbol(&wasilibc_environ_storage, "__wasilibc_environ");
-        symbol(&wasilibc_environ_storage, "_environ");
-        symbol(&wasilibc_environ_storage, "environ");
 
         // __main_void.c
         symbol(&mainVoidImpl, "__main_void");

@@ -6,7 +6,6 @@ comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&cryptFunc, "crypt");
         symbol(&cryptRFunc, "__crypt_r");
-        symbol(&cryptRFunc, "crypt_r");
         symbol(&setkeyFunc, "setkey");
         symbol(&encryptFunc, "encrypt");
     }

@@ -143,11 +143,9 @@ comptime {
         if (@hasField(linux.SYS, "sync_file_range"))
             symbol(&sync_file_rangeLinux, "sync_file_range")
         else if (@hasField(linux.SYS, "sync_file_range2"))
-            symbol(&sync_file_rangeLinux, "sync_file_range");
 
         // sysinfo
         symbol(&sysinfoLinux, "__lsysinfo");
-        symbol(&sysinfoLinux, "sysinfo");
 
         // timerfd
         symbol(&timerfd_createLinux, "timerfd_create");
@@ -206,15 +204,12 @@ comptime {
         // cache (arch-specific)
         if (@hasField(linux.SYS, "cacheflush")) {
             symbol(&cacheflushLinux, "_flush_cache");
-            symbol(&cacheflushLinux, "cacheflush");
         }
         if (@hasField(linux.SYS, "cachectl")) {
             symbol(&cachectlLinux, "__cachectl");
-            symbol(&cachectlLinux, "cachectl");
         }
         if (@hasField(linux.SYS, "riscv_flush_icache")) {
             symbol(&riscv_flush_icacheLinux, "__riscv_flush_icache");
-            symbol(&riscv_flush_icacheLinux, "riscv_flush_icache");
         }
     }
     // Functions that depend on other C library internals

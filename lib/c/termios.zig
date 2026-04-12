@@ -17,10 +17,8 @@ const CBAUD: linux.tcflag_t = if (is_ppc) 0xff else 0x100f;
 comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&cfgetospeed, "cfgetospeed");
-        symbol(&cfgetospeed, "cfgetispeed");
         symbol(&cfsetospeed, "cfsetospeed");
         symbol(&cfsetispeedImpl, "cfsetispeed");
-        symbol(&cfsetospeed, "cfsetspeed");
         symbol(&cfmakeraw, "cfmakeraw");
         symbol(&tcgetattrLinux, "tcgetattr");
         symbol(&tcsetattrLinux, "tcsetattr");

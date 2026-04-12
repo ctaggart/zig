@@ -268,56 +268,36 @@ comptime {
     symbol(&pthread_cond_init, "pthread_cond_init");
     symbol(&pthread_cond_signal, "pthread_cond_signal");
     symbol(&pthread_cond_timedwait, "__pthread_cond_timedwait");
-    symbol(&pthread_cond_timedwait, "pthread_cond_timedwait");
     symbol(&pthread_cond_wait, "pthread_cond_wait");
 
     // Thread lifecycle
     symbol(&dummy, "__acquire_ptc");
-    symbol(&dummy, "__release_ptc");
     symbol(&pthread_create, "__pthread_create");
-    symbol(&pthread_create, "pthread_create");
     symbol(&pthread_detach, "__pthread_detach");
-    symbol(&pthread_detach, "pthread_detach");
-    symbol(&pthread_detach, "thrd_detach");
     symbol(&pthread_getattr_np, "pthread_getattr_np");
     symbol(&pthread_tryjoin_np, "__pthread_tryjoin_np");
-    symbol(&pthread_tryjoin_np, "pthread_tryjoin_np");
     symbol(&pthread_timedjoin_np, "__pthread_timedjoin_np");
-    symbol(&pthread_timedjoin_np, "pthread_timedjoin_np");
     symbol(&pthread_join, "__pthread_join");
-    symbol(&pthread_join, "pthread_join");
 
     // Mutex
     symbol(&pthread_mutex_consistent, "pthread_mutex_consistent");
     symbol(&pthread_mutex_getprioceiling, "pthread_mutex_getprioceiling");
     symbol(&pthread_mutex_lock, "__pthread_mutex_lock");
-    symbol(&pthread_mutex_lock, "pthread_mutex_lock");
     symbol(&pthread_mutex_timedlock, "__pthread_mutex_timedlock");
-    symbol(&pthread_mutex_timedlock, "pthread_mutex_timedlock");
     symbol(&pthread_mutex_trylock, "__pthread_mutex_trylock");
-    symbol(&pthread_mutex_trylock, "pthread_mutex_trylock");
     symbol(&pthread_mutex_unlock, "__pthread_mutex_unlock");
-    symbol(&pthread_mutex_unlock, "pthread_mutex_unlock");
 
     // Once
     symbol(&pthread_once, "__pthread_once");
-    symbol(&pthread_once, "pthread_once");
 
     // Read-write lock
     symbol(&pthread_rwlock_rdlock, "__pthread_rwlock_rdlock");
-    symbol(&pthread_rwlock_rdlock, "pthread_rwlock_rdlock");
     symbol(&pthread_rwlock_timedrdlock, "__pthread_rwlock_timedrdlock");
-    symbol(&pthread_rwlock_timedrdlock, "pthread_rwlock_timedrdlock");
     symbol(&pthread_rwlock_timedwrlock, "__pthread_rwlock_timedwrlock");
-    symbol(&pthread_rwlock_timedwrlock, "pthread_rwlock_timedwrlock");
     symbol(&pthread_rwlock_tryrdlock, "__pthread_rwlock_tryrdlock");
-    symbol(&pthread_rwlock_tryrdlock, "pthread_rwlock_tryrdlock");
     symbol(&pthread_rwlock_trywrlock, "__pthread_rwlock_trywrlock");
-    symbol(&pthread_rwlock_trywrlock, "pthread_rwlock_trywrlock");
     symbol(&pthread_rwlock_unlock, "__pthread_rwlock_unlock");
-    symbol(&pthread_rwlock_unlock, "pthread_rwlock_unlock");
     symbol(&pthread_rwlock_wrlock, "__pthread_rwlock_wrlock");
-    symbol(&pthread_rwlock_wrlock, "pthread_rwlock_wrlock");
 
     // Spinlock
     symbol(&pthread_spin_lock, "pthread_spin_lock");

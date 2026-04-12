@@ -24,14 +24,12 @@ comptime {
         symbol(&dupLinux, "dup");
         symbol(&dup2Linux, "dup2");
         symbol(&dup3Linux, "__dup3");
-        symbol(&dup3Linux, "dup3");
 
         symbol(&fchdirLinux, "fchdir");
         symbol(&fchownLinux, "fchown");
         symbol(&fdatasyncLinux, "fdatasync");
         symbol(&fsyncLinux, "fsync");
         symbol(&ftruncateLinux, "ftruncate");
-        symbol(&ftruncateLinux, "ftruncate64");
         symbol(&isattyLinux, "isatty");
         symbol(&pipe2Linux, "pipe2");
 
@@ -49,22 +47,16 @@ comptime {
         symbol(&getuidLinux, "getuid");
 
         symbol(&lseekLinux, "__lseek");
-        symbol(&lseekLinux, "lseek");
-        symbol(&lseekLinux, "lseek64");
 
         symbol(&readLinux, "read");
         symbol(&readvLinux, "readv");
         symbol(&preadLinux, "pread");
-        symbol(&preadLinux, "pread64");
         symbol(&preadvLinux, "preadv");
-        symbol(&preadvLinux, "preadv64");
 
         symbol(&writeLinux, "write");
         symbol(&writevLinux, "writev");
         symbol(&pwriteLinux, "pwrite");
-        symbol(&pwriteLinux, "pwrite64");
         symbol(&pwritevLinux, "pwritev");
-        symbol(&pwritevLinux, "pwritev64");
 
         symbol(&rmdirLinux, "rmdir");
         symbol(&linkLinux, "link");
@@ -73,9 +65,6 @@ comptime {
         symbol(&renameatLinux, "renameat");
         symbol(&symlinkLinux, "symlink");
         symbol(&symlinkatLinux, "symlinkat");
-        symbol(&fdatasyncLinux, "fdatasync");
-        symbol(&fsyncLinux, "fsync");
-        symbol(&ftruncateLinux, "ftruncate");
         symbol(&syncLinux, "sync");
         symbol(&unlinkLinux, "unlink");
         symbol(&unlinkatLinux, "unlinkat");
@@ -257,17 +246,8 @@ fn fchownLinux(fd: c_int, owner: linux.uid_t, group: linux.gid_t) callconv(.c) c
     return errno(linux.fchown(fd, owner, group));
 }
 
-fn fdatasyncLinux(fd: c_int) callconv(.c) c_int {
-    return errno(linux.fdatasync(fd));
-}
 
-fn fsyncLinux(fd: c_int) callconv(.c) c_int {
-    return errno(linux.fsync(fd));
-}
 
-fn ftruncateLinux(fd: c_int, length: linux.off_t) callconv(.c) c_int {
-    return errno(linux.ftruncate(fd, length));
-}
 
 fn isattyLinux(fd: c_int) callconv(.c) c_int {
     var wsz: linux.winsize = undefined;

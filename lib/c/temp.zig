@@ -10,7 +10,6 @@ comptime {
         symbol(&__randname, "__randname");
         symbol(&mkdtemp, "mkdtemp");
         symbol(&__mkostemps, "__mkostemps");
-        symbol(&__mkostemps, "mkostemps");
         symbol(&mkstemp, "mkstemp");
         symbol(&mkstemps, "mkstemps");
         symbol(&mkostemp, "mkostemp");

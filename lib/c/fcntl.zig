@@ -10,13 +10,9 @@ const errno = @import("../c.zig").errno;
 comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&creatLinux, "creat");
-        symbol(&creatLinux, "creat64");
         symbol(&fcntlLinux, "fcntl");
-        symbol(&fcntlLinux, "fcntl64");
         symbol(&openLinux, "open");
-        symbol(&openLinux, "open64");
         symbol(&openatLinux, "openat");
-        symbol(&openatLinux, "openat64");
 
         symbol(&fallocateLinux, "fallocate");
         symbol(&posix_fadviseLinux, "posix_fadvise");

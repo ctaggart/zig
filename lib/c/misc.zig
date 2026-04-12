@@ -164,7 +164,6 @@ extern "c" var optopt: c_int;
 extern "c" var __optpos: c_int;
 extern "c" var __optreset: c_int;
 extern "c" fn getopt(argc: c_int, argv: [*]const ?[*:0]u8, optstring: [*:0]const u8) c_int;
-extern "c" fn __getopt_msg(a: [*:0]const u8, b: [*:0]const u8, c_ptr: [*]const u8, l: usize) void;
 extern "c" fn mblen(s: [*]const u8, n: usize) c_int;
 const sigset_t = [128 / @sizeOf(c_ulong)]c_ulong;
 const wordexp_t = extern struct {
@@ -261,16 +260,13 @@ comptime {
         symbol(&grantpt, "grantpt");
         symbol(&unlockptLinux, "unlockpt");
         symbol(&__ptsname_rLinux, "__ptsname_r");
-        symbol(&__ptsname_rLinux, "ptsname_r");
         symbol(&ioctlImpl, "ioctl");
         symbol(&syscall_fn, "syscall");
     }
     if (builtin.target.isWasiLibC()) {
-        symbol(&gethostid, "gethostid");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&basename, "basename");
-        symbol(&basename, "__xpg_basename");
         symbol(&dirname, "dirname");
         symbol(&a64l, "a64l");
         symbol(&l64a, "l64a");
@@ -297,15 +293,12 @@ comptime {
         symbol(&optopt_val, "optopt");
         symbol(&optpos_val, "__optpos");
         symbol(&optreset_val, "__optreset");
-        symbol(&optreset_val, "optreset");
         symbol(&__getopt_msg, "__getopt_msg");
         symbol(&getopt_fn, "getopt");
-        symbol(&getopt_fn, "__posix_getopt");
         symbol(&setlogmask, "setlogmask");
         symbol(&closelog, "closelog");
         symbol(&openlog, "openlog");
         symbol(&__vsyslog, "vsyslog");
-        symbol(&__vsyslog, "__vsyslog");
         symbol(&syslog, "syslog");
         symbol(&sl_lock, "__syslog_lockptr");
         symbol(&getopt_long_fn, "getopt_long");

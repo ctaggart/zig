@@ -71,10 +71,6 @@ extern "c" fn sigaction(sig: c_int, act: ?*const c_sigaction, oact: ?*c_sigactio
 extern "c" fn sigprocmask(how: c_int, set: ?*const musl_sigset_t, oset: ?*musl_sigset_t) callconv(.c) c_int;
 extern "c" fn sigemptyset(set: *musl_sigset_t) callconv(.c) c_int;
 extern "c" fn sigaddset(set: *musl_sigset_t, sig: c_int) callconv(.c) c_int;
-extern "c" fn posix_spawnattr_init(attr: *posix_spawnattr_t) callconv(.c) c_int;
-extern "c" fn posix_spawnattr_setsigmask(attr: *posix_spawnattr_t, mask: *const musl_sigset_t) callconv(.c) c_int;
-extern "c" fn posix_spawnattr_setsigdefault(attr: *posix_spawnattr_t, def: *const musl_sigset_t) callconv(.c) c_int;
-extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) callconv(.c) c_int;
 extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) callconv(.c) c_int;
 extern "c" fn posix_spawn(pid: *linux.pid_t, path: [*:0]const u8, fa: ?*anyopaque, attr: ?*const posix_spawnattr_t, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) callconv(.c) c_int;
 extern "c" fn waitpid(pid: linux.pid_t, status: ?*c_int, options: c_int) callconv(.c) linux.pid_t;
@@ -118,7 +114,6 @@ comptime {
         symbol(&posix_spawn_file_actions_addfchdir_impl, "posix_spawn_file_actions_addfchdir_np");
         symbol(&posix_spawn_file_actions_destroy_impl, "posix_spawn_file_actions_destroy");
         symbol(&__execvpe, "__execvpe");
-        symbol(&__execvpe, "execvpe");
         symbol(&execvpImpl, "execvp");
         symbol(&execlImpl, "execl");
         symbol(&execleImpl, "execle");

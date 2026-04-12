@@ -67,29 +67,19 @@ comptime {
         symbol(&getdtablesizeLinux, "getdtablesize");
         symbol(&isastreamLinux, "isastream");
         symbol(&euidaccessLinux, "euidaccess");
-        symbol(&euidaccessLinux, "eaccess");
         symbol(&endutxent, "endutxent");
-        symbol(&endutxent, "endutent");
         symbol(&setutxent, "setutxent");
-        symbol(&setutxent, "setutent");
         symbol(&getutxent, "getutxent");
-        symbol(&getutxent, "getutent");
         symbol(&getutxid, "getutxid");
-        symbol(&getutxid, "getutid");
         symbol(&getutxline, "getutxline");
-        symbol(&getutxline, "getutline");
         symbol(&pututxline, "pututxline");
-        symbol(&pututxline, "pututline");
         symbol(&updwtmpx, "updwtmpx");
-        symbol(&updwtmpx, "updwtmp");
         symbol(&utmpxname, "utmpname");
-        symbol(&utmpxname, "utmpxname");
         symbol(&getloadavgLinux, "getloadavg");
         symbol(&daemonLinux, "daemon");
         symbol(&ulimitLinux, "ulimit");
     }
     if (builtin.target.isWasiLibC()) {
-        symbol(&getpagesize, "getpagesize");
     }
     if (builtin.link_libc) {
         symbol(&ftw, "ftw");

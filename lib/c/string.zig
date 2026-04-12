@@ -47,8 +47,6 @@ comptime {
 
         symbol(&__strcoll_l, "__strcoll_l");
         symbol(&__strxfrm_l, "__strxfrm_l");
-        symbol(&__strcoll_l, "strcoll_l");
-        symbol(&__strxfrm_l, "strxfrm_l");
 
         symbol(&strverscmp_fn, "strverscmp");
 
@@ -62,21 +60,13 @@ comptime {
             symbol(&strndup_fn, "strndup");
             symbol(&wcsdup_fn, "wcsdup");
             symbol(&strerror_r_fn, "strerror_r");
-            symbol(&strerror_r_fn, "__xpg_strerror_r");
             symbol(&strsignal_fn, "strsignal");
         }
 
         // These symbols are not in the public ABI of musl/wasi. However they depend on these exports internally.
-        symbol(&stpcpy, "__stpcpy");
-        symbol(&stpncpy, "__stpncpy");
-        symbol(&strchrnul, "__strchrnul");
-        symbol(&memrchr, "__memrchr");
     }
 
     if (builtin.target.isMinGW()) {
-        symbol(&strnlen, "strnlen");
-        symbol(&mempcpy, "mempcpy");
-        symbol(&strtok_r, "strtok_r");
     }
 }
 

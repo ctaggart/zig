@@ -17,23 +17,18 @@ comptime {
         symbol(&chmodLinux, "chmod");
         symbol(&fchmodatLinux, "fchmodat");
         symbol(&statfsLinux, "statfs");
-        symbol(&statfsLinux, "__statfs");
         symbol(&fstatfsLinux, "fstatfs");
-        symbol(&fstatfsLinux, "__fstatfs");
         symbol(&statvfsLinux, "statvfs");
         symbol(&fstatvfsLinux, "fstatvfs");
         symbol(&fchmodLinux, "fchmod");
         if (builtin.link_libc) {
             symbol(&fstatatImpl, "fstatat");
-            symbol(&fstatatImpl, "__fstatat");
             symbol(&statLinux, "stat");
             symbol(&lstatLinux, "lstat");
             symbol(&fstatLinux, "__fstat");
-            symbol(&fstatLinux, "fstat");
             symbol(&futimensLinux, "futimens");
             symbol(&lchmodLinux, "lchmod");
             symbol(&__futimesat, "__futimesat");
-            symbol(&__futimesat, "futimesat");
             symbol(&utimensatLinux, "utimensat");
             symbol(&__fxstat, "__fxstat");
             symbol(&__fxstatat, "__fxstatat");

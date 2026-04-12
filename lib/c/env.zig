@@ -261,10 +261,10 @@ fn static_init_tls(aux: [*]usize) callconv(.c) void {
     if (main_tls.@"align" < MIN_TLS_ALIGN) main_tls.@"align" = MIN_TLS_ALIGN;
 
     __libc.tls_align = main_tls.@"align";
-    var tls_sz = 2 * @sizeOf(*anyopaque) + @sizeOf(pthread);
+    var tls_sz: usize = 2 * @sizeOf(*anyopaque) + @sizeOf(pthread);
     if (TLS_ABOVE_TP) tls_sz += main_tls.offset;
     tls_sz += main_tls.size + main_tls.@"align";
-    tls_sz = (tls_sz + MIN_TLS_ALIGN - 1) & ~(MIN_TLS_ALIGN - 1);
+    tls_sz = (tls_sz + MIN_TLS_ALIGN - 1) & ~@as(usize, MIN_TLS_ALIGN - 1);
     __libc.tls_size = tls_sz;
 
     var mem: [*]u8 = undefined;

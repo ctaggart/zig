@@ -963,7 +963,6 @@ const src_files = [_][]const u8{
     "musl/src/misc/issetugid.c",
     "musl/src/misc/nftw.c",
     "musl/src/misc/syscall.c",
-    "musl/src/misc/syslog.c",
     "musl/src/misc/wordexp.c",
     "musl/src/mman/mmap.c",
     "musl/src/mman/mremap.c",

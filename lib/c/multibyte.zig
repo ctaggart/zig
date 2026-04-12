@@ -33,6 +33,19 @@ const MB_LEN_MAX = 4;
 const SA: u8 = 0xc2;
 const SB: u8 = 0xf4;
 
+extern "c" fn setlocale(category: c_int, locale: ?[*:0]const u8) ?[*:0]const u8;
+
+/// Check if the current locale uses UTF-8 encoding (MB_CUR_MAX > 1).
+/// In the C locale (default), MB_CUR_MAX is 1 and bytes 0x80-0xFF are
+/// valid single-byte characters.
+fn currentUtf8() bool {
+    const loc = setlocale(0, null) orelse return false; // LC_CTYPE = 0
+    // C locale returns "C", POSIX returns "POSIX" — both are single-byte
+    if (loc[0] == 'C' and loc[1] == 0) return false;
+    if (loc[0] == 'P') return false; // "POSIX"
+    return true;
+}
+
 /// Interval [a,b). Either a must be 0x80 or b must be 0xc0, lower 3 bits clear.
 fn R(comptime a: u32, comptime b: u32) u32 {
     return if (a == 0x80) (0x40 -% b) << 23 else (0 -% a) << 23;
@@ -110,6 +123,7 @@ var c16rtomb_internal_state: c_uint = 0;
 fn btowc(c: c_int) callconv(.c) c_uint {
     const b: u8 = @truncate(@as(c_uint, @bitCast(c)));
     if (b < 128) return b;
+    if (!currentUtf8()) return CODEUNIT(b);
     return WEOF;
 }
 
@@ -119,6 +133,7 @@ fn btowc(c: c_int) callconv(.c) c_uint {
 
 fn wctob(c: c_uint) callconv(.c) c_int {
     if (c < 128) return @intCast(c);
+    if (!currentUtf8() and IS_CODEUNIT(c)) return @as(c_int, @as(u8, @truncate(c)));
     return -1; // EOF
 }
 
@@ -162,6 +177,10 @@ fn mbrtowc(wc_ptr: ?*u32, src_ptr: ?[*]const u8, n_arg: usize, st_ptr: ?*c_uint)
             const val: u32 = s[0];
             if (wc_ptr) |wc| wc.* = val;
             return if (val != 0) 1 else 0;
+        }
+        if (!currentUtf8()) {
+            if (wc_ptr) |wc| wc.* = CODEUNIT(s[0]);
+            return 1;
         }
         if (s[0] -% SA > SB - SA) {
             st.* = 0;
@@ -214,6 +233,13 @@ fn wcrtomb(s: ?[*]u8, wc_arg: u32, st: ?*c_uint) callconv(.c) usize {
     if (wc < 0x80) {
         p[0] = @truncate(wc);
         return 1;
+    } else if (!currentUtf8()) {
+        if (!IS_CODEUNIT(wc)) {
+            setErrno();
+            return size_t_minus1;
+        }
+        p[0] = @truncate(wc);
+        return 1;
     } else if (wc < 0x800) {
         p[0] = @truncate(0xc0 | (wc >> 6));
         p[1] = @truncate(0x80 | (wc & 0x3f));
@@ -248,6 +274,10 @@ fn mbtowc(wc_ptr: ?*u32, src_ptr: ?[*]const u8, n: usize) callconv(.c) c_int {
     if (s[0] < 0x80) {
         if (wc_ptr) |wc| wc.* = s[0];
         return if (s[0] != 0) @as(c_int, 1) else @as(c_int, 0);
+    }
+    if (!currentUtf8()) {
+        if (wc_ptr) |wc| wc.* = CODEUNIT(s[0]);
+        return 1;
     }
     if (s[0] -% SA > SB - SA) {
         setErrno();
@@ -356,6 +386,28 @@ fn mbsrtowcs(ws: ?[*]u32, src: *?[*]const u8, wn_arg: usize, st_ptr: ?*c_uint) c
             } else {
                 return mbsrtowcs_count_resume(src, wn0, &wn, &c, &s);
             }
+        }
+    }
+
+    // C locale fast path: single-byte encoding
+    if (!currentUtf8()) {
+        if (ws) |w| {
+            var wp = w;
+            while (wn > 0) {
+                if (s[0] == 0) {
+                    wp[0] = 0;
+                    src.* = null;
+                    return wn0 - wn;
+                }
+                wp[0] = CODEUNIT(s[0]);
+                wp += 1;
+                s += 1;
+                wn -= 1;
+            }
+            src.* = s;
+            return wn0;
+        } else {
+            return std.mem.len(@as([*:0]const u8, @ptrCast(s)));
         }
     }
 

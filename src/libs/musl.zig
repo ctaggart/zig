@@ -1258,7 +1258,6 @@ const src_files = [_][]const u8{
     "musl/src/signal/s390x/restore.s",
     "musl/src/signal/s390x/sigsetjmp.s",
     "musl/src/signal/sigaction.c",
-    "musl/src/signal/sigset.c",
     "musl/src/signal/sigsetjmp.c",
     "musl/src/signal/sigsetjmp_tail.c",
     "musl/src/signal/sigtimedwait.c",

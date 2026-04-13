@@ -134,7 +134,7 @@ fn fdopendir(fd: c_int) callconv(.c) ?*DIR {
     return null;
 }
 
-fn readdir_r(dir: *DIR, buf: *dirent, result: **dirent) callconv(.c) c_int {
+fn readdir_r(dir: *DIR, buf: *dirent, result: *?*dirent) callconv(.c) c_int {
     // Simplified: no lock (matching musl's LOCK/UNLOCK which is a spin lock)
     const errno_save = std.c._errno().*;
     std.c._errno().* = 0;
@@ -205,7 +205,7 @@ fn scandir(
                 free(n[i]);
             }
         }
-        free(names);
+        free(@ptrCast(names));
         return -1;
     }
     std.c._errno().* = old_errno;
@@ -216,9 +216,9 @@ fn scandir(
 }
 
 fn alphasort(a: *const *const dirent, b: *const *const dirent) callconv(.c) c_int {
-    return strcoll(&a.*.d_name, &b.*.d_name);
+    return strcoll(@as([*:0]const u8, @ptrCast(&a.*.d_name)), @as([*:0]const u8, @ptrCast(&b.*.d_name)));
 }
 
 fn versionsort(a: *const *const dirent, b: *const *const dirent) callconv(.c) c_int {
-    return strverscmp(&a.*.d_name, &b.*.d_name);
+    return strverscmp(@as([*:0]const u8, @ptrCast(&a.*.d_name)), @as([*:0]const u8, @ptrCast(&b.*.d_name)));
 }

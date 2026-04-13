@@ -125,7 +125,7 @@ fn fdopendir(fd: c_int) callconv(.c) ?*DIR {
     }
     // We can't easily check S_ISDIR without knowing struct stat layout,
     // but the getdents syscall will fail with ENOTDIR if it's not a dir.
-    _ = fcntl(fd, linux.F.SETFD, FD_CLOEXEC);
+    _ = fcntl(fd, linux.F.SETFD, @as(c_int, FD_CLOEXEC));
     const dir: ?*DIR = @ptrCast(@alignCast(calloc(1, @sizeOf(DIR))));
     if (dir) |d| {
         d.fd = fd;
@@ -146,7 +146,7 @@ fn readdir_r(dir: *DIR, buf: *dirent, result: **dirent) callconv(.c) c_int {
         _ = memcpy(buf, d, d.d_reclen);
         result.* = buf;
     } else {
-        result.* = @ptrFromInt(0);
+        result.* = null;
     }
     return 0;
 }
@@ -184,7 +184,7 @@ fn scandir(
         }
         if (cnt >= len) {
             len = 2 * len + 1;
-            const tmp: ?[*]*dirent = @ptrCast(@alignCast(realloc(names, len * @sizeOf(*dirent))));
+            const tmp: ?[*]*dirent = @ptrCast(@alignCast(realloc(@ptrCast(names), len * @sizeOf(*dirent))));
             if (tmp == null) break;
             names = tmp;
         }

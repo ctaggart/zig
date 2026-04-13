@@ -115,6 +115,7 @@ extern var __sysinfo: usize;
 extern var __progname: ?[*:0]u8;
 extern var __progname_full: ?[*:0]u8;
 extern "c" fn __libc_start_init() void;
+extern "c" fn __init_tls(aux: [*]usize) void;
 
 comptime {
     if (builtin.target.isMuslLibC()) {

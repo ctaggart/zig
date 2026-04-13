@@ -254,10 +254,10 @@ fn allocFdop(extra: usize) ?*fdop {
 }
 
 fn prependOp(fa: *posix_spawn_file_actions_t, op: *fdop) void {
-    op.next = fa.__actions;
-    if (fa.__actions) |existing| existing.prev = op;
+    op.next = @ptrCast(@alignCast(fa.__actions));
+    if (@as(?*fdop, @ptrCast(@alignCast(fa.__actions)))) |existing| existing.prev = op;
     op.prev = null;
-    fa.__actions = op;
+    fa.__actions = @ptrCast(op);
 }
 
 fn posix_spawn_file_actions_addclose_impl(fa: *posix_spawn_file_actions_t, fd: c_int) callconv(.c) c_int {
@@ -314,10 +314,10 @@ fn posix_spawn_file_actions_addfchdir_impl(fa: *posix_spawn_file_actions_t, fd: 
 }
 
 fn posix_spawn_file_actions_destroy_impl(fa: *posix_spawn_file_actions_t) callconv(.c) c_int {
-    var op = fa.__actions;
+    var op: ?*fdop = @ptrCast(@alignCast(fa.__actions));
     while (op) |o| {
         const next = o.next;
-        free(o);
+        free(@ptrCast(o));
         op = next;
     }
     return 0;

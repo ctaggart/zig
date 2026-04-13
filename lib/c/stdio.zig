@@ -126,6 +126,8 @@ comptime {
         symbol(&flockfileImpl, "flockfile");
         symbol(&ftrylockfileImpl, "ftrylockfile");
         symbol(&funlockfileImpl, "funlockfile");
+        symbol(&__fseeko, "fseeko");
+        symbol(&__ftello, "ftello");
         symbol(&ferror_fn, "ferror");
         symbol(&clearerr, "clearerr");
         symbol(&fileno, "fileno");

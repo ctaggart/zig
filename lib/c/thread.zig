@@ -273,6 +273,8 @@ comptime {
         symbol(&pthread_getspecific_fn, "pthread_getspecific");
         symbol(&pthread_setspecific_fn, "pthread_setspecific");
         symbol(&pthread_setcancelstate_fn, "__pthread_setcancelstate");
+        symbol(&pthread_testcancel_fn, "pthread_testcancel");
+        symbol(&pthread_setcancelstate_fn, "pthread_setcancelstate");
         symbol(&pthread_setcanceltype_fn, "pthread_setcanceltype");
         symbol(&pthread_testcancel_fn, "__pthread_testcancel");
         symbol(&sem_trywait_fn, "sem_trywait");

@@ -84,6 +84,8 @@ comptime {
         // wcscoll / wcsxfrm
         symbol(&wcscoll, "wcscoll");
         symbol(&__wcscoll_l, "__wcscoll_l");
+        symbol(&__wcsxfrm_l, "wcsxfrm_l");
+        symbol(&__wcscoll_l, "wcscoll_l");
         symbol(&wcsxfrm, "wcsxfrm");
         symbol(&__wcsxfrm_l, "__wcsxfrm_l");
     }

@@ -58,6 +58,8 @@ var tmbuf: tm = undefined;
 comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&ftimeLinux, "ftime");
+        symbol(&__localtime_r, "localtime_r");
+        symbol(&__gmtime_r, "gmtime_r");
         symbol(&timespec_getLinux, "timespec_get");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {

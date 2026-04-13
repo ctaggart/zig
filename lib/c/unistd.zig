@@ -57,6 +57,17 @@ comptime {
         symbol(&writevLinux, "writev");
         symbol(&pwriteLinux, "pwrite");
         symbol(&pwritevLinux, "pwritev");
+        symbol(&lseekLinux, "lseek");
+        symbol(&alarmLinux, "alarm");
+        symbol(&setsidLinux, "setsid");
+        symbol(&gethostnameLinux, "gethostname");
+        symbol(&setregidLinux, "setregid");
+        symbol(&setreuidLinux, "setreuid");
+        symbol(&readlinkLinux, "readlink");
+        symbol(&readlinkatLinux, "readlinkat");
+        symbol(&faccessatLinux, "faccessat");
+        symbol(&getcwdLinux, "getcwd");
+        symbol(&ualarmLinux, "ualarm");
 
         symbol(&rmdirLinux, "rmdir");
         symbol(&linkLinux, "link");

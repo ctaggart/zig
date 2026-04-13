@@ -25,6 +25,9 @@ comptime {
         symbol(&munlockallLinux, "munlockall");
 
         symbol(&munmapLinux, "munmap");
+        symbol(&mprotectLinux, "__mprotect");
+        symbol(&munmapLinux, "__munmap");
+        symbol(&mmapLinux, "__mmap");
 
         symbol(&posix_madviseLinux, "posix_madvise");
 

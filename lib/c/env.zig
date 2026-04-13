@@ -11,7 +11,9 @@ extern "c" fn realloc(ptr: ?*anyopaque, size: usize) ?[*]u8;
 extern "c" fn free(ptr: ?*anyopaque) void;
 extern "c" fn memcpy(dst: *anyopaque, src: *const anyopaque, n: usize) *anyopaque;
 extern "c" fn __strchrnul(s: [*:0]const u8, c: c_int) [*:0]const u8;
-extern "c" fn issetugid() c_int;
+fn issetugidImpl() callconv(.c) c_int {
+    return 0; // Linux does not have issetugid; always return 0
+}
 extern "c" var __environ: ?[*:null]?[*:0]u8;
 var env_alloced: ?[*]?[*:0]u8 = null;
 var env_alloced_n: usize = 0;
@@ -126,6 +128,7 @@ comptime {
         symbol(&__stack_chk_guard, "__stack_chk_guard");
         symbol(&__init_ssp, "__init_ssp");
         symbol(&__stack_chk_fail, "__stack_chk_fail");
+        symbol(&issetugidImpl, "issetugid");
         symbol(&__reset_tls_fn, "__reset_tls");
         symbol(&dummy, "_init");
         symbol(&libc_start_init_fn, "__libc_start_init");

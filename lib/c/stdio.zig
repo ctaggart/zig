@@ -123,6 +123,9 @@ comptime {
         symbol(&getchar_unlocked, "getchar_unlocked");
         symbol(&putchar_unlocked, "putchar_unlocked");
         symbol(&feof_fn, "feof");
+        symbol(&flockfileImpl, "flockfile");
+        symbol(&ftrylockfileImpl, "ftrylockfile");
+        symbol(&funlockfileImpl, "funlockfile");
         symbol(&ferror_fn, "ferror");
         symbol(&clearerr, "clearerr");
         symbol(&fileno, "fileno");
@@ -1335,4 +1338,16 @@ fn vprintf_impl(fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
 /// vscanf.c: int vscanf(const char *restrict fmt, va_list ap)
 fn vscanf_impl(fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     return vfscanf_fn(stdin_ext.*, fmt, ap);
+}
+
+fn flockfileImpl(f: *FILE) callconv(.c) void {
+    _ = lockfile_fn(f);
+}
+
+fn ftrylockfileImpl(f: *FILE) callconv(.c) c_int {
+    return lockfile_fn(f);
+}
+
+fn funlockfileImpl(f: *FILE) callconv(.c) void {
+    funlock(f, 1);
 }

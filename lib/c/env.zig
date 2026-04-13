@@ -133,9 +133,6 @@ comptime {
         symbol(&issetugidImpl, "issetugid");
         symbol(&__reset_tls_fn, "__reset_tls");
         symbol(&dummy, "_init");
-        symbol(&dummy, "__funcs_on_exit");
-        symbol(&dummy, "__stdio_exit");
-        symbol(&dummy, "_fini");
         symbol(&libc_start_init_fn, "__libc_start_init");
         symbol(&__init_libc_fn, "__init_libc");
         symbol(&__libc_start_main_fn, "__libc_start_main");

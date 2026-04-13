@@ -57,7 +57,7 @@ fn _ExitLinux(exit_code: c_int) callconv(.c) noreturn {
 
 fn quick_exit(code: c_int) callconv(.c) noreturn {
     __funcs_on_quick_exit();
-    _Exit(code);
+    _ExitImpl(code);
 }
 
 fn __funcs_on_quick_exit() callconv(.c) void {
@@ -173,7 +173,7 @@ fn abortImpl() callconv(.c) noreturn {
 
     // Should be unreachable. Crash hard.
     _ = raise(@intFromEnum(linux.SIG.KILL));
-    _Exit(127);
+    _ExitImpl(127);
 }
 
 fn dummy() callconv(.c) void {}
@@ -195,7 +195,7 @@ fn exitImpl(code: c_int) callconv(.c) noreturn {
     __funcs_on_exit();
     libc_exit_fini();
     __stdio_exit();
-    _Exit(code);
+    _ExitImpl(code);
 }
 
 comptime { if (builtin.target.isMuslLibC()) symbol(&_finiStub, "_fini"); }

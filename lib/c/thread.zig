@@ -1260,7 +1260,7 @@ fn pthread_setschedprio_fn(t: std.c.pthread_t, prio: c_int) callconv(.c) c_int {
 // pthread_sigmask.c
 fn pthread_sigmask_fn(how: c_int, set: ?*const anyopaque, old: ?*anyopaque) callconv(.c) c_int {
     if (set != null and @as(c_uint, @bitCast(how)) > 2) return eint(.INVAL);
-    const sig_set_size: usize = 128 / 8;
+    const sig_set_size: usize = linux.NSIG / 8;
     const set_addr: usize = if (set) |s| @intFromPtr(s) else 0;
     const old_addr: usize = if (old) |o| @intFromPtr(o) else 0;
     const ret: c_int = blk: {

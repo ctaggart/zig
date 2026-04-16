@@ -55,8 +55,8 @@ fn selectLinux(
             return -1;
         }
         const ts = linux.timespec{
-            .sec = tv.sec + @divTrunc(tv.usec, 1000000),
-            .nsec = @rem(tv.usec, 1000000) * 1000,
+            .sec = @intCast(tv.sec + @divTrunc(tv.usec, 1000000)),
+            .nsec = @intCast(@rem(tv.usec, 1000000) * 1000),
         };
         const data = [2]usize{ 0, linux.NSIG / 8 };
         return errno(linux.syscall6(

@@ -694,7 +694,7 @@ fn settimeofdayLinux(tv: ?*const linux.timeval, _: ?*const anyopaque) callconv(.
     }
     const ts = linux.timespec{
         .sec = t.sec,
-        .nsec = t.usec * 1000,
+        .nsec = @intCast(t.usec * 1000),
     };
     return errno(linux.clock_settime(.REALTIME, &ts));
 }
@@ -709,8 +709,8 @@ fn stimeLinux(t: *const linux.time_t) callconv(.c) c_int {
 fn utimesLinux(path: [*:0]const u8, times: ?*const [2]linux.timeval) callconv(.c) c_int {
     if (times) |tv| {
         const ts = [2]linux.timespec{
-            .{ .sec = tv[0].sec, .nsec = tv[0].usec * 1000 },
-            .{ .sec = tv[1].sec, .nsec = tv[1].usec * 1000 },
+            .{ .sec = tv[0].sec, .nsec = @intCast(tv[0].usec * 1000) },
+            .{ .sec = tv[1].sec, .nsec = @intCast(tv[1].usec * 1000) },
         };
         return errno(linux.utimensat(linux.AT.FDCWD, path, &ts, 0));
     }

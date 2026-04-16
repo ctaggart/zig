@@ -173,7 +173,9 @@ comptime {
         symbol(&uflow_impl, "__uflow");
         symbol(&overflow_impl, "__overflow");
         symbol(&perror_impl, "perror");
-        // va_list-receiving functions kept as C (see #243 — VaList ABI mismatch on x86_64)
+        // Positive test for #243 fix: migrate vprintf (by-value VaList) to Zig.
+        symbol(&vprintf_impl, "vprintf");
+        // Other va_list-receiving functions still kept as C pending broader validation.
         // Internal helpers (__fmodeflags.c, __fclose_ca.c, __fopen_rb_ca.c)
         symbol(&fmodeflags_impl, "__fmodeflags");
         symbol(&fclose_ca_impl, "__fclose_ca");

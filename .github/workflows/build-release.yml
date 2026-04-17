@@ -124,13 +124,12 @@ jobs:
           EXTRA_PREFIX=""
           TARGET_FLAG="-Dtarget=${{ matrix.zig_target }}"
           if [ "${{ runner.os }}" = "macOS" ]; then
-            EXTRA_PREFIX="--search-prefix /opt/homebrew"
             export SDKROOT="$(xcrun --show-sdk-path)"
             echo "SDKROOT=$SDKROOT"
-            # Stage a lib-only shim directory with symlinks to multi-arch
-            # SDK .tbd stubs. Using $SDKROOT/usr directly would also add
-            # $SDKROOT/usr/include to the header search path, shadowing
-            # zig's bundled libc++ headers.
+            # Stage a lib-only shim with symlinks to multi-arch SDK .tbd
+            # stubs so cross (arm64 host -> x86_64-macos) can link -lz /
+            # -lzstd without pulling $SDKROOT/usr/include into the header
+            # path and shadowing zig's bundled libc++ headers.
             SDKSHIM="$RUNNER_TEMP/sdk-shim"
             mkdir -p "$SDKSHIM/lib"
             for f in libz.tbd libzstd.tbd; do
@@ -138,16 +137,17 @@ jobs:
                 ln -sf "$SDKROOT/usr/lib/$f" "$SDKSHIM/lib/$f"
               fi
             done
-            EXTRA_PREFIX="$EXTRA_PREFIX --search-prefix $SDKSHIM"
-            # For native-arch macOS jobs, omit -Dtarget so zig can
-            # auto-detect SDK paths for system libs like libz/libzstd.tbd.
-            # arm64 macos-latest runner is native for aarch64-macos; for
-            # x86_64-macos we must still cross so keep the target flag.
+            EXTRA_PREFIX="--search-prefix $SDKSHIM"
+            # For cross builds from arm64 runner to x86_64-macos we must
+            # NOT add /opt/homebrew because its dylibs are arm64-only;
+            # zig would pick libz.dylib there and lld would abort with
+            # "invalid cpu architecture: aarch64".
             if [ "${{ matrix.target }}" = "aarch64-macos" ]; then
+              EXTRA_PREFIX="$EXTRA_PREFIX --search-prefix /opt/homebrew"
+              # Drop -Dtarget on native so zig auto-detects the SDK for
+              # headers/libs.
               TARGET_FLAG=""
             fi
-            # Also install zstd via brew so libzstd.dylib is definitely at
-            # /opt/homebrew/lib even for cross builds.
             brew install zstd || true
           fi
           "$ZIG" build \

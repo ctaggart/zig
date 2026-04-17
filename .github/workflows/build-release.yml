@@ -1,0 +1,197 @@
+name: build-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build and upload assets to (e.g. 0.16.0-libc.8cae962)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: "0.16.0-dev.3061+9b1eaad13"
+  LLVM_VERSION: "21.1.8"
+
+jobs:
+  build:
+    name: "${{ matrix.target }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            runs-on: ubuntu-latest
+            host_asset: zig-x86_64-linux
+            llvm_asset: llvm-zig-21.1.8-x86_64-linux
+            zig_target: x86_64-linux-musl
+            archive_ext: tar.xz
+          - target: x86_64-macos
+            runs-on: macos-13
+            host_asset: zig-x86_64-macos
+            llvm_asset: llvm-zig-21.1.8-x86_64-macos
+            zig_target: x86_64-macos
+            archive_ext: tar.xz
+          - target: aarch64-macos
+            runs-on: macos-latest
+            host_asset: zig-aarch64-macos
+            llvm_asset: llvm-zig-21.1.8-aarch64-macos
+            zig_target: aarch64-macos
+            archive_ext: tar.xz
+          - target: x86_64-windows
+            runs-on: windows-latest
+            host_asset: zig-x86_64-windows
+            llvm_asset: llvm-zig-21.1.8-x86_64-windows-msvc
+            zig_target: x86_64-windows-gnu
+            archive_ext: zip
+
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - name: Checkout ${{ inputs.tag }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Download host zig (non-Windows)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          URL="https://github.com/ctaggart/zig/releases/download/v${ZIG_VERSION}/${{ matrix.host_asset }}-${ZIG_VERSION}.tar.xz"
+          curl -sSfL "$URL" | tar -xJ -C "$HOME"
+          echo "ZIG=$HOME/${{ matrix.host_asset }}-${ZIG_VERSION}/zig" >> "$GITHUB_ENV"
+
+      - name: Download host zig (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/ctaggart/zig/releases/download/v$env:ZIG_VERSION/${{ matrix.host_asset }}-$env:ZIG_VERSION.zip"
+          Invoke-WebRequest -Uri $url -OutFile "$env:USERPROFILE\zig.zip"
+          Expand-Archive -Path "$env:USERPROFILE\zig.zip" -DestinationPath "$env:USERPROFILE"
+          echo "ZIG=$env:USERPROFILE\${{ matrix.host_asset }}-$env:ZIG_VERSION\zig.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Download LLVM (non-Windows)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          URL="https://github.com/ctaggart/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/${{ matrix.llvm_asset }}.tar.xz"
+          curl -sSfL "$URL" | tar -xJ -C "$HOME"
+          echo "LLVM_PREFIX=$HOME/${{ matrix.llvm_asset }}" >> "$GITHUB_ENV"
+
+      - name: Download LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/ctaggart/llvm-project/releases/download/llvmorg-$env:LLVM_VERSION/${{ matrix.llvm_asset }}.zip"
+          Invoke-WebRequest -Uri $url -OutFile "$env:USERPROFILE\llvm.zip"
+          Expand-Archive -Path "$env:USERPROFILE\llvm.zip" -DestinationPath "$env:USERPROFILE"
+          echo "LLVM_PREFIX=$env:USERPROFILE\${{ matrix.llvm_asset }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build stage4 (non-Windows)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -eux
+          VERSION="${{ inputs.tag }}"
+          PKG="zig-${{ matrix.target }}-${VERSION}"
+          "$ZIG" build \
+            --prefix "$PKG" \
+            --search-prefix "$LLVM_PREFIX" \
+            --zig-lib-dir lib \
+            -Denable-llvm \
+            -Dstatic-llvm \
+            -Doptimize=ReleaseFast \
+            -Dstrip \
+            -Dtarget=${{ matrix.zig_target }} \
+            -Duse-zig-libcxx \
+            -Dversion-string="$VERSION" \
+            --verbose
+          ls -lR "$PKG" | head -40
+          echo "PKG=$PKG" >> "$GITHUB_ENV"
+
+      - name: Build stage4 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $VERSION = "${{ inputs.tag }}"
+          $PKG = "zig-${{ matrix.target }}-$VERSION"
+          & $env:ZIG build `
+            --prefix $PKG `
+            --search-prefix $env:LLVM_PREFIX `
+            --zig-lib-dir lib `
+            -Denable-llvm `
+            -Dstatic-llvm `
+            -Doptimize=ReleaseFast `
+            -Dstrip `
+            -Dtarget=${{ matrix.zig_target }} `
+            -Duse-zig-libcxx `
+            -Dversion-string="$VERSION" `
+            --verbose
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          echo "PKG=$PKG" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Smoke-test stage4 (same-arch only)
+        if: (runner.os == 'Linux' && matrix.target == 'x86_64-linux') || (runner.os == 'macOS' && matrix.target == 'x86_64-macos') || (runner.os == 'macOS' && matrix.target == 'aarch64-macos') || (runner.os == 'Windows' && matrix.target == 'x86_64-windows')
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            "./$PKG/zig.exe" version
+          else
+            "./$PKG/bin/zig" version
+          fi
+
+      - name: Package (tar.xz)
+        if: matrix.archive_ext == 'tar.xz'
+        shell: bash
+        run: |
+          tar -cJf "${PKG}.tar.xz" "$PKG"
+          shasum -a 256 "${PKG}.tar.xz" | tee "${PKG}.tar.xz.sha256"
+          ls -lh "${PKG}.tar.xz"
+          echo "ARCHIVE=${PKG}.tar.xz" >> "$GITHUB_ENV"
+          echo "ARCHIVE_SHA=${PKG}.tar.xz.sha256" >> "$GITHUB_ENV"
+
+      - name: Package (zip)
+        if: matrix.archive_ext == 'zip'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path $env:PKG -DestinationPath "$env:PKG.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "$env:PKG.zip").Hash.ToLower()
+          "$hash  $env:PKG.zip" | Out-File -Encoding ascii "$env:PKG.zip.sha256"
+          Get-Item "$env:PKG.zip" | Format-List
+          echo "ARCHIVE=$env:PKG.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "ARCHIVE_SHA=$env:PKG.zip.sha256" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload archive as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE_SHA }}
+          retention-days: 7
+
+  release:
+    name: "attach assets to release"
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List assets
+        run: ls -lh dist/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release upload "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber

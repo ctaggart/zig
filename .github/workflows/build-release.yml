@@ -45,12 +45,13 @@ jobs:
           # 16.x does not include libzstd.tbd, which llvm-zig-21.1.8 was
           # built requiring. Cross builds therefore fail at link time.
           # Users can cross-compile locally from an arm64 build.
-          # x86_64-windows re-enabled: #248 Phases 0/1 plus gating the
-          # Linux-only libzigc modules behind `os.tag == .linux` made
-          # the cross build green. Windows currently ships a minimal
-          # libzigc (math/string/ctype/stdlib/complex/wchar/locale/
-          # crypt/setjmp/inttypes/errno); mingw-w64 fills in the rest.
-          # Native Win32 shims land in later #248 phases.
+          # x86_64-windows re-enabled: #248 Phases 0/1/2/4/6/7/8
+          # provide a comprehensive Win32 libzigc surface (time,
+          # signals, process/identity, Linux-only stubs, dlopen +
+          # passwd/login via lib/c/win32/*). mingw-w64 + ucrt still
+          # provide stdio, filesystem, and core sockets. Phase 3
+          # (pthread atomic swap) is deferred; libwinpthread still
+          # ships with the target.
 
     runs-on: ${{ matrix.runs-on }}
     steps:

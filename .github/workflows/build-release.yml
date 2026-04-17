@@ -200,7 +200,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            "./$PKG/zig.exe" version
+            "./$PKG/bin/zig.exe" version
           else
             "./$PKG/bin/zig" version
           fi

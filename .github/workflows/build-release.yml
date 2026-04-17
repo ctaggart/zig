@@ -29,8 +29,8 @@ jobs:
             zig_target: x86_64-linux-gnu
             archive_ext: tar.xz
           - target: x86_64-macos
-            runs-on: macos-13
-            host_asset: zig-x86_64-macos
+            runs-on: macos-latest
+            host_asset: zig-aarch64-macos
             llvm_asset: llvm-zig-21.1.8-x86_64-macos
             zig_target: x86_64-macos
             archive_ext: tar.xz
@@ -136,7 +136,7 @@ jobs:
           echo "PKG=$PKG" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Smoke-test stage4 (same-arch only)
-        if: (runner.os == 'Linux' && matrix.target == 'x86_64-linux') || (runner.os == 'macOS' && matrix.target == 'x86_64-macos') || (runner.os == 'macOS' && matrix.target == 'aarch64-macos') || (runner.os == 'Windows' && matrix.target == 'x86_64-windows')
+        if: (runner.os == 'Linux' && matrix.target == 'x86_64-linux') || (runner.os == 'macOS' && matrix.target == 'aarch64-macos') || (runner.os == 'Windows' && matrix.target == 'x86_64-windows')
         shell: bash
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then

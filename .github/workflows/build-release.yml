@@ -122,8 +122,21 @@ jobs:
           VERSION="${{ inputs.tag }}"
           PKG="zig-${{ matrix.target }}-${VERSION}"
           EXTRA_PREFIX=""
+          TARGET_FLAG="-Dtarget=${{ matrix.zig_target }}"
           if [ "${{ runner.os }}" = "macOS" ]; then
             EXTRA_PREFIX="--search-prefix /opt/homebrew"
+            export SDKROOT="$(xcrun --show-sdk-path)"
+            echo "SDKROOT=$SDKROOT"
+            # For native-arch macOS jobs, omit -Dtarget so zig can
+            # auto-detect SDK paths for system libs like libz/libzstd.tbd.
+            # arm64 macos-latest runner is native for aarch64-macos; for
+            # x86_64-macos we must still cross so keep the target flag.
+            if [ "${{ matrix.target }}" = "aarch64-macos" ]; then
+              TARGET_FLAG=""
+            fi
+            # Also install zstd via brew so libzstd.dylib is definitely at
+            # /opt/homebrew/lib even for cross builds.
+            brew install zstd || true
           fi
           "$ZIG" build \
             --prefix "$PKG" \
@@ -136,7 +149,7 @@ jobs:
             -Doptimize=Debug \
             -Dstrip \
             -Dno-langref \
-            -Dtarget=${{ matrix.zig_target }} \
+            $TARGET_FLAG \
             -Duse-zig-libcxx \
             -Dversion-string="$VERSION" \
             --verbose

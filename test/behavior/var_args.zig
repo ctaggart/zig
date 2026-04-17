@@ -101,7 +101,6 @@ test "simple variadic function" {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
@@ -163,7 +162,6 @@ test "coerce reference to var arg" {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
 
     const S = struct {
@@ -195,7 +193,6 @@ test "variadic functions" {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
@@ -248,7 +245,6 @@ test "copy VaList" {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
     }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
@@ -282,10 +278,6 @@ test "unused VaList arg" {
     if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch.isAARCH64()) {
         // https://github.com/ziglang/zig/issues/14096
         return error.SkipZigTest;
-    }
-    if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) {
-        // https://github.com/ziglang/zig/issues/16961
-        return error.SkipZigTest; // TODO
     }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
@@ -352,4 +344,74 @@ test "floating point VaList args" {
 
     try std.testing.expectEqualSlices(f32, expected_f32, &actual_f32);
     try std.testing.expectEqualSlices(f64, expected_f64, &actual_f64);
+}
+
+test "variadic function with indirect aggregate args (Win64)" {
+    // Win64 variadic ABI passes arguments whose size is > 8 bytes or not a
+    // power-of-two indirectly (slot contains a pointer to the real value).
+    // SysV has different rules but should also handle these via classifyV
+    // + va_arg. This test exercises both the direct and indirect slot
+    // arithmetic. See https://github.com/ctaggart/zig/issues/247.
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO self-hosted x86_64 backend crashes on indirect variadic aggregates (pre-existing)
+    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch.isAARCH64()) {
+        // https://github.com/ziglang/zig/issues/14096
+        return error.SkipZigTest;
+    }
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+    // aarch64-windows has a separate va_arg ABI that this fix does not address.
+    if (builtin.cpu.arch.isAARCH64() and builtin.os.tag == .windows and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
+
+    const Odd = extern struct { a: u8, b: u8, c: u8 }; // 3 bytes, indirect on Win64
+    const Eight = extern struct { x: u32, y: u32 }; // 8 bytes, direct on Win64
+    const Big = extern struct { a: u64, b: u64, c: u64 }; // 24 bytes, indirect on Win64
+
+    const S = struct {
+        fn check(count: c_int, ...) callconv(.c) c_int {
+            var ap = @cVaStart();
+            defer @cVaEnd(&ap);
+            var total: c_int = 0;
+            var i: c_int = 0;
+            while (i < count) : (i += 1) {
+                const tag = @cVaArg(&ap, c_int);
+                switch (tag) {
+                    1 => { // c_int
+                        total += @cVaArg(&ap, c_int);
+                    },
+                    2 => { // Odd
+                        const v = @cVaArg(&ap, Odd);
+                        total += @as(c_int, v.a) + @as(c_int, v.b) + @as(c_int, v.c);
+                    },
+                    3 => { // Eight
+                        const v = @cVaArg(&ap, Eight);
+                        total += @as(c_int, @intCast(v.x + v.y));
+                    },
+                    4 => { // Big
+                        const v = @cVaArg(&ap, Big);
+                        total += @as(c_int, @intCast(v.a + v.b + v.c));
+                    },
+                    else => unreachable,
+                }
+            }
+            return total;
+        }
+    };
+
+    const odd: Odd = .{ .a = 1, .b = 2, .c = 3 }; // 6
+    const eight: Eight = .{ .x = 10, .y = 20 }; // 30
+    const big: Big = .{ .a = 100, .b = 200, .c = 300 }; // 600
+    const got = S.check(
+        4,
+        @as(c_int, 1), @as(c_int, 42), // direct scalar: 42
+        @as(c_int, 2), odd, // indirect 3-byte: 6
+        @as(c_int, 3), eight, // direct 8-byte: 30
+        @as(c_int, 4), big, // indirect 24-byte: 600
+    );
+    try std.testing.expectEqual(@as(c_int, 42 + 6 + 30 + 600), got);
 }

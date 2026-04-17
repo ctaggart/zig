@@ -1041,6 +1041,12 @@ pub const VaList = switch (builtin.cpu.arch) {
             .stage2_llvm => @compileError("disabled due to miscompilations"),
         },
     },
+    // On x86_64 Windows/UEFI, `va_list` is a single pointer, so the
+    // implementation is trivial compared to the SysV register-save-area
+    // struct. The `.stage2_llvm` compile-error branch added when variadic
+    // functions were first implemented (commit 9bb1104e37, Dec 2022) was
+    // defensive and not re-validated against current LLVM. Removed per
+    // https://github.com/ctaggart/zig/issues/247.
     .alpha => VaListAlpha,
     .arm, .armeb, .thumb, .thumbeb => VaListArm,
     .hexagon => if (builtin.target.abi.isMusl()) VaListHexagon else *u8,
@@ -1048,10 +1054,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .s390x => VaListS390x,
     .sh, .sheb => VaListSh, // This is wrong for `sh_renesas`: https://github.com/ziglang/zig/issues/24692#issuecomment-3150779829
     .x86_64 => switch (builtin.os.tag) {
-        .uefi, .windows => switch (builtin.zig_backend) {
-            else => *u8,
-            .stage2_llvm => @compileError("disabled due to miscompilations"),
-        },
+        .uefi, .windows => *u8,
         else => VaListX86_64,
     },
     .xtensa, .xtensaeb => VaListXtensa,

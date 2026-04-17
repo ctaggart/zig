@@ -1043,10 +1043,43 @@ fn airRetLoad(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!void {
 }
 
 fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
+    const o = self.object;
+    const zcu = o.zcu;
+    const target = zcu.getTarget();
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const list = try self.resolveInst(ty_op.operand);
     const arg_ty = ty_op.ty.toType();
-    const llvm_arg_ty = try self.object.lowerType(arg_ty);
+    const llvm_arg_ty = try o.lowerType(arg_ty);
+
+    // Win64 `va_list` is a single `*u8` pointer into the outgoing arg area,
+    // where every variadic argument occupies an 8-byte slot regardless of
+    // its natural size. LLVM's `va_arg` instruction advances the pointer by
+    // `sizeof(T)` (e.g. 4 for `c_int`) rather than the 8-byte slot size,
+    // which causes every other read to be bogus and halves the perceived
+    // argument count. Emit the slot arithmetic directly, matching clang.
+    // See ctaggart/zig#247.
+    const is_win64 = (target.os.tag == .windows or target.os.tag == .uefi) and
+        target.cpu.arch == .x86_64;
+    if (is_win64) {
+        const usize_ty = try o.lowerType(.usize);
+        const slot_align: Builder.Alignment = comptime .fromByteUnits(8);
+        const arg_size = arg_ty.abiSize(zcu);
+        const indirect = arg_size > 8 or !std.math.isPowerOfTwo(arg_size);
+
+        // Load current ap pointer from *ap.
+        const cur = try self.wip.load(.normal, .ptr, list, slot_align, "");
+        // Advance ap by 8 bytes.
+        const slot_size_val = try o.builder.intValue(usize_ty, 8);
+        const next = try self.wip.gep(.inbounds, .i8, cur, &.{slot_size_val}, "");
+        _ = try self.wip.store(.normal, next, list, slot_align);
+
+        if (indirect) {
+            // Slot contains a pointer to the real argument.
+            const arg_ptr = try self.wip.load(.normal, .ptr, cur, slot_align, "");
+            return self.wip.load(.normal, llvm_arg_ty, arg_ptr, arg_ty.abiAlignment(zcu).toLlvm(), "");
+        }
+        return self.wip.load(.normal, llvm_arg_ty, cur, slot_align, "");
+    }
 
     return self.wip.vaArg(list, llvm_arg_ty, "");
 }

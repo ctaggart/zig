@@ -165,7 +165,6 @@ jobs:
             -Denable-llvm \
             -Dstatic-llvm \
             -Doptimize=Debug \
-            -Dstrip \
             -Dno-langref \
             $TARGET_FLAG \
             -Duse-zig-libcxx \
@@ -188,7 +187,6 @@ jobs:
             -Denable-llvm `
             -Dstatic-llvm `
             -Doptimize=Debug `
-            -Dstrip `
             -Dno-langref `
             -Dtarget=${{ matrix.zig_target }} `
             -Duse-zig-libcxx `

@@ -127,11 +127,18 @@ jobs:
             EXTRA_PREFIX="--search-prefix /opt/homebrew"
             export SDKROOT="$(xcrun --show-sdk-path)"
             echo "SDKROOT=$SDKROOT"
-            # Add SDK to search prefix so cross-compiles (arm64 host ->
-            # x86_64-macos target) can find libz/libzstd.tbd under
-            # $SDKROOT/usr/lib. .tbd files are multi-arch so this works
-            # for both native and cross builds.
-            EXTRA_PREFIX="$EXTRA_PREFIX --search-prefix $SDKROOT/usr"
+            # Stage a lib-only shim directory with symlinks to multi-arch
+            # SDK .tbd stubs. Using $SDKROOT/usr directly would also add
+            # $SDKROOT/usr/include to the header search path, shadowing
+            # zig's bundled libc++ headers.
+            SDKSHIM="$RUNNER_TEMP/sdk-shim"
+            mkdir -p "$SDKSHIM/lib"
+            for f in libz.tbd libzstd.tbd; do
+              if [ -e "$SDKROOT/usr/lib/$f" ]; then
+                ln -sf "$SDKROOT/usr/lib/$f" "$SDKSHIM/lib/$f"
+              fi
+            done
+            EXTRA_PREFIX="$EXTRA_PREFIX --search-prefix $SDKSHIM"
             # For native-arch macOS jobs, omit -Dtarget so zig can
             # auto-detect SDK paths for system libs like libz/libzstd.tbd.
             # arm64 macos-latest runner is native for aarch64-macos; for

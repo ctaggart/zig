@@ -121,9 +121,14 @@ jobs:
           set -eux
           VERSION="${{ inputs.tag }}"
           PKG="zig-${{ matrix.target }}-${VERSION}"
+          EXTRA_PREFIX=""
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            EXTRA_PREFIX="--search-prefix /opt/homebrew"
+          fi
           "$ZIG" build \
             --prefix "$PKG" \
             --search-prefix "$LLVM_PREFIX" \
+            $EXTRA_PREFIX \
             --zig-lib-dir lib \
             --maxrss 8000000000 \
             -Denable-llvm \

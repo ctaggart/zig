@@ -168,5 +168,6 @@ comptime {
         _ = @import("c/win32/time.zig");
         _ = @import("c/win32/signal.zig");
         _ = @import("c/win32/process.zig");
+        _ = @import("c/win32/stubs.zig");
     }
 }

@@ -54,11 +54,40 @@ jobs:
         shell: bash
         run: |
           set -x
-          df -h /
-          sudo rm -rf /Applications/Xcode_14*.app /Applications/Xcode_15.0*.app /Applications/Xcode_15.1*.app /Applications/Xcode_15.2*.app 2>/dev/null || true
-          sudo rm -rf ~/Library/Developer/CoreSimulator/Caches 2>/dev/null || true
-          sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes 2>/dev/null || true
-          df -h /
+          # Top-level disk overview (all mounted filesystems)
+          df -h
+          echo "--- vm stats ---"
+          vm_stat
+          sysctl hw.memsize hw.pagesize vm.swapusage
+          echo "--- largest dirs in /Applications ---"
+          sudo du -sh /Applications/* 2>/dev/null | sort -hr | head -30 || true
+          echo "--- largest dirs in /Library ---"
+          sudo du -sh /Library/* 2>/dev/null | sort -hr | head -20 || true
+          echo "--- largest dirs in ~/Library ---"
+          du -sh ~/Library/* 2>/dev/null | sort -hr | head -20 || true
+          echo "--- /opt/homebrew size ---"
+          sudo du -sh /opt/homebrew 2>/dev/null || true
+          echo "--- user caches ---"
+          du -sh ~/.cache ~/.npm ~/.rustup ~/.cargo ~/go 2>/dev/null | sort -hr || true
+          echo "--- prune Xcode extras ---"
+          sudo rm -rf /Applications/Xcode_14*.app /Applications/Xcode_15.0*.app /Applications/Xcode_15.1*.app /Applications/Xcode_15.2*.app /Applications/Xcode_15.3*.app 2>/dev/null || true
+          sudo rm -rf /Library/Developer/CoreSimulator 2>/dev/null || true
+          sudo rm -rf ~/Library/Developer/CoreSimulator 2>/dev/null || true
+          sudo rm -rf /Users/runner/Library/Android 2>/dev/null || true
+          sudo rm -rf /opt/homebrew 2>/dev/null || true
+          df -h
+
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
 
       - name: Checkout ${{ inputs.tag }}
         uses: actions/checkout@v4

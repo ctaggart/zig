@@ -725,21 +725,21 @@ const src_files = [_][]const u8{
     "musl/src/stdio/tmpnam.c",
     //"musl/src/stdio/ungetc.c", // migrated to lib/c/stdio.zig
     "musl/src/stdio/ungetwc.c",
-    "musl/src/stdio/vasprintf.c",
-    "musl/src/stdio/vdprintf.c",
+    // "musl/src/stdio/vasprintf.c", // migrated to Zig (vasprintf_impl)
+    // "musl/src/stdio/vdprintf.c", // migrated to Zig (vdprintf_impl)
     "musl/src/stdio/vfprintf.c",
     "musl/src/stdio/vfscanf.c",
     "musl/src/stdio/vfwprintf.c",
     "musl/src/stdio/vfwscanf.c",
     // "musl/src/stdio/vprintf.c", // migrated to Zig (vprintf_impl), positive test for #243 fix
     // "musl/src/stdio/vscanf.c", // migrated to Zig (vscanf_impl)
-    "musl/src/stdio/vsnprintf.c",
+    // "musl/src/stdio/vsnprintf.c", // migrated to Zig (vsnprintf_impl)
     // "musl/src/stdio/vsprintf.c", // migrated to Zig (vsprintf_impl)
-    "musl/src/stdio/vsscanf.c",
-    "musl/src/stdio/vswprintf.c",
-    "musl/src/stdio/vswscanf.c",
-    "musl/src/stdio/vwprintf.c",
-    "musl/src/stdio/vwscanf.c",
+    // "musl/src/stdio/vsscanf.c", // migrated to Zig (vsscanf_impl)
+    // "musl/src/stdio/vswprintf.c", // migrated to Zig (vswprintf_impl)
+    // "musl/src/stdio/vswscanf.c", // migrated to Zig (vswscanf_impl)
+    // "musl/src/stdio/vwprintf.c", // migrated to Zig (vwprintf_impl)
+    // "musl/src/stdio/vwscanf.c", // migrated to Zig (vwscanf_impl)
     "musl/src/thread/aarch64/clone.s",
     "musl/src/thread/aarch64/__set_thread_area.s",
     "musl/src/thread/aarch64/syscall_cp.s",

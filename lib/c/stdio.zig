@@ -173,11 +173,18 @@ comptime {
         symbol(&uflow_impl, "__uflow");
         symbol(&overflow_impl, "__overflow");
         symbol(&perror_impl, "perror");
-        // #243 fix enables by-value VaList; migrating simple tail-call wrappers first.
+        // #243 fix enables by-value VaList; all v-prefix stdio wrappers now migrated.
         symbol(&vprintf_impl, "vprintf");
         symbol(&vscanf_impl, "vscanf");
         symbol(&vsprintf_impl, "vsprintf");
-        // Remaining va_list-receiving functions still kept as C pending broader validation.
+        symbol(&vwprintf_impl, "vwprintf");
+        symbol(&vwscanf_impl, "vwscanf");
+        symbol(&vdprintf_impl, "vdprintf");
+        symbol(&vasprintf_impl, "vasprintf");
+        symbol(&vsnprintf_impl, "vsnprintf");
+        symbol(&vsscanf_impl, "vsscanf");
+        symbol(&vswprintf_impl, "vswprintf");
+        symbol(&vswscanf_impl, "vswscanf");
         // Internal helpers (__fmodeflags.c, __fclose_ca.c, __fopen_rb_ca.c)
         symbol(&fmodeflags_impl, "__fmodeflags");
         symbol(&fclose_ca_impl, "__fclose_ca");

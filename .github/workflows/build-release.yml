@@ -40,12 +40,12 @@ jobs:
             llvm_asset: llvm-zig-21.1.8-aarch64-macos
             zig_target: aarch64-macos
             archive_ext: tar.xz
-          - target: x86_64-windows
-            runs-on: windows-latest
-            host_asset: zig-x86_64-windows
-            llvm_asset: llvm-zig-21.1.8-x86_64-windows-msvc
-            zig_target: x86_64-windows-gnu
-            archive_ext: zip
+          # x86_64-windows intentionally excluded: libc/0.16.x ships lib/c/stdio.zig
+          # that uses std.builtin.VaList, which is marked `disabled due to
+          # miscompilations` on x86_64-windows. Cross-compiling stage4 for a
+          # Windows target triggers compilation of lib/c.zig and fails. Will
+          # be re-enabled once the upstream Windows VaList miscompilation is
+          # resolved (ctaggart/zig#243 addressed SysV, not Windows).
 
     runs-on: ${{ matrix.runs-on }}
     steps:
@@ -104,6 +104,7 @@ jobs:
             -Dstatic-llvm \
             -Doptimize=ReleaseFast \
             -Dstrip \
+            -Dno-langref \
             -Dtarget=${{ matrix.zig_target }} \
             -Duse-zig-libcxx \
             -Dversion-string="$VERSION" \
@@ -126,6 +127,7 @@ jobs:
             -Dstatic-llvm `
             -Doptimize=ReleaseFast `
             -Dstrip `
+            -Dno-langref `
             -Dtarget=${{ matrix.zig_target }} `
             -Duse-zig-libcxx `
             -Dversion-string="$VERSION" `

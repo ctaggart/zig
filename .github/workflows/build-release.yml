@@ -34,12 +34,12 @@ jobs:
             llvm_asset: llvm-zig-21.1.8-x86_64-macos
             zig_target: x86_64-macos
             archive_ext: tar.xz
-          - target: aarch64-macos
-            runs-on: macos-latest
-            host_asset: zig-aarch64-macos
-            llvm_asset: llvm-zig-21.1.8-aarch64-macos
-            zig_target: aarch64-macos
-            archive_ext: tar.xz
+          # aarch64-macos disabled: macos-latest (M1 arm64) has only ~7.5GB
+          # RAM. Even after bypassing the declared-bound check with
+          # --maxrss 8000000000, the LLVM compile itself peaks above that and
+          # the runner kills the process (generic 'compile exe zig failure'
+          # with no structured error). Needs a macos-14-xlarge (paid) runner
+          # or further compile-memory reductions.
           # x86_64-windows intentionally excluded: libc/0.16.x ships lib/c/stdio.zig
           # that uses std.builtin.VaList, which is marked `disabled due to
           # miscompilations` on x86_64-windows. Cross-compiling stage4 for a
@@ -109,7 +109,7 @@ jobs:
             -Duse-zig-libcxx \
             -Dversion-string="$VERSION" \
             --verbose
-          ls -lR "$PKG" | head -40
+          ls -lR "$PKG" | head -40 || true
           echo "PKG=$PKG" >> "$GITHUB_ENV"
 
       - name: Build stage4 (Windows)

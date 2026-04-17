@@ -99,6 +99,7 @@ jobs:
             --prefix "$PKG" \
             --search-prefix "$LLVM_PREFIX" \
             --zig-lib-dir lib \
+            --maxrss 0 \
             -Denable-llvm \
             -Dstatic-llvm \
             -Doptimize=ReleaseFast \
@@ -120,6 +121,7 @@ jobs:
             --prefix $PKG `
             --search-prefix $env:LLVM_PREFIX `
             --zig-lib-dir lib `
+            --maxrss 0 `
             -Denable-llvm `
             -Dstatic-llvm `
             -Doptimize=ReleaseFast `

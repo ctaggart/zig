@@ -732,9 +732,9 @@ const src_files = [_][]const u8{
     "musl/src/stdio/vfwprintf.c",
     "musl/src/stdio/vfwscanf.c",
     // "musl/src/stdio/vprintf.c", // migrated to Zig (vprintf_impl), positive test for #243 fix
-    "musl/src/stdio/vscanf.c",
+    // "musl/src/stdio/vscanf.c", // migrated to Zig (vscanf_impl)
     "musl/src/stdio/vsnprintf.c",
-    "musl/src/stdio/vsprintf.c",
+    // "musl/src/stdio/vsprintf.c", // migrated to Zig (vsprintf_impl)
     "musl/src/stdio/vsscanf.c",
     "musl/src/stdio/vswprintf.c",
     "musl/src/stdio/vswscanf.c",

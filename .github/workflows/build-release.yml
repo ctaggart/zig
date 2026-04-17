@@ -34,17 +34,20 @@ jobs:
             llvm_asset: llvm-zig-21.1.8-aarch64-macos
             zig_target: aarch64-macos
             archive_ext: tar.xz
+          - target: x86_64-windows
+            runs-on: ubuntu-latest
+            host_asset: zig-x86_64-linux
+            llvm_asset: llvm-zig-21.1.8-x86_64-linux
+            zig_target: x86_64-windows-gnu
+            archive_ext: zip
           # x86_64-macos intentionally excluded: the macos-latest runner
           # is arm64 only, and the x86_64-macos SDK shipped with Xcode
           # 16.x does not include libzstd.tbd, which llvm-zig-21.1.8 was
           # built requiring. Cross builds therefore fail at link time.
           # Users can cross-compile locally from an arm64 build.
-          # x86_64-windows intentionally excluded: libc/0.16.x ships lib/c/stdio.zig
-          # that uses std.builtin.VaList, which is marked `disabled due to
-          # miscompilations` on x86_64-windows. Cross-compiling stage4 for a
-          # Windows target triggers compilation of lib/c.zig and fails. Will
-          # be re-enabled once the upstream Windows VaList miscompilation is
-          # resolved (ctaggart/zig#243 addressed SysV, not Windows).
+          # x86_64-windows was re-enabled in ctaggart/zig#247 after the
+          # Win64 va_arg slot advance bug was fixed. Cross-compiled from
+          # a Linux runner since that's cheaper and fully supported.
 
     runs-on: ${{ matrix.runs-on }}
     steps:

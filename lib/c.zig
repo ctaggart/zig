@@ -166,5 +166,6 @@ comptime {
     // dropped from src/libs/mingw.zig in the same commits.
     if (builtin.os.tag == .windows) {
         _ = @import("c/win32/time.zig");
+        _ = @import("c/win32/signal.zig");
     }
 }

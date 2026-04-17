@@ -37,8 +37,8 @@ jobs:
           - target: x86_64-windows
             runs-on: windows-latest
             host_asset: zig-x86_64-windows
-            llvm_asset: llvm-zig-21.1.8-x86_64-windows
-            zig_target: x86_64-windows-gnu
+            llvm_asset: llvm-zig-21.1.8-x86_64-windows-msvc
+            zig_target: x86_64-windows-msvc
             archive_ext: zip
           # x86_64-macos intentionally excluded: the macos-latest runner
           # is arm64 only, and the x86_64-macos SDK shipped with Xcode

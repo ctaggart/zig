@@ -28,18 +28,17 @@ jobs:
             llvm_asset: llvm-zig-21.1.8-x86_64-linux
             zig_target: x86_64-linux-gnu
             archive_ext: tar.xz
-          - target: x86_64-macos
-            runs-on: macos-latest
-            host_asset: zig-aarch64-macos
-            llvm_asset: llvm-zig-21.1.8-x86_64-macos
-            zig_target: x86_64-macos
-            archive_ext: tar.xz
           - target: aarch64-macos
             runs-on: macos-latest
             host_asset: zig-aarch64-macos
             llvm_asset: llvm-zig-21.1.8-aarch64-macos
             zig_target: aarch64-macos
             archive_ext: tar.xz
+          # x86_64-macos intentionally excluded: the macos-latest runner
+          # is arm64 only, and the x86_64-macos SDK shipped with Xcode
+          # 16.x does not include libzstd.tbd, which llvm-zig-21.1.8 was
+          # built requiring. Cross builds therefore fail at link time.
+          # Users can cross-compile locally from an arm64 build.
           # x86_64-windows intentionally excluded: libc/0.16.x ships lib/c/stdio.zig
           # that uses std.builtin.VaList, which is marked `disabled due to
           # miscompilations` on x86_64-windows. Cross-compiling stage4 for a

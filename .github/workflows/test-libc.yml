@@ -70,6 +70,12 @@ jobs:
 
           unset CC CXX
           ninja -C build install
+
+          # Test: does the DOWNLOADED zig crash with our lib/c source?
+          echo "=== Testing downloaded zig with our lib/c source ==="
+          $ZIG build test-libc --zig-lib-dir lib -Dtest-filter="ctype" -Dlibc-test-path="." -j2 --summary all 2>&1 | tail -30 || echo "Downloaded zig test-libc exit: $?"
+          echo "=== Downloaded zig test done ==="
+
           stage4/bin/zig version
 
       - name: Upload stage4
@@ -164,10 +170,15 @@ jobs:
       - name: Run libc-test (${{ matrix.name }})
         if: steps.filter.outputs.skip != 'true'
         run: |
+          # Use -j1 to avoid runner thread exhaustion on 2-core GitHub runners.
+          # LLVM's C++ thread pool in the stage4 compiler can exhaust the OS
+          # thread limit when multiple compilations run in parallel.
+          FILTER="${{ inputs.test-filter }}"
+
           ARGS=(
             -Dlibc-test-path="$HOME/libc-test"
-            -Dtest-filter="${{ inputs.test-filter }}"
-            -j4
+            -Dtest-filter="$FILTER"
+            -j1
             --summary all
           )
 
@@ -187,4 +198,32 @@ jobs:
             ARGS+=(-fwasmtime)
           fi
 
-          stage4/bin/zig build test-libc "${ARGS[@]}"
+          if ! stage4/bin/zig build test-libc --zig-lib-dir lib "${ARGS[@]}"; then
+            echo "=== test-libc failed (exit $?), getting backtrace ==="
+            sudo apt-get install -y gdb binutils 2>/dev/null || true
+
+            # Check binary type and segments
+            echo "=== Binary info ==="
+            readelf -h stage4/bin/zig 2>/dev/null | grep -E "Entry|Type" || true
+            readelf -l stage4/bin/zig 2>/dev/null | grep -A1 LOAD | head -20 || true
+            readelf -S stage4/bin/zig 2>/dev/null | grep -E "\.text|\.rodata" | head -5 || true
+
+            # Get crash address via GDB with more detail
+            echo "=== GDB backtrace ==="
+            gdb -batch -ex "set pagination off" -ex run \
+              -ex "info registers rax rbx rcx rdx rsi rdi rbp rsp rip" \
+              -ex "x/20i \$rip-16" \
+              -ex "thread apply all bt" -ex quit \
+              --args stage4/bin/zig build test-libc --zig-lib-dir lib "${ARGS[@]}" 2>&1 | tail -60 || true
+
+            # Disassemble around the crash addresses
+            echo "=== Disassembly near 0x0af0c3e6 ==="
+            objdump -d --start-address=0x0af0c380 --stop-address=0x0af0c420 stage4/bin/zig 2>&1 | head -40 || true
+            echo "=== Disassembly near 0x0af0a9cf ==="
+            objdump -d --start-address=0x0af0a980 --stop-address=0x0af0aa20 stage4/bin/zig 2>&1 | head -40 || true
+
+            # Show strace of last syscalls before crash
+            echo "=== strace ==="
+            strace -f -Z stage4/bin/zig build test-libc --zig-lib-dir lib "${ARGS[@]}" 2>&1 | tail -20 || true
+            exit 1
+          fi

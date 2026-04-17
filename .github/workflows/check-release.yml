@@ -49,5 +49,5 @@ jobs:
           for tag in $(echo "${NEW_VERSIONS}" | jq -r '.[]'); do
             version="${tag#v}"
             echo "Triggering publish for ${version}"
-            gh workflow run publish.yml --ref ctmain -f version="${version}"
+            gh workflow run publish.yml --ref ai -f version="${version}"
           done

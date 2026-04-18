@@ -201,6 +201,29 @@ comptime {
         // vasprintf, vdprintf kept as C (see #243)
         symbol(&getdelim_impl, "getdelim");
 
+        // Variadic entry points forwarding to v* implementations (unblocked by #243 fix).
+        symbol(&printf_impl, "printf");
+        symbol(&fprintf_impl, "fprintf");
+        symbol(&sprintf_impl, "sprintf");
+        symbol(&snprintf_impl, "snprintf");
+        symbol(&dprintf_impl, "dprintf");
+        symbol(&asprintf_impl, "asprintf");
+        symbol(&wprintf_impl, "wprintf");
+        symbol(&fwprintf_impl, "fwprintf");
+        symbol(&swprintf_impl, "swprintf");
+        symbol(&scanf_impl, "scanf");
+        symbol(&scanf_impl, "__isoc99_scanf");
+        symbol(&fscanf_impl, "fscanf");
+        symbol(&fscanf_impl, "__isoc99_fscanf");
+        symbol(&sscanf_impl, "sscanf");
+        symbol(&sscanf_impl, "__isoc99_sscanf");
+        symbol(&wscanf_impl, "wscanf");
+        symbol(&wscanf_impl, "__isoc99_wscanf");
+        symbol(&fwscanf_impl, "fwscanf");
+        symbol(&fwscanf_impl, "__isoc99_fwscanf");
+        symbol(&swscanf_impl, "swscanf");
+        symbol(&swscanf_impl, "__isoc99_swscanf");
+
         // Locking (__lockfile.c, flockfile.c, funlockfile.c, ftrylockfile.c)
         symbol(&lockfile_impl, "__lockfile");
         symbol(&unlockfile_impl, "__unlockfile");
@@ -1396,6 +1419,113 @@ fn vprintf_impl(fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
 /// vscanf.c: int vscanf(const char *restrict fmt, va_list ap)
 fn vscanf_impl(fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     return vfscanf_fn(stdin_ext.*, fmt, ap);
+}
+
+// --- Variadic entry points (#243 fix enables forwarding VaList by value to C) ---
+
+/// printf.c
+fn printf_impl(fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vfprintf_fn(stdout_ext.*, fmt, ap);
+}
+
+/// fprintf.c
+fn fprintf_impl(f: ?*FILE, fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vfprintf_fn(f, fmt, ap);
+}
+
+/// sprintf.c
+fn sprintf_impl(s: [*]u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vsprintf_impl(s, fmt, ap);
+}
+
+/// snprintf.c
+fn snprintf_impl(s: [*]u8, n: usize, fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vsnprintf_impl(s, n, fmt, ap);
+}
+
+/// dprintf.c
+fn dprintf_impl(fd: c_int, fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vdprintf_impl(fd, fmt, ap);
+}
+
+/// asprintf.c
+fn asprintf_impl(s: *?[*]u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vasprintf_impl(s, fmt, ap);
+}
+
+/// wprintf.c
+fn wprintf_impl(fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vfwprintf_fn(stdout_ext.*, fmt, ap);
+}
+
+/// fwprintf.c
+fn fwprintf_impl(f: ?*FILE, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vfwprintf_fn(f, fmt, ap);
+}
+
+/// swprintf.c
+fn swprintf_impl(s: [*]wchar_t, n: usize, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vswprintf_impl(s, n, fmt, ap);
+}
+
+/// scanf.c (also aliased as __isoc99_scanf)
+fn scanf_impl(fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vfscanf_fn(stdin_ext.*, fmt, ap);
+}
+
+/// fscanf.c (also aliased as __isoc99_fscanf)
+fn fscanf_impl(f: ?*FILE, fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vfscanf_fn(f, fmt, ap);
+}
+
+/// sscanf.c (also aliased as __isoc99_sscanf)
+fn sscanf_impl(s: [*:0]const u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vsscanf_impl(s, fmt, ap);
+}
+
+/// wscanf.c (also aliased as __isoc99_wscanf)
+fn wscanf_impl(fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vfwscanf_fn(stdin_ext.*, fmt, ap);
+}
+
+/// fwscanf.c (also aliased as __isoc99_fwscanf)
+fn fwscanf_impl(f: ?*FILE, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vfwscanf_fn(f, fmt, ap);
+}
+
+/// swscanf.c (also aliased as __isoc99_swscanf)
+fn swscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
+    var ap = @cVaStart();
+    defer @cVaEnd(&ap);
+    return vswscanf_impl(s, fmt, ap);
 }
 
 // --- Locking (__lockfile.c, flockfile.c, funlockfile.c, ftrylockfile.c) ---

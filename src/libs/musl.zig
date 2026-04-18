@@ -718,8 +718,8 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/__stdio_write.c", // migrated to lib/c/stdio.zig
     "musl/src/stdio/stdout.c",
     //"musl/src/stdio/__stdout_write.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/swprintf.c",
-    "musl/src/stdio/swscanf.c",
+    //"musl/src/stdio/swprintf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/swscanf.c", // migrated to lib/c/stdio.zig
     "musl/src/stdio/tempnam.c",
     "musl/src/stdio/tmpfile.c",
     "musl/src/stdio/tmpnam.c",
@@ -843,19 +843,19 @@ const src_files = [_][]const u8{
     "musl/src/time/timer_settime.c",
     "musl/src/time/__tz.c",
     "musl/src/time/wcsftime.c",
-    "musl/src/stdio/asprintf.c",
-    "musl/src/stdio/dprintf.c",
-    "musl/src/stdio/fprintf.c",
-    "musl/src/stdio/fscanf.c",
-    "musl/src/stdio/fwprintf.c",
-    "musl/src/stdio/fwscanf.c",
-    "musl/src/stdio/printf.c",
-    "musl/src/stdio/scanf.c",
-    "musl/src/stdio/snprintf.c",
-    "musl/src/stdio/sprintf.c",
-    "musl/src/stdio/sscanf.c",
-    "musl/src/stdio/wprintf.c",
-    "musl/src/stdio/wscanf.c",
+    //"musl/src/stdio/asprintf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/dprintf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/fprintf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/fscanf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/fwprintf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/fwscanf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/printf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/scanf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/snprintf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/sprintf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/sscanf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/wprintf.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/wscanf.c", // migrated to lib/c/stdio.zig
     "musl/src/mman/mremap.c",
     "musl/src/process/_Fork.c",
     "musl/src/process/fork.c",

@@ -22,7 +22,7 @@ const app_mask = blk: {
 };
 // Musl's struct sigaction (different from kernel's k_sigaction)
 const c_sigaction = extern struct {
-    handler: ?*const fn (c_int) callconv(.c) void,
+    handler: ?*align(1) const fn (c_int) callconv(.c) void,
     mask: [128 / @sizeOf(c_ulong)]c_ulong,
     flags: c_int,
     restorer: ?*const fn () callconv(.c) void,
@@ -32,8 +32,8 @@ extern "c" fn sigaction(sig: c_int, act: ?*const c_sigaction, oact: ?*c_sigactio
 extern "c" fn __sigaction(sig: c_int, act: ?*const c_sigaction, oact: ?*c_sigaction) callconv(.c) c_int;
 const SA_RESTART = 0x10000000;
 extern "c" fn psignal(sig: c_int, msg: ?[*:0]const u8) callconv(.c) void;
-const SIG_HOLD: ?*const fn (c_int) callconv(.c) void = @ptrFromInt(2);
-const SIG_ERR: ?*const fn (c_int) callconv(.c) void = @ptrFromInt(std.math.maxInt(usize));
+const SIG_HOLD: ?*align(1) const fn (c_int) callconv(.c) void = @ptrFromInt(2);
+const SIG_ERR: ?*align(1) const fn (c_int) callconv(.c) void = @ptrFromInt(std.math.maxInt(usize));
 const SI_QUEUE = -1;
 
 comptime {
@@ -224,7 +224,7 @@ fn sigpauseLinux(sig: c_int) callconv(.c) c_int {
     return errno(linux.syscall2(.rt_sigsuspend, @intFromPtr(&mask), NSIG / 8));
 }
 
-fn signalImpl(sig: c_int, func: ?*const fn (c_int) callconv(.c) void) callconv(.c) ?*const fn (c_int) callconv(.c) void {
+fn signalImpl(sig: c_int, func: ?*align(1) const fn (c_int) callconv(.c) void) callconv(.c) ?*align(1) const fn (c_int) callconv(.c) void {
     var sa_old: c_sigaction = undefined;
     var sa: c_sigaction = .{
         .handler = func,
@@ -248,7 +248,7 @@ fn siginterruptImpl(sig: c_int, flag: c_int) callconv(.c) c_int {
 }
 
 fn sigignoreImpl(sig: c_int) callconv(.c) c_int {
-    const SIG_IGN: ?*const fn (c_int) callconv(.c) void = @ptrFromInt(1);
+    const SIG_IGN: ?*align(1) const fn (c_int) callconv(.c) void = @ptrFromInt(1);
     var sa: c_sigaction = .{
         .handler = SIG_IGN,
         .mask = @splat(0),
@@ -262,7 +262,7 @@ fn psiginfo(si: *const linux.siginfo_t, msg: ?[*:0]const u8) callconv(.c) void {
     psignal(@intCast(@intFromEnum(si.signo)), msg);
 }
 
-fn sigsetImpl(sig: c_int, handler: ?*const fn (c_int) callconv(.c) void) callconv(.c) ?*const fn (c_int) callconv(.c) void {
+fn sigsetImpl(sig: c_int, handler: ?*align(1) const fn (c_int) callconv(.c) void) callconv(.c) ?*align(1) const fn (c_int) callconv(.c) void {
     var sa: c_sigaction = undefined;
     var sa_old: c_sigaction = undefined;
     var mask: sigset_t = @splat(0);

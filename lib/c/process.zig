@@ -61,12 +61,12 @@ const PATH_MAX = 4096;
 extern "c" fn execvp(file: [*:0]const u8, argv: [*:null]const ?[*:0]const u8) callconv(.c) c_int;
 const MAX_ARGS = 256;
 const c_sigaction = extern struct {
-    handler: ?*const fn (c_int) callconv(.c) void,
+    handler: ?*align(1) const fn (c_int) callconv(.c) void,
     mask: musl_sigset_t,
     flags: c_int,
     restorer: ?*const fn () callconv(.c) void,
 };
-const SIG_IGN: ?*const fn (c_int) callconv(.c) void = @ptrFromInt(1);
+const SIG_IGN: ?*align(1) const fn (c_int) callconv(.c) void = @ptrFromInt(1);
 extern "c" fn sigaction(sig: c_int, act: ?*const c_sigaction, oact: ?*c_sigaction) callconv(.c) c_int;
 extern "c" fn sigprocmask(how: c_int, set: ?*const musl_sigset_t, oset: ?*musl_sigset_t) callconv(.c) c_int;
 extern "c" fn sigemptyset(set: *musl_sigset_t) callconv(.c) c_int;

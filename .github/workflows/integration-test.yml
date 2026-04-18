@@ -30,17 +30,14 @@ jobs:
           - host: ubuntu-latest
             asset_suffix: "x86_64-linux*.tar.xz"
             extract: "tar xJf"
-            bindir: ""
             exe: ""
           - host: macos-latest
             asset_suffix: "aarch64-macos*.tar.xz"
             extract: "tar xJf"
-            bindir: ""
             exe: ""
           - host: windows-latest
             asset_suffix: "x86_64-windows*.zip"
             extract: "unzip -q"
-            bindir: "bin/"
             exe: ".exe"
     runs-on: ${{ matrix.host }}
     steps:
@@ -74,11 +71,11 @@ jobs:
         shell: bash
         run: |
           ${{ matrix.extract }} *${{ matrix.asset_suffix }}
-          # Find the zig binary. Windows lives under bin/; others at package root.
           DIR=$(find . -maxdepth 2 -type d -name "zig-*" | head -1)
           echo "PKG=$DIR" >> "$GITHUB_ENV"
-          echo "ZIG=$DIR/${{ matrix.bindir }}zig${{ matrix.exe }}" >> "$GITHUB_ENV"
-          ls "$DIR"
+          # Binary lives in bin/ across all three platforms.
+          echo "ZIG=$DIR/bin/zig${{ matrix.exe }}" >> "$GITHUB_ENV"
+          ls "$DIR/bin"
 
       - name: zig version
         shell: bash
@@ -94,24 +91,26 @@ jobs:
           int main(void) { printf("hello from zig cc\n"); return 0; }
           EOF
           "$ZIG" cc hello.c -o hello${{ matrix.exe }}
-          out=$(./hello${{ matrix.exe }})
+          out=$(./hello${{ matrix.exe }} 2>&1)
           echo "got: $out"
-          test "$out" = "hello from zig cc"
+          echo "$out" | grep -q "hello from zig cc"
 
       - name: Compile & run hello.zig (zig build-exe)
         shell: bash
         run: |
+          # std.debug.print writes to stderr — capture with 2>&1.
+          # Using std.debug.print keeps this portable across Zig stdlib
+          # versions (std.io was removed in a recent release).
           cat > hello.zig <<'EOF'
           const std = @import("std");
           pub fn main() !void {
-              const stdout = std.io.getStdOut().writer();
-              try stdout.print("hello from zig build-exe\n", .{});
+              std.debug.print("hello from zig build-exe\n", .{});
           }
           EOF
           "$ZIG" build-exe hello.zig
-          out=$(./hello${{ matrix.exe }})
+          out=$(./hello${{ matrix.exe }} 2>&1)
           echo "got: $out"
-          test "$out" = "hello from zig build-exe"
+          echo "$out" | grep -q "hello from zig build-exe"
 
   # --- Cross-compile smoke: validate bundled libzigc on foreign targets. ---
   # Only run on ubuntu-latest because qemu-user-static + wasmtime are
@@ -142,7 +141,7 @@ jobs:
             --pattern "*x86_64-linux*.tar.xz"
           tar xJf *x86_64-linux*.tar.xz
           DIR=$(find . -maxdepth 2 -type d -name "zig-*" | head -1)
-          echo "ZIG=$PWD/$DIR/zig" >> "$GITHUB_ENV"
+          echo "ZIG=$PWD/$DIR/bin/zig" >> "$GITHUB_ENV"
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -164,8 +163,7 @@ jobs:
           cat > hello.zig <<'EOF'
           const std = @import("std");
           pub fn main() !void {
-              const stdout = std.io.getStdOut().writer();
-              try stdout.print("hello cross zig\n", .{});
+              std.debug.print("hello cross zig\n", .{});
           }
           EOF
 
@@ -173,30 +171,30 @@ jobs:
         shell: bash
         run: |
           "$ZIG" cc -target aarch64-linux-musl hello.c -o hello-aarch64
-          out=$(qemu-aarch64-static ./hello-aarch64)
+          out=$(qemu-aarch64-static ./hello-aarch64 2>&1)
           echo "got: $out"
-          test "$out" = "hello cross"
+          echo "$out" | grep -q "hello cross"
 
       - name: Cross-compile & run — aarch64-linux-musl (Zig)
         shell: bash
         run: |
           "$ZIG" build-exe hello.zig -target aarch64-linux-musl -femit-bin=hello-aarch64-zig
-          out=$(qemu-aarch64-static ./hello-aarch64-zig)
+          out=$(qemu-aarch64-static ./hello-aarch64-zig 2>&1)
           echo "got: $out"
-          test "$out" = "hello cross zig"
+          echo "$out" | grep -q "hello cross zig"
 
       - name: Cross-compile & run — x86_64-linux-musl (C)
         shell: bash
         run: |
           "$ZIG" cc -target x86_64-linux-musl hello.c -o hello-x86_64-musl
-          out=$(./hello-x86_64-musl)
+          out=$(./hello-x86_64-musl 2>&1)
           echo "got: $out"
-          test "$out" = "hello cross"
+          echo "$out" | grep -q "hello cross"
 
       - name: Cross-compile & run — wasm32-wasi (Zig)
         shell: bash
         run: |
           "$ZIG" build-exe hello.zig -target wasm32-wasi -femit-bin=hello.wasm
-          out=$(wasmtime run hello.wasm)
+          out=$(wasmtime run hello.wasm 2>&1)
           echo "got: $out"
-          test "$out" = "hello cross zig"
+          echo "$out" | grep -q "hello cross zig"

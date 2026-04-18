@@ -1,0 +1,202 @@
+name: integration-test
+
+# Tier A smoke test: verify the latest (or specified) libzigc prebuilt
+# actually works on each host OS and for a couple of cross-compile targets.
+#
+# Manual-only until we've seen it pass a few times. Once stable, flip to
+#   on:
+#     release: { types: [published] }
+#     workflow_dispatch:
+# to run automatically after every build-release publish.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to test (defaults to latest non-draft release)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # --- Host smoke: zig version + hello.c + hello.zig on each OS ---
+  host-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: ubuntu-latest
+            asset_suffix: "x86_64-linux.tar.xz"
+            extract: "tar xJf"
+            bindir: ""
+            exe: ""
+          - host: macos-latest
+            asset_suffix: "aarch64-macos.tar.xz"
+            extract: "tar xJf"
+            bindir: ""
+            exe: ""
+          - host: windows-latest
+            asset_suffix: "x86_64-windows.zip"
+            extract: "unzip -q"
+            bindir: "bin/"
+            exe: ".exe"
+    runs-on: ${{ matrix.host }}
+    steps:
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG=$(gh release list --repo ${{ github.repository }} --limit 20 \
+                  --json tagName,isDraft,isPrerelease \
+                  | jq -r '[.[] | select(.isDraft==false)] | .[0].tagName')
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Testing release: $TAG"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Download release asset
+        shell: bash
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo ${{ github.repository }} \
+            --pattern "*${{ matrix.asset_suffix }}"
+          ls -la
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Extract
+        shell: bash
+        run: |
+          ${{ matrix.extract }} *${{ matrix.asset_suffix }}
+          # Find the zig binary. Windows lives under bin/; others at package root.
+          DIR=$(find . -maxdepth 2 -type d -name "zig-*" | head -1)
+          echo "PKG=$DIR" >> "$GITHUB_ENV"
+          echo "ZIG=$DIR/${{ matrix.bindir }}zig${{ matrix.exe }}" >> "$GITHUB_ENV"
+          ls "$DIR"
+
+      - name: zig version
+        shell: bash
+        run: |
+          "$ZIG" version
+          "$ZIG" env | head -20
+
+      - name: Compile & run hello.c (zig cc)
+        shell: bash
+        run: |
+          cat > hello.c <<'EOF'
+          #include <stdio.h>
+          int main(void) { printf("hello from zig cc\n"); return 0; }
+          EOF
+          "$ZIG" cc hello.c -o hello${{ matrix.exe }}
+          out=$(./hello${{ matrix.exe }})
+          echo "got: $out"
+          test "$out" = "hello from zig cc"
+
+      - name: Compile & run hello.zig (zig build-exe)
+        shell: bash
+        run: |
+          cat > hello.zig <<'EOF'
+          const std = @import("std");
+          pub fn main() !void {
+              const stdout = std.io.getStdOut().writer();
+              try stdout.print("hello from zig build-exe\n", .{});
+          }
+          EOF
+          "$ZIG" build-exe hello.zig
+          out=$(./hello${{ matrix.exe }})
+          echo "got: $out"
+          test "$out" = "hello from zig build-exe"
+
+  # --- Cross-compile smoke: validate bundled libzigc on foreign targets. ---
+  # Only run on ubuntu-latest because qemu-user-static + wasmtime are
+  # trivially installable there. Cross from x86_64-linux.
+  cross-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG=$(gh release list --repo ${{ github.repository }} --limit 20 \
+                  --json tagName,isDraft \
+                  | jq -r '[.[] | select(.isDraft==false)] | .[0].tagName')
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Download x86_64-linux prebuild
+        shell: bash
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo ${{ github.repository }} \
+            --pattern "*x86_64-linux.tar.xz"
+          tar xJf *x86_64-linux.tar.xz
+          DIR=$(find . -maxdepth 2 -type d -name "zig-*" | head -1)
+          echo "ZIG=$PWD/$DIR/zig" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Install qemu-user-static + wasmtime
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-user-static
+          curl -sSf https://wasmtime.dev/install.sh | bash
+          echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+
+      - name: Write hello sources
+        shell: bash
+        run: |
+          cat > hello.c <<'EOF'
+          #include <stdio.h>
+          int main(void) { printf("hello cross\n"); return 0; }
+          EOF
+          cat > hello.zig <<'EOF'
+          const std = @import("std");
+          pub fn main() !void {
+              const stdout = std.io.getStdOut().writer();
+              try stdout.print("hello cross zig\n", .{});
+          }
+          EOF
+
+      - name: Cross-compile & run — aarch64-linux-musl (C)
+        shell: bash
+        run: |
+          "$ZIG" cc -target aarch64-linux-musl hello.c -o hello-aarch64
+          out=$(qemu-aarch64-static ./hello-aarch64)
+          echo "got: $out"
+          test "$out" = "hello cross"
+
+      - name: Cross-compile & run — aarch64-linux-musl (Zig)
+        shell: bash
+        run: |
+          "$ZIG" build-exe hello.zig -target aarch64-linux-musl -femit-bin=hello-aarch64-zig
+          out=$(qemu-aarch64-static ./hello-aarch64-zig)
+          echo "got: $out"
+          test "$out" = "hello cross zig"
+
+      - name: Cross-compile & run — x86_64-linux-musl (C)
+        shell: bash
+        run: |
+          "$ZIG" cc -target x86_64-linux-musl hello.c -o hello-x86_64-musl
+          out=$(./hello-x86_64-musl)
+          echo "got: $out"
+          test "$out" = "hello cross"
+
+      - name: Cross-compile & run — wasm32-wasi (Zig)
+        shell: bash
+        run: |
+          "$ZIG" build-exe hello.zig -target wasm32-wasi -femit-bin=hello.wasm
+          out=$(wasmtime run hello.wasm)
+          echo "got: $out"
+          test "$out" = "hello cross zig"

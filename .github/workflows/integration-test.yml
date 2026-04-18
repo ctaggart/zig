@@ -28,17 +28,17 @@ jobs:
       matrix:
         include:
           - host: ubuntu-latest
-            asset_suffix: "x86_64-linux.tar.xz"
+            asset_suffix: "x86_64-linux*.tar.xz"
             extract: "tar xJf"
             bindir: ""
             exe: ""
           - host: macos-latest
-            asset_suffix: "aarch64-macos.tar.xz"
+            asset_suffix: "aarch64-macos*.tar.xz"
             extract: "tar xJf"
             bindir: ""
             exe: ""
           - host: windows-latest
-            asset_suffix: "x86_64-windows.zip"
+            asset_suffix: "x86_64-windows*.zip"
             extract: "unzip -q"
             bindir: "bin/"
             exe: ".exe"
@@ -139,8 +139,8 @@ jobs:
         run: |
           gh release download "${{ steps.tag.outputs.tag }}" \
             --repo ${{ github.repository }} \
-            --pattern "*x86_64-linux.tar.xz"
-          tar xJf *x86_64-linux.tar.xz
+            --pattern "*x86_64-linux*.tar.xz"
+          tar xJf *x86_64-linux*.tar.xz
           DIR=$(find . -maxdepth 2 -type d -name "zig-*" | head -1)
           echo "ZIG=$PWD/$DIR/zig" >> "$GITHUB_ENV"
         env:

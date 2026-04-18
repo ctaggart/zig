@@ -720,9 +720,9 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/__stdout_write.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/swprintf.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/swscanf.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/tempnam.c",
+    //"musl/src/stdio/tempnam.c", // migrated to lib/c/temp.zig
     "musl/src/stdio/tmpfile.c",
-    "musl/src/stdio/tmpnam.c",
+    //"musl/src/stdio/tmpnam.c", // migrated to lib/c/temp.zig
     //"musl/src/stdio/ungetc.c", // migrated to lib/c/stdio.zig
     "musl/src/stdio/ungetwc.c",
     // "musl/src/stdio/vasprintf.c", // migrated to Zig (vasprintf_impl)

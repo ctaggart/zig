@@ -14,8 +14,15 @@ comptime {
         symbol(&mkstemps, "mkstemps");
         symbol(&mkostemp, "mkostemp");
         symbol(&mktemp, "mktemp");
+        symbol(&tmpnam, "tmpnam");
+        symbol(&tempnam, "tempnam");
     }
 }
+
+// strdup is already provided by libc (from musl's src/string/strdup.c)
+extern "c" fn strdup(s: [*:0]const u8) callconv(.c) ?[*:0]u8;
+
+const L_tmpnam = 20;
 
 /// Generate a random 6-character suffix for temp file names.
 /// Replaces musl's __randname which used __pthread_self()->tid.
@@ -122,4 +129,80 @@ fn mktemp(template: [*:0]u8) callconv(.c) [*:0]u8 {
     template[0] = 0;
     std.c._errno().* = @intFromEnum(linux.E.EXIST);
     return template;
+}
+
+/// tmpnam.c: char *tmpnam(char *buf)
+/// Returns a unique temporary file name in `buf` (or a static internal buffer if buf is null).
+fn tmpnam(buf: ?[*:0]u8) callconv(.c) ?[*:0]u8 {
+    const S = struct {
+        var internal: [L_tmpnam]u8 = undefined;
+    };
+    const template = "/tmp/tmpnam_XXXXXX";
+    var s: [template.len + 1]u8 = undefined;
+    @memcpy(s[0..template.len], template);
+    s[template.len] = 0;
+    var retries: u32 = 100;
+    while (retries > 0) : (retries -= 1) {
+        const s_ptr: [*]u8 = @ptrCast(&s);
+        _ = __randname(s_ptr + 12);
+        var stx: linux.Statx = undefined;
+        const rc: isize = @bitCast(linux.statx(
+            linux.AT.FDCWD,
+            @ptrCast(&s),
+            0,
+            .{},
+            &stx,
+        ));
+        if (rc < 0) {
+            const e: linux.E = @enumFromInt(@as(u16, @intCast(-rc)));
+            if (e == .NOENT) {
+                const dst_sentinel: [*:0]u8 = buf orelse @as([*:0]u8, @ptrCast(&S.internal));
+                const dst: [*]u8 = @ptrCast(dst_sentinel);
+                @memcpy(dst[0 .. template.len + 1], &s);
+                return dst_sentinel;
+            }
+        }
+    }
+    return null;
+}
+
+/// tempnam.c: char *tempnam(const char *dir, const char *pfx)
+/// Returns a malloc'd unique temporary file name in the given directory with the given prefix.
+fn tempnam(dir_opt: ?[*:0]const u8, pfx_opt: ?[*:0]const u8) callconv(.c) ?[*:0]u8 {
+    const PATH_MAX: usize = 4096;
+    const dir: []const u8 = if (dir_opt) |d| std.mem.span(d) else "/tmp";
+    const pfx: []const u8 = if (pfx_opt) |p| std.mem.span(p) else "temp";
+    const l: usize = dir.len + 1 + pfx.len + 1 + 6;
+    if (l >= PATH_MAX) {
+        std.c._errno().* = @intFromEnum(linux.E.NAMETOOLONG);
+        return null;
+    }
+    var s: [PATH_MAX]u8 = undefined;
+    @memcpy(s[0..dir.len], dir);
+    s[dir.len] = '/';
+    @memcpy(s[dir.len + 1 ..][0..pfx.len], pfx);
+    s[dir.len + 1 + pfx.len] = '_';
+    // next 6 bytes are XXXXXX written by __randname each iteration
+    s[l] = 0;
+    var retries: u32 = 100;
+    while (retries > 0) : (retries -= 1) {
+        const s_ptr: [*]u8 = @ptrCast(&s);
+        _ = __randname(s_ptr + l - 6);
+        var stx: linux.Statx = undefined;
+        const rc: isize = @bitCast(linux.statx(
+            linux.AT.FDCWD,
+            @ptrCast(&s),
+            0,
+            .{},
+            &stx,
+        ));
+        if (rc < 0) {
+            const e: linux.E = @enumFromInt(@as(u16, @intCast(-rc)));
+            if (e == .NOENT) {
+                const sentinel: [*:0]const u8 = @ptrCast(&s);
+                return strdup(sentinel);
+            }
+        }
+    }
+    return null;
 }

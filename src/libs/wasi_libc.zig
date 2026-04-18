@@ -456,8 +456,7 @@ fn addLibcTopHalfIncludes(
     });
 }
 
-const libc_bottom_half_src_files = [_][]const u8{
-};
+const libc_bottom_half_src_files = [_][]const u8{};
 
 const libc_top_half_src_files = [_][]const u8{
     "musl/src/crypt/crypt_blowfish.c",
@@ -609,7 +608,7 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/thread/pthread_spin_init.c",
     "musl/src/thread/pthread_testcancel.c",
     "musl/src/thread/thrd_sleep.c",
-    "musl/src/time/difftime.c",
+    //"musl/src/time/difftime.c", // migrated to lib/c/time.zig
     "musl/src/time/ftime.c",
     "musl/src/time/strptime.c",
     "musl/src/time/timespec_get.c",
@@ -675,7 +674,6 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/libc-top-half/musl/src/time/strftime.c",
     "wasi/libc-top-half/musl/src/time/__tz.c",
     "wasi/libc-top-half/musl/src/time/wcsftime.c",
-
 };
 
 const crt1_command_src_file = "wasi/libc-bottom-half/crt/crt1-command.c";

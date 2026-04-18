@@ -826,16 +826,16 @@ const src_files = [_][]const u8{
     "musl/src/thread/x86_64/__set_thread_area.s",
     "musl/src/thread/x86_64/syscall_cp.s",
     "musl/src/thread/x86_64/__unmapself.s",
-    "musl/src/time/clock.c",
-    "musl/src/time/clock_getcpuclockid.c",
-    "musl/src/time/clock_getres.c",
-    "musl/src/time/clock_gettime.c",
-    "musl/src/time/clock_settime.c",
-    "musl/src/time/difftime.c",
-    "musl/src/time/gettimeofday.c",
+    //"musl/src/time/clock.c", // migrated to lib/c/time.zig
+    //"musl/src/time/clock_getcpuclockid.c", // migrated to lib/c/time.zig
+    //"musl/src/time/clock_getres.c", // migrated to lib/c/time.zig
+    //"musl/src/time/clock_gettime.c", // migrated to lib/c/time.zig
+    //"musl/src/time/clock_settime.c", // migrated to lib/c/time.zig
+    //"musl/src/time/difftime.c", // migrated to lib/c/time.zig
+    //"musl/src/time/gettimeofday.c", // migrated to lib/c/time.zig
     "musl/src/time/strftime.c",
     "musl/src/time/strptime.c",
-    "musl/src/time/time.c",
+    //"musl/src/time/time.c", // migrated to lib/c/time.zig
     "musl/src/time/timer_create.c",
     "musl/src/time/timer_delete.c",
     "musl/src/time/timer_getoverrun.c",

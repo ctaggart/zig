@@ -498,15 +498,15 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/tgammaf.c",
     "musl/src/math/tgammal.c",
     "musl/src/misc/getdomainname.c",
-    "musl/src/network/htonl.c",
-    "musl/src/network/htons.c",
-    "musl/src/network/in6addr_any.c",
-    "musl/src/network/in6addr_loopback.c",
-    "musl/src/network/inet_aton.c",
-    "musl/src/network/inet_ntop.c",
-    "musl/src/network/inet_pton.c",
-    "musl/src/network/ntohl.c",
-    "musl/src/network/ntohs.c",
+    //"musl/src/network/htonl.c", // migrated to lib/c/network.zig
+    //"musl/src/network/htons.c", // migrated to lib/c/network.zig
+    //"musl/src/network/in6addr_any.c", // migrated to lib/c/network.zig
+    //"musl/src/network/in6addr_loopback.c", // migrated to lib/c/network.zig
+    //"musl/src/network/inet_aton.c", // migrated to lib/c/network.zig
+    //"musl/src/network/inet_ntop.c", // migrated to lib/c/network.zig
+    //"musl/src/network/inet_pton.c", // migrated to lib/c/network.zig
+    //"musl/src/network/ntohl.c", // migrated to lib/c/network.zig
+    //"musl/src/network/ntohs.c", // migrated to lib/c/network.zig
     "musl/src/stdio/asprintf.c",
     "musl/src/stdio/clearerr.c",
     "musl/src/stdio/dprintf.c",

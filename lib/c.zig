@@ -153,6 +153,7 @@ comptime {
         _ = @import("c/thread.zig");
         _ = @import("c/time.zig");
         _ = @import("c/unistd.zig");
+        _ = @import("c/network.zig");
     }
 
     if (builtin.target.isWasiLibC()) {

@@ -865,7 +865,6 @@ const src_files = [_][]const u8{
     "musl/src/stdio/putc_unlocked.c",
     "musl/src/stdio/putchar.c",
     "musl/src/stdio/putchar_unlocked.c",
-    "musl/src/thread/pthread_atfork.c",
     "musl/src/thread/pthread_cancel.c",
     "musl/src/thread/pthread_cond_timedwait.c",
     "musl/src/thread/pthread_create.c",

@@ -178,9 +178,9 @@ jobs:
       - name: Run libc-test (${{ matrix.name }})
         if: steps.filter.outputs.skip != 'true'
         run: |
-          # Use -j1 for pthread tests to avoid runner thread exhaustion
+          # Use -j1 for thread/pthread tests to avoid runner thread exhaustion
           FILTER="${{ inputs.test-filter }}"
-          if echo "$FILTER" | grep -qi "pthread"; then
+          if echo "$FILTER" | grep -qi "thread"; then
             JOBS=1
           else
             JOBS=2

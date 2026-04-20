@@ -2,6 +2,15 @@ const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const SYS = std.os.linux.SYS;
 
+// The x32 ABI runs on x86_64 and uses the same syscall convention as x86_64:
+// arguments are passed in the full 64-bit registers rdi/rsi/rdx/r10/r8/r9.
+// Some syscalls (e.g. mmap offset, lseek offset) use the full 64-bit width of
+// a single argument register, so arg types are u64 (not u32) to avoid
+// truncation. Userland pointers and size_t are 32-bit on x32, so a u32
+// `usize` value passed in will be zero-extended to 64 bits automatically.
+// The return type stays u32 because x32 usize is 32-bit and callers in
+// lib/std/os/linux.zig return `usize`.
+
 pub fn syscall0(number: SYS) u32 {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> u32),
@@ -9,7 +18,7 @@ pub fn syscall0(number: SYS) u32 {
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall1(number: SYS, arg1: u32) u32 {
+pub fn syscall1(number: SYS, arg1: u64) u32 {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
@@ -17,7 +26,7 @@ pub fn syscall1(number: SYS, arg1: u32) u32 {
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall2(number: SYS, arg1: u32, arg2: u32) u32 {
+pub fn syscall2(number: SYS, arg1: u64, arg2: u64) u32 {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
@@ -26,7 +35,7 @@ pub fn syscall2(number: SYS, arg1: u32, arg2: u32) u32 {
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall3(number: SYS, arg1: u32, arg2: u32, arg3: u32) u32 {
+pub fn syscall3(number: SYS, arg1: u64, arg2: u64, arg3: u64) u32 {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
@@ -36,7 +45,7 @@ pub fn syscall3(number: SYS, arg1: u32, arg2: u32, arg3: u32) u32 {
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
+pub fn syscall4(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64) u32 {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
@@ -47,7 +56,7 @@ pub fn syscall4(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32) u32 {
         : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u32) u32 {
+pub fn syscall5(number: SYS, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) u32 {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> u32),
         : [number] "{rax}" (@intFromEnum(number)),
@@ -61,12 +70,12 @@ pub fn syscall5(number: SYS, arg1: u32, arg2: u32, arg3: u32, arg4: u32, arg5: u
 
 pub fn syscall6(
     number: SYS,
-    arg1: u32,
-    arg2: u32,
-    arg3: u32,
-    arg4: u32,
-    arg5: u32,
-    arg6: u32,
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    arg6: u64,
 ) u32 {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> u32),

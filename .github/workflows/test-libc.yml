@@ -178,6 +178,12 @@ jobs:
       - name: Run libc-test (${{ matrix.name }})
         if: steps.filter.outputs.skip != 'true'
         run: |
+          # Raise thread/process limits to avoid "thread constructor failed:
+          # Resource temporarily unavailable" during parallel musl sub-compiles.
+          ulimit -u 65535 || true
+          ulimit -n 65535 || true
+          echo "ulimit -u: $(ulimit -u)"
+
           # Use -j1 for thread/pthread tests to avoid runner thread exhaustion
           FILTER="${{ inputs.test-filter }}"
           if echo "$FILTER" | grep -qi "thread"; then

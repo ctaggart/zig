@@ -530,7 +530,7 @@ const src_files = [_][]const u8{
     "musl/src/math/__math_xflowf.c",
     "musl/src/misc/getauxval.c",
     "musl/src/misc/getdomainname.c",
-    //"musl/src/network/accept4.c", // migrated to lib/c/network.zig
+    "musl/src/network/accept4.c",
     "musl/src/network/accept.c",
     "musl/src/network/bind.c",
     "musl/src/network/connect.c",
@@ -587,7 +587,7 @@ const src_files = [_][]const u8{
     "musl/src/network/proto.c",
     "musl/src/network/recv.c",
     "musl/src/network/recvfrom.c",
-    //"musl/src/network/recvmmsg.c", // migrated to lib/c/network.zig
+    "musl/src/network/recvmmsg.c",
     "musl/src/network/recvmsg.c",
     "musl/src/network/res_init.c",
     //"musl/src/network/res_mkquery.c", // migrated to lib/c/network.zig
@@ -598,7 +598,7 @@ const src_files = [_][]const u8{
     //"musl/src/network/res_send.c", // migrated to lib/c/network.zig
     "musl/src/network/res_state.c",
     "musl/src/network/send.c",
-    //"musl/src/network/sendmmsg.c", // migrated to lib/c/network.zig
+    "musl/src/network/sendmmsg.c",
     "musl/src/network/sendmsg.c",
     "musl/src/network/sendto.c",
     "musl/src/network/serv.c",
@@ -606,7 +606,7 @@ const src_files = [_][]const u8{
     "musl/src/network/shutdown.c",
     "musl/src/network/sockatmark.c",
     "musl/src/network/socket.c",
-    //"musl/src/network/socketpair.c", // migrated to lib/c/network.zig
+    "musl/src/network/socketpair.c",
     "musl/src/process/posix_spawn.c",
     "musl/src/process/posix_spawnp.c",
     "musl/src/sched/affinity.c",

@@ -371,8 +371,8 @@ fn notifySignal(signo: c_int, val: sigval_t) void {
     };
     _ = linux.syscall3(
         .rt_sigqueueinfo,
-        @bitCast(@as(isize, linux.getpid())),
-        @bitCast(@as(isize, signo)),
+        @as(usize, @bitCast(@as(isize, linux.getpid()))),
+        @as(usize, @bitCast(@as(isize, signo))),
         @intFromPtr(&si),
     );
 }

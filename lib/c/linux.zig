@@ -228,10 +228,10 @@ fn arg(val: anytype) usize {
         .pointer => @intFromPtr(val),
         .optional => if (val) |p| @intFromPtr(p) else 0,
         .int => |i| if (i.signedness == .signed)
-            @bitCast(@as(isize, @intCast(val)))
+            @as(usize, @bitCast(@as(isize, @intCast(val))))
         else
             @intCast(val),
-        .@"enum" => @bitCast(@as(isize, @intCast(@intFromEnum(val)))),
+        .@"enum" => @as(usize, @bitCast(@as(isize, @intCast(@intFromEnum(val))))),
         else => @compileError("unsupported arg type"),
     };
 }

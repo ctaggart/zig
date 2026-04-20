@@ -42,7 +42,7 @@ fn ftokLinux(path: [*:0]const u8, id: c_int) callconv(.c) c_int {
 fn msgctlLinux(q: c_int, cmd: c_int, buf: ?*anyopaque) callconv(.c) c_int {
     return errno(linux.syscall3(
         .msgctl,
-        @bitCast(@as(isize, q)),
+        @as(usize, @bitCast(@as(isize, q))),
         @as(usize, @bitCast(@as(isize, cmd))) | IPC_64,
         if (buf) |b| @intFromPtr(b) else 0,
     ));
@@ -51,19 +51,19 @@ fn msgctlLinux(q: c_int, cmd: c_int, buf: ?*anyopaque) callconv(.c) c_int {
 fn msggetLinux(key: c_int, flag: c_int) callconv(.c) c_int {
     return errno(linux.syscall2(
         .msgget,
-        @bitCast(@as(isize, key)),
-        @bitCast(@as(isize, flag)),
+        @as(usize, @bitCast(@as(isize, key))),
+        @as(usize, @bitCast(@as(isize, flag))),
     ));
 }
 
 fn msgrcvLinux(q: c_int, m: *anyopaque, len: usize, typ: c_long, flag: c_int) callconv(.c) isize {
     const rc: isize = @bitCast(linux.syscall5(
         .msgrcv,
-        @bitCast(@as(isize, q)),
+        @as(usize, @bitCast(@as(isize, q))),
         @intFromPtr(m),
         len,
         @bitCast(typ),
-        @bitCast(@as(isize, flag)),
+        @as(usize, @bitCast(@as(isize, flag))),
     ));
     if (rc < 0) {
         @branchHint(.unlikely);
@@ -76,10 +76,10 @@ fn msgrcvLinux(q: c_int, m: *anyopaque, len: usize, typ: c_long, flag: c_int) ca
 fn msgsndLinux(q: c_int, m: *const anyopaque, len: usize, flag: c_int) callconv(.c) c_int {
     return errno(linux.syscall4(
         .msgsnd,
-        @bitCast(@as(isize, q)),
+        @as(usize, @bitCast(@as(isize, q))),
         @intFromPtr(m),
         len,
-        @bitCast(@as(isize, flag)),
+        @as(usize, @bitCast(@as(isize, flag))),
     ));
 }
 
@@ -89,8 +89,8 @@ fn semctlLinux(id: c_int, num: c_int, cmd: c_int, ...) callconv(.c) c_int {
     const arg = @cVaArg(&ap, usize);
     return errno(linux.syscall4(
         .semctl,
-        @bitCast(@as(isize, id)),
-        @bitCast(@as(isize, num)),
+        @as(usize, @bitCast(@as(isize, id))),
+        @as(usize, @bitCast(@as(isize, num))),
         @as(usize, @bitCast(@as(isize, cmd))) | IPC_64,
         arg,
     ));
@@ -103,16 +103,16 @@ fn semgetLinux(key: c_int, n: c_int, fl: c_int) callconv(.c) c_int {
     }
     return errno(linux.syscall3(
         .semget,
-        @bitCast(@as(isize, key)),
-        @bitCast(@as(isize, n)),
-        @bitCast(@as(isize, fl)),
+        @as(usize, @bitCast(@as(isize, key))),
+        @as(usize, @bitCast(@as(isize, n))),
+        @as(usize, @bitCast(@as(isize, fl))),
     ));
 }
 
 fn semopLinux(id: c_int, buf: *anyopaque, n: usize) callconv(.c) c_int {
     return errno(linux.syscall3(
         .semop,
-        @bitCast(@as(isize, id)),
+        @as(usize, @bitCast(@as(isize, id))),
         @intFromPtr(buf),
         n,
     ));
@@ -121,7 +121,7 @@ fn semopLinux(id: c_int, buf: *anyopaque, n: usize) callconv(.c) c_int {
 fn semtimedopLinux(id: c_int, buf: *anyopaque, n: usize, ts: ?*const anyopaque) callconv(.c) c_int {
     return errno(linux.syscall4(
         if (@hasField(linux.SYS, "semtimedop_time64")) .semtimedop_time64 else .semtimedop,
-        @bitCast(@as(isize, id)),
+        @as(usize, @bitCast(@as(isize, id))),
         @intFromPtr(buf),
         n,
         if (ts) |t| @intFromPtr(t) else 0,
@@ -131,9 +131,9 @@ fn semtimedopLinux(id: c_int, buf: *anyopaque, n: usize, ts: ?*const anyopaque) 
 fn shmatLinux(id: c_int, addr: ?*const anyopaque, flag: c_int) callconv(.c) ?*anyopaque {
     const rc = linux.syscall3(
         .shmat,
-        @bitCast(@as(isize, id)),
+        @as(usize, @bitCast(@as(isize, id))),
         if (addr) |a| @intFromPtr(a) else 0,
-        @bitCast(@as(isize, flag)),
+        @as(usize, @bitCast(@as(isize, flag))),
     );
     const signed: isize = @bitCast(rc);
     if (signed > -4096 and signed < 0) {
@@ -148,7 +148,7 @@ fn shmatLinux(id: c_int, addr: ?*const anyopaque, flag: c_int) callconv(.c) ?*an
 fn shmctlLinux(id: c_int, cmd: c_int, buf: ?*anyopaque) callconv(.c) c_int {
     return errno(linux.syscall3(
         .shmctl,
-        @bitCast(@as(isize, id)),
+        @as(usize, @bitCast(@as(isize, id))),
         @as(usize, @bitCast(@as(isize, cmd))) | IPC_64,
         if (buf) |b| @intFromPtr(b) else 0,
     ));
@@ -165,8 +165,8 @@ fn shmgetLinux(key: c_int, size: usize, flag: c_int) callconv(.c) c_int {
     const sz = if (size > std.math.maxInt(isize)) std.math.maxInt(usize) else size;
     return errno(linux.syscall3(
         .shmget,
-        @bitCast(@as(isize, key)),
+        @as(usize, @bitCast(@as(isize, key))),
         sz,
-        @bitCast(@as(isize, flag)),
+        @as(usize, @bitCast(@as(isize, flag))),
     ));
 }

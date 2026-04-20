@@ -530,83 +530,83 @@ const src_files = [_][]const u8{
     "musl/src/math/__math_xflowf.c",
     "musl/src/misc/getauxval.c",
     "musl/src/misc/getdomainname.c",
-    //"musl/src/network/accept4.c", // migrated to lib/c/network.zig
-    //"musl/src/network/accept.c", // migrated to lib/c/network.zig
-    //"musl/src/network/bind.c", // migrated to lib/c/network.zig
-    //"musl/src/network/connect.c", // migrated to lib/c/network.zig
+    "musl/src/network/accept4.c",
+    "musl/src/network/accept.c",
+    "musl/src/network/bind.c",
+    "musl/src/network/connect.c",
     //"musl/src/network/dn_comp.c", // migrated to lib/c/network.zig
-    //"musl/src/network/dn_expand.c", // migrated to lib/c/network.zig
-    //"musl/src/network/dn_skipname.c", // migrated to lib/c/network.zig
-    //"musl/src/network/dns_parse.c", // migrated to lib/c/network.zig
-    //"musl/src/network/ent.c", // migrated to lib/c/network.zig
-    //"musl/src/network/ether.c", // migrated to lib/c/network.zig
+    "musl/src/network/dn_expand.c",
+    "musl/src/network/dn_skipname.c",
+    "musl/src/network/dns_parse.c",
+    "musl/src/network/ent.c",
+    "musl/src/network/ether.c",
     //"musl/src/network/freeaddrinfo.c", // migrated to lib/c/network.zig
-    //"musl/src/network/gai_strerror.c", // migrated to lib/c/network.zig
+    "musl/src/network/gai_strerror.c",
     //"musl/src/network/getaddrinfo.c", // migrated to lib/c/network.zig
-    //"musl/src/network/gethostbyaddr.c", // migrated to lib/c/network.zig
+    "musl/src/network/gethostbyaddr.c",
     //"musl/src/network/gethostbyaddr_r.c", // migrated to lib/c/network.zig
-    //"musl/src/network/gethostbyname2.c", // migrated to lib/c/network.zig
+    "musl/src/network/gethostbyname2.c",
     //"musl/src/network/gethostbyname2_r.c", // migrated to lib/c/network.zig
-    //"musl/src/network/gethostbyname.c", // migrated to lib/c/network.zig
-    //"musl/src/network/gethostbyname_r.c", // migrated to lib/c/network.zig
+    "musl/src/network/gethostbyname.c",
+    "musl/src/network/gethostbyname_r.c",
     //"musl/src/network/getifaddrs.c", // migrated to lib/c/network.zig
     //"musl/src/network/getnameinfo.c", // migrated to lib/c/network.zig
-    //"musl/src/network/getpeername.c", // migrated to lib/c/network.zig
-    //"musl/src/network/getservbyname.c", // migrated to lib/c/network.zig
+    "musl/src/network/getpeername.c",
+    "musl/src/network/getservbyname.c",
     //"musl/src/network/getservbyname_r.c", // migrated to lib/c/network.zig
-    //"musl/src/network/getservbyport.c", // migrated to lib/c/network.zig
+    "musl/src/network/getservbyport.c",
     //"musl/src/network/getservbyport_r.c", // migrated to lib/c/network.zig
-    //"musl/src/network/getsockname.c", // migrated to lib/c/network.zig
-    //"musl/src/network/getsockopt.c", // migrated to lib/c/network.zig
-    //"musl/src/network/h_errno.c", // migrated to lib/c/network.zig
-    //"musl/src/network/herror.c", // migrated to lib/c/network.zig
-    //"musl/src/network/hstrerror.c", // migrated to lib/c/network.zig
-    //"musl/src/network/htonl.c", // migrated to lib/c/network.zig
-    //"musl/src/network/htons.c", // migrated to lib/c/network.zig
-    //"musl/src/network/if_freenameindex.c", // migrated to lib/c/network.zig
-    //"musl/src/network/if_indextoname.c", // migrated to lib/c/network.zig
+    "musl/src/network/getsockname.c",
+    "musl/src/network/getsockopt.c",
+    "musl/src/network/h_errno.c",
+    "musl/src/network/herror.c",
+    "musl/src/network/hstrerror.c",
+    "musl/src/network/htonl.c",
+    "musl/src/network/htons.c",
+    "musl/src/network/if_freenameindex.c",
+    "musl/src/network/if_indextoname.c",
     //"musl/src/network/if_nameindex.c", // migrated to lib/c/network.zig
-    //"musl/src/network/if_nametoindex.c", // migrated to lib/c/network.zig
-    //"musl/src/network/in6addr_any.c", // migrated to lib/c/network.zig
-    //"musl/src/network/in6addr_loopback.c", // migrated to lib/c/network.zig
-    //"musl/src/network/inet_addr.c", // migrated to lib/c/network.zig
-    //"musl/src/network/inet_aton.c", // migrated to lib/c/network.zig
-    //"musl/src/network/inet_legacy.c", // migrated to lib/c/network.zig
-    //"musl/src/network/inet_ntoa.c", // migrated to lib/c/network.zig
-    //"musl/src/network/inet_ntop.c", // migrated to lib/c/network.zig
-    //"musl/src/network/inet_pton.c", // migrated to lib/c/network.zig
-    //"musl/src/network/listen.c", // migrated to lib/c/network.zig
+    "musl/src/network/if_nametoindex.c",
+    "musl/src/network/in6addr_any.c",
+    "musl/src/network/in6addr_loopback.c",
+    "musl/src/network/inet_addr.c",
+    "musl/src/network/inet_aton.c",
+    "musl/src/network/inet_legacy.c",
+    "musl/src/network/inet_ntoa.c",
+    "musl/src/network/inet_ntop.c",
+    "musl/src/network/inet_pton.c",
+    "musl/src/network/listen.c",
     //"musl/src/network/lookup_ipliteral.c", // migrated to lib/c/network.zig
     //"musl/src/network/lookup_name.c", // migrated to lib/c/network.zig
     //"musl/src/network/lookup_serv.c", // migrated to lib/c/network.zig
     //"musl/src/network/netlink.c", // migrated to lib/c/network.zig
     //"musl/src/network/netname.c", // migrated to lib/c/network.zig
     //"musl/src/network/ns_parse.c", // migrated to lib/c/network.zig
-    //"musl/src/network/ntohl.c", // migrated to lib/c/network.zig
-    //"musl/src/network/ntohs.c", // migrated to lib/c/network.zig
-    //"musl/src/network/proto.c", // migrated to lib/c/network.zig
-    //"musl/src/network/recv.c", // migrated to lib/c/network.zig
-    //"musl/src/network/recvfrom.c", // migrated to lib/c/network.zig
-    //"musl/src/network/recvmmsg.c", // migrated to lib/c/network.zig
-    //"musl/src/network/recvmsg.c", // migrated to lib/c/network.zig
-    //"musl/src/network/res_init.c", // migrated to lib/c/network.zig
+    "musl/src/network/ntohl.c",
+    "musl/src/network/ntohs.c",
+    "musl/src/network/proto.c",
+    "musl/src/network/recv.c",
+    "musl/src/network/recvfrom.c",
+    "musl/src/network/recvmmsg.c",
+    "musl/src/network/recvmsg.c",
+    "musl/src/network/res_init.c",
     //"musl/src/network/res_mkquery.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_msend.c", // migrated to lib/c/network.zig
     //"musl/src/network/resolvconf.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_query.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_querydomain.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_send.c", // migrated to lib/c/network.zig
-    //"musl/src/network/res_state.c", // migrated to lib/c/network.zig
-    //"musl/src/network/send.c", // migrated to lib/c/network.zig
-    //"musl/src/network/sendmmsg.c", // migrated to lib/c/network.zig
-    //"musl/src/network/sendmsg.c", // migrated to lib/c/network.zig
-    //"musl/src/network/sendto.c", // migrated to lib/c/network.zig
-    //"musl/src/network/serv.c", // migrated to lib/c/network.zig
-    //"musl/src/network/setsockopt.c", // migrated to lib/c/network.zig
-    //"musl/src/network/shutdown.c", // migrated to lib/c/network.zig
-    //"musl/src/network/sockatmark.c", // migrated to lib/c/network.zig
-    //"musl/src/network/socket.c", // migrated to lib/c/network.zig
-    //"musl/src/network/socketpair.c", // migrated to lib/c/network.zig
+    "musl/src/network/res_state.c",
+    "musl/src/network/send.c",
+    "musl/src/network/sendmmsg.c",
+    "musl/src/network/sendmsg.c",
+    "musl/src/network/sendto.c",
+    "musl/src/network/serv.c",
+    "musl/src/network/setsockopt.c",
+    "musl/src/network/shutdown.c",
+    "musl/src/network/sockatmark.c",
+    "musl/src/network/socket.c",
+    "musl/src/network/socketpair.c",
     "musl/src/process/posix_spawn.c",
     "musl/src/process/posix_spawnp.c",
     "musl/src/sched/affinity.c",
@@ -861,6 +861,7 @@ const src_files = [_][]const u8{
     "musl/src/process/fork.c",
     "musl/src/stdio/fputc.c",
     "musl/src/stdio/fwide.c",
+    "musl/src/stdio/getc.c",
     "musl/src/stdio/putc.c",
     "musl/src/stdio/putc_unlocked.c",
     "musl/src/stdio/putchar.c",

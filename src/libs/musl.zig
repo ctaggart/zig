@@ -481,7 +481,7 @@ const src_files = [_][]const u8{
     "musl/src/ldso/aarch64/tlsdesc.s",
     "musl/src/ldso/arm/dlsym.s",
     "musl/src/ldso/arm/dlsym_time64.S",
-    //"musl/src/ldso/arm/find_exidx.c", // migrated to lib/c/ldso.zig
+    //"musl/src/ldso/arm/find_exidx.c", // migrated to lib/c/ldso.zig; exports: __gnu_Unwind_Find_exidx
     "musl/src/ldso/arm/tlsdesc.S",
     //"musl/src/ldso/dladdr.c", // migrated to lib/c/ldso.zig
     //"musl/src/ldso/dlclose.c", // migrated to lib/c/ldso.zig
@@ -506,7 +506,7 @@ const src_files = [_][]const u8{
     "musl/src/ldso/riscv64/dlsym.s",
     "musl/src/ldso/riscv64/tlsdesc.s",
     "musl/src/ldso/s390x/dlsym.s",
-    //"musl/src/ldso/tlsdesc.c", // migrated to lib/c/ldso.zig
+    //"musl/src/ldso/tlsdesc.c", // migrated to lib/c/ldso.zig; exports: __tlsdesc_static
     "musl/src/ldso/x32/dlsym.s",
     "musl/src/ldso/x86_64/dlsym.s",
     "musl/src/ldso/x86_64/tlsdesc.s",
@@ -576,12 +576,12 @@ const src_files = [_][]const u8{
     "musl/src/network/inet_ntop.c",
     "musl/src/network/inet_pton.c",
     "musl/src/network/listen.c",
-    //"musl/src/network/lookup_ipliteral.c", // migrated to lib/c/network.zig
-    //"musl/src/network/lookup_name.c", // migrated to lib/c/network.zig
-    //"musl/src/network/lookup_serv.c", // migrated to lib/c/network.zig
-    //"musl/src/network/netlink.c", // migrated to lib/c/network.zig
-    //"musl/src/network/netname.c", // migrated to lib/c/network.zig
-    //"musl/src/network/ns_parse.c", // migrated to lib/c/network.zig
+    //"musl/src/network/lookup_ipliteral.c", // migrated to lib/c/network.zig; exports: __lookup_ipliteral
+    //"musl/src/network/lookup_name.c", // migrated to lib/c/network.zig; exports: __lookup_name
+    //"musl/src/network/lookup_serv.c", // migrated to lib/c/network.zig; exports: __lookup_serv
+    //"musl/src/network/netlink.c", // migrated to lib/c/network.zig; exports: __rtnetlink_enumerate
+    "musl/src/network/netname.c", // provides getnetbyaddr/getnetbyname (not migrated to Zig)
+    //"musl/src/network/ns_parse.c", // migrated to lib/c/network.zig; exports: ns_get16,ns_get32,ns_put16,ns_put32,ns_initparse,ns_skiprr,ns_parserr,ns_name_uncompress
     "musl/src/network/ntohl.c",
     "musl/src/network/ntohs.c",
     "musl/src/network/proto.c",
@@ -591,8 +591,8 @@ const src_files = [_][]const u8{
     "musl/src/network/recvmsg.c",
     "musl/src/network/res_init.c",
     //"musl/src/network/res_mkquery.c", // migrated to lib/c/network.zig
-    //"musl/src/network/res_msend.c", // migrated to lib/c/network.zig
-    //"musl/src/network/resolvconf.c", // migrated to lib/c/network.zig
+    //"musl/src/network/res_msend.c", // migrated to lib/c/network.zig; exports: __res_msend,__res_msend_rc
+    //"musl/src/network/resolvconf.c", // migrated to lib/c/network.zig; exports: __get_resolv_conf
     //"musl/src/network/res_query.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_querydomain.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_send.c", // migrated to lib/c/network.zig
@@ -668,8 +668,8 @@ const src_files = [_][]const u8{
     "musl/src/signal/x32/sigsetjmp.s",
     "musl/src/signal/x86_64/restore.s",
     "musl/src/signal/x86_64/sigsetjmp.s",
-    //"musl/src/stdio/ext2.c", // migrated to lib/c/stdio.zig
-    //"musl/src/stdio/ext.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/ext2.c", // migrated to lib/c/stdio.zig; exports: __freadahead,__freadptrinc,__fseterr
+    //"musl/src/stdio/ext.c", // migrated to lib/c/stdio.zig; exports: _flushlbf,__fsetlocking,__fwriting,__freading,__freadable,__fwritable,__flbf,__fbufsize,__fpending,__fpurge
     "musl/src/stdio/fclose.c",
     //"musl/src/stdio/__fclose_ca.c", // migrated to lib/c/stdio.zig
     "musl/src/stdio/__fdopen.c",
@@ -759,7 +759,7 @@ const src_files = [_][]const u8{
     "musl/src/thread/i386/syscall_cp.s",
     "musl/src/thread/i386/tls.s",
     "musl/src/thread/i386/__unmapself.s",
-    //"musl/src/thread/lock_ptc.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/lock_ptc.c", // migrated to lib/c/thread.zig; exports: __inhibit_ptc,__acquire_ptc,__release_ptc
     "musl/src/thread/loongarch64/clone.s",
     "musl/src/thread/loongarch64/__set_thread_area.s",
     "musl/src/thread/loongarch64/syscall_cp.s",
@@ -792,7 +792,7 @@ const src_files = [_][]const u8{
     "musl/src/thread/powerpc/__unmapself.s",
     "musl/src/thread/pthread_atfork.c",
     //"musl/src/thread/pthread_attr_destroy.c", // migrated to lib/c/thread.zig
-    //"musl/src/thread/pthread_attr_get.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_attr_get.c", // migrated to lib/c/thread.zig; exports: pthread_attr_getdetachstate,pthread_attr_getguardsize,pthread_attr_getinheritsched,pthread_attr_getschedparam,pthread_attr_getschedpolicy,pthread_attr_getscope,pthread_attr_getstack,pthread_attr_getstacksize,pthread_barrierattr_getpshared,pthread_condattr_getclock,pthread_condattr_getpshared,pthread_mutexattr_getprotocol,pthread_mutexattr_getpshared,pthread_mutexattr_getrobust,pthread_mutexattr_gettype
     "musl/src/thread/riscv32/clone.s",
     "musl/src/thread/riscv32/__set_thread_area.s",
     "musl/src/thread/riscv32/syscall_cp.s",
@@ -816,7 +816,7 @@ const src_files = [_][]const u8{
     //"musl/src/thread/tss_create.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/tss_delete.c", // migrated to lib/c/thread.zig
     "musl/src/thread/__unmapself.c",
-    //"musl/src/thread/vmlock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/vmlock.c", // migrated to lib/c/thread.zig; exports: __vm_wait,__vm_lock,__vm_unlock
     //"musl/src/thread/__wait.c", // migrated to lib/c/thread.zig
     "musl/src/thread/x32/clone.s",
     "musl/src/thread/x32/__set_thread_area.s",

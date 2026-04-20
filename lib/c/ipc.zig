@@ -62,7 +62,7 @@ fn msgrcvLinux(q: c_int, m: *anyopaque, len: usize, typ: c_long, flag: c_int) ca
         @as(usize, @bitCast(@as(isize, q))),
         @intFromPtr(m),
         len,
-        @bitCast(typ),
+        @as(usize, @bitCast(@as(isize, typ))),
         @as(usize, @bitCast(@as(isize, flag))),
     ));
     if (rc < 0) {

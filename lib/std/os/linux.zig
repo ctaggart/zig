@@ -919,20 +919,20 @@ pub fn fanotify_mark(
         const mask_halves = splitValue64(@bitCast(mask));
         return syscall6(
             .fanotify_mark,
-            @bitCast(@as(isize, fd)),
+            @as(usize, @bitCast(@as(isize, fd))),
             @as(u32, @bitCast(flags)),
             mask_halves[0],
             mask_halves[1],
-            @bitCast(@as(isize, dirfd)),
+            @as(usize, @bitCast(@as(isize, dirfd))),
             @intFromPtr(pathname),
         );
     } else {
         return syscall5(
             .fanotify_mark,
-            @bitCast(@as(isize, fd)),
+            @as(usize, @bitCast(@as(isize, fd))),
             @as(u32, @bitCast(flags)),
             @bitCast(mask),
-            @bitCast(@as(isize, dirfd)),
+            @as(usize, @bitCast(@as(isize, dirfd))),
             @intFromPtr(pathname),
         );
     }
@@ -1135,7 +1135,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: PROT, flags: MAP, fd: i32, off
             length,
             @as(u32, @bitCast(prot)),
             @as(u32, @bitCast(flags)),
-            @bitCast(@as(isize, fd)),
+            @as(usize, @bitCast(@as(isize, fd))),
             @truncate(@as(u64, @bitCast(offset)) / mmap2Unit()),
         );
     } else {
@@ -1148,7 +1148,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: PROT, flags: MAP, fd: i32, off
                 length,
                 @as(u32, @bitCast(prot)),
                 @as(u32, @bitCast(flags)),
-                @bitCast(@as(isize, fd)),
+                @as(usize, @bitCast(@as(isize, fd))),
                 @as(u64, @bitCast(offset)),
             }),
         ) else syscall6(
@@ -1157,7 +1157,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: PROT, flags: MAP, fd: i32, off
             length,
             @as(u32, @bitCast(prot)),
             @as(u32, @bitCast(flags)),
-            @bitCast(@as(isize, fd)),
+            @as(usize, @bitCast(@as(isize, fd))),
             @as(u64, @bitCast(offset)),
         );
     }
@@ -1425,7 +1425,7 @@ pub fn pipe2(fd: *[2]i32, flags: O) usize {
 }
 
 pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
-    return syscall3(.write, @bitCast(@as(isize, fd)), @intFromPtr(buf), count);
+    return syscall3(.write, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(buf), count);
 }
 
 pub fn ftruncate(fd: i32, length: i64) usize {
@@ -1557,7 +1557,7 @@ pub fn open(path: [*:0]const u8, flags: O, perm: mode_t) usize {
     } else {
         return syscall4(
             .openat,
-            @bitCast(@as(isize, AT.FDCWD)),
+            @as(usize, @bitCast(@as(isize, AT.FDCWD))),
             @intFromPtr(path),
             @as(u32, @bitCast(flags)),
             perm,
@@ -1571,7 +1571,7 @@ pub fn create(path: [*:0]const u8, perm: mode_t) usize {
 
 pub fn openat(dirfd: i32, path: [*:0]const u8, flags: O, mode: mode_t) usize {
     // dirfd could be negative, for example AT.FDCWD is -100
-    return syscall4(.openat, @bitCast(@as(isize, dirfd)), @intFromPtr(path), @as(u32, @bitCast(flags)), mode);
+    return syscall4(.openat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @as(u32, @bitCast(flags)), mode);
 }
 
 /// See also `clone` (from the arch-specific include)
@@ -1650,11 +1650,11 @@ pub fn lchown(path: [*:0]const u8, owner: uid_t, group: gid_t) usize {
 }
 
 pub fn fchmodat(fd: i32, path: [*:0]const u8, mode: mode_t) usize {
-    return syscall3(.fchmodat, @bitCast(@as(isize, fd)), @intFromPtr(path), mode);
+    return syscall3(.fchmodat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(path), mode);
 }
 
 pub fn fchmodat2(fd: i32, path: [*:0]const u8, mode: mode_t, flags: u32) usize {
-    return syscall4(.fchmodat2, @bitCast(@as(isize, fd)), @intFromPtr(path), mode, flags);
+    return syscall4(.fchmodat2, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(path), mode, flags);
 }
 
 /// Can only be called on 32 bit systems. For 64 bit see `lseek`.
@@ -1672,8 +1672,11 @@ pub fn llseek(fd: i32, offset: u64, result: ?*u64, whence: usize) usize {
 }
 
 /// Can only be called on 64 bit systems. For 32 bit see `llseek`.
+/// Note: on the x32 ABI, `usize` is 32-bit but the kernel still uses the
+/// 64-bit `lseek` syscall; the offset is passed as a full 64-bit value in a
+/// single register.
 pub fn lseek(fd: i32, offset: i64, whence: usize) usize {
-    return syscall3(.lseek, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(offset)), whence);
+    return syscall3(.lseek, @as(usize, @bitCast(@as(isize, fd))), @as(u64, @bitCast(offset)), whence);
 }
 
 pub fn exit(status: i32) noreturn {
@@ -2662,7 +2665,7 @@ pub const itimerspec = extern struct {
 pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
     return syscall2(
         if (@hasField(SYS, "timerfd_gettime") and native_arch != .hexagon) .timerfd_gettime else .timerfd_gettime64,
-        @bitCast(@as(isize, fd)),
+        @as(usize, @bitCast(@as(isize, fd))),
         @intFromPtr(curr_value),
     );
 }
@@ -2670,7 +2673,7 @@ pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
 pub fn timerfd_settime(fd: i32, flags: TFD.TIMER, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
     return syscall4(
         if (@hasField(SYS, "timerfd_settime") and native_arch != .hexagon) .timerfd_settime else .timerfd_settime64,
-        @bitCast(@as(isize, fd)),
+        @as(usize, @bitCast(@as(isize, fd))),
         @as(u32, @bitCast(flags)),
         @intFromPtr(new_value),
         @intFromPtr(old_value),

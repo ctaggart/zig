@@ -1725,7 +1725,7 @@ fn fileReadStreaming(ev: *Evented, file: File, data: []const []u8) File.ReadStre
     }
     const source = c.dispatch.source_create(
         .READ,
-        @bitCast(@as(isize, file.handle)),
+        @as(usize, @bitCast(@as(isize, file.handle))),
         .none,
         ev.queue,
     ) orelse return error.SystemResources;
@@ -1799,7 +1799,7 @@ fn fileWriteStreaming(
     }
     const source = c.dispatch.source_create(
         .WRITE,
-        @bitCast(@as(isize, file.handle)),
+        @as(usize, @bitCast(@as(isize, file.handle))),
         .none,
         ev.queue,
     ) orelse return error.SystemResources;
@@ -2070,7 +2070,7 @@ fn batchDrainSubmitted(
                     } else break :result .{ .file_read_streaming = 0 };
                     const source = c.dispatch.source_create(
                         .READ,
-                        @bitCast(@as(isize, operation.file.handle)),
+                        @as(usize, @bitCast(@as(isize, operation.file.handle))),
                         .none,
                         queue,
                     ) orelse break :result .{ .file_read_streaming = error.SystemResources };
@@ -2104,7 +2104,7 @@ fn batchDrainSubmitted(
                         break :result .{ .file_write_streaming = 0 };
                     const source = c.dispatch.source_create(
                         .WRITE,
-                        @bitCast(@as(isize, operation.file.handle)),
+                        @as(usize, @bitCast(@as(isize, operation.file.handle))),
                         .none,
                         queue,
                     ) orelse break :result .{ .file_write_streaming = error.SystemResources };
@@ -4566,7 +4566,7 @@ fn childWait(userdata: ?*anyopaque, child: *process.Child) process.Child.WaitErr
     const pid = child.id.?;
     const source = c.dispatch.source_create(
         .PROC,
-        @bitCast(@as(isize, pid)),
+        @as(usize, @bitCast(@as(isize, pid))),
         .{ .PROC = .{ .EXIT = true } },
         ev.queue,
     ) orelse return error.Unexpected;

@@ -110,12 +110,11 @@ fn semgetLinux(key: c_int, n: c_int, fl: c_int) callconv(.c) c_int {
 }
 
 fn semopLinux(id: c_int, buf: *anyopaque, n: usize) callconv(.c) c_int {
-    return errno(linux.syscall3(
-        .semop,
-        @as(usize, @bitCast(@as(isize, id))),
-        @intFromPtr(buf),
-        n,
-    ));
+    // Matches upstream musl: semop() delegates to semtimedop() with a NULL
+    // timeout. Avoids needing a SYS_semop syscall, which is absent on several
+    // architectures (x86, sparc, m68k, mipso32, powerpc, powerpc64, s390x) —
+    // semtimedopLinux already handles per-arch syscall selection.
+    return semtimedopLinux(id, buf, n, null);
 }
 
 fn semtimedopLinux(id: c_int, buf: *anyopaque, n: usize, ts: ?*const anyopaque) callconv(.c) c_int {

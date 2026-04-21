@@ -279,7 +279,6 @@ comptime {
         symbol(&pthread_testcancel_fn, "__pthread_testcancel");
         symbol(&sem_trywait_fn, "sem_trywait");
         symbol(&sem_post_fn, "sem_post");
-        symbol(&__clone_fn, "__clone");
         symbol(&__default_stacksize, "__default_stacksize");
         symbol(&__default_guardsize, "__default_guardsize");
     }
@@ -1456,10 +1455,6 @@ fn vm_unlock_fn() callconv(.c) void {
     {
         wake(@ptrCast(&vmlock[0]), -1, 1);
     }
-}
-
-fn __clone_fn(_: ?*const fn (?*anyopaque) callconv(.c) c_int, _: ?*anyopaque, _: c_int, _: ?*anyopaque) callconv(.c) c_int {
-    return -@as(c_int, @intCast(@intFromEnum(E.NOSYS)));
 }
 
 fn futexWait(addr: *volatile c_int, val: c_int, priv_flag: bool) void {

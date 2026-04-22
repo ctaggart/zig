@@ -1042,7 +1042,7 @@ fn airRetLoad(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!void {
     return;
 }
 
-fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
+fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
     const o = self.object;
     const zcu = o.zcu;
     const target = zcu.getTarget();
@@ -1079,6 +1079,99 @@ fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value
             return self.wip.load(.normal, llvm_arg_ty, arg_ptr, arg_ty.abiAlignment(zcu).toLlvm(), "");
         }
         return self.wip.load(.normal, llvm_arg_ty, cur, slot_align, "");
+    }
+
+    // AAPCS64 SysV (non-Darwin, non-Windows, little-endian aarch64).
+    // LLVM asserts on the `va_arg` IR instruction for this target
+    // ("automatic va_arg instruction only works on Darwin" —
+    // AArch64ISelLowering.cpp). Lower manually, mirroring what clang
+    // emits for __builtin_va_arg. See ziglang/zig#14096, ctaggart/zig#251.
+    //
+    // AAPCS64 va_list layout (`lib/std/builtin.zig::VaListAarch64`):
+    //   +0:  __stack    (ptr)
+    //   +8:  __gr_top   (ptr)
+    //   +16: __vr_top   (ptr)
+    //   +24: __gr_offs  (i32, negative or 0; <0 means room remains in GP regs)
+    //   +28: __vr_offs  (i32, negative or 0; <0 means room remains in VR regs)
+    //
+    // MVP scope: scalar integers and pointers of 1, 2, 4, or 8 bytes
+    // consumed via the GP register save area, with spill-to-stack fallback.
+    // Larger integers (i128), floats, vectors, aggregates, and 16-byte-
+    // aligned types report a codegen TODO error — every `@cVaArg` site in
+    // libzigc fits the MVP scope.
+    const is_aapcs64 = target.cpu.arch == .aarch64 and
+        !target.os.tag.isDarwin() and target.os.tag != .windows;
+    if (is_aapcs64) {
+        const arg_size = arg_ty.abiSize(zcu);
+        const arg_align = arg_ty.abiAlignment(zcu);
+        const is_supported_scalar = switch (arg_ty.zigTypeTag(zcu)) {
+            .int, .bool, .pointer, .@"enum" => arg_size <= 8,
+            .optional => arg_ty.isPtrLikeOptional(zcu),
+            else => false,
+        };
+        if (!is_supported_scalar or arg_align.compare(.gt, .@"8")) {
+            return self.todo(
+                "aarch64 AAPCS @cVaArg only supports <=8-byte integer/pointer scalars " ++
+                    "(see ziglang/zig#14096); got type '{f}'",
+                .{arg_ty.fmt(self.pt)},
+            );
+        }
+
+        const ptr_align: Builder.Alignment = comptime .fromByteUnits(8);
+        const i32_align: Builder.Alignment = comptime .fromByteUnits(4);
+
+        // gr_offs_ptr = &ap->__gr_offs  (offset 24)
+        const gr_offs_ptr = try self.wip.gep(
+            .inbounds,
+            .i8,
+            list,
+            &.{try o.builder.intValue(.i32, 24)},
+            "vaarg.gr_offs_ptr",
+        );
+        const gr_offs = try self.wip.load(.normal, .i32, gr_offs_ptr, i32_align, "vaarg.gr_offs");
+        const zero_i32 = try o.builder.intValue(.i32, 0);
+        const in_regs = try self.wip.icmp(.slt, gr_offs, zero_i32, "vaarg.in_regs");
+
+        const in_regs_block = try self.wip.block(1, "VaArgInRegs");
+        const on_stack_block = try self.wip.block(1, "VaArgOnStack");
+        const done_block = try self.wip.block(2, "VaArgDone");
+
+        _ = try self.wip.brCond(in_regs, in_regs_block, on_stack_block, .none);
+
+        // in_regs:  reg_addr = __gr_top + sext(__gr_offs);  __gr_offs += 8
+        self.wip.cursor = .{ .block = in_regs_block };
+        const gr_top_ptr = try self.wip.gep(
+            .inbounds,
+            .i8,
+            list,
+            &.{try o.builder.intValue(.i32, 8)},
+            "vaarg.gr_top_ptr",
+        );
+        const gr_top = try self.wip.load(.normal, .ptr, gr_top_ptr, ptr_align, "vaarg.gr_top");
+        const gr_offs_i64 = try self.wip.cast(.sext, gr_offs, .i64, "vaarg.gr_offs64");
+        const reg_addr = try self.wip.gep(.inbounds, .i8, gr_top, &.{gr_offs_i64}, "vaarg.reg_addr");
+        const eight_i32 = try o.builder.intValue(.i32, 8);
+        const new_gr_offs = try self.wip.bin(.add, gr_offs, eight_i32, "vaarg.new_gr_offs");
+        _ = try self.wip.store(.normal, new_gr_offs, gr_offs_ptr, i32_align);
+        _ = try self.wip.br(done_block);
+
+        // on_stack:  stack_addr = ap->__stack;  ap->__stack += 8
+        self.wip.cursor = .{ .block = on_stack_block };
+        const stack_addr = try self.wip.load(.normal, .ptr, list, ptr_align, "vaarg.stack");
+        const eight_i64 = try o.builder.intValue(.i64, 8);
+        const new_stack = try self.wip.gep(.inbounds, .i8, stack_addr, &.{eight_i64}, "vaarg.new_stack");
+        _ = try self.wip.store(.normal, new_stack, list, ptr_align);
+        _ = try self.wip.br(done_block);
+
+        // done: addr = phi(reg_addr from regs, stack_addr from stack)
+        self.wip.cursor = .{ .block = done_block };
+        const addr_phi = try self.wip.phi(.ptr, "vaarg.addr");
+        addr_phi.finish(
+            &.{ reg_addr, stack_addr },
+            &.{ in_regs_block, on_stack_block },
+            &self.wip,
+        );
+        return self.wip.load(.normal, llvm_arg_ty, addr_phi.toValue(), arg_align.toLlvm(), "vaarg.val");
     }
 
     return self.wip.vaArg(list, llvm_arg_ty, "");

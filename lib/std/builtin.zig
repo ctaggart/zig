@@ -1034,7 +1034,21 @@ pub const VaList = switch (builtin.cpu.arch) {
     .wasm64,
     .xcore,
     => *anyopaque,
-    .aarch64, .aarch64_be => switch (builtin.os.tag) {
+    // AAPCS64 SysV (non-Darwin / non-Windows). LLVM's AArch64 backend
+    // does not lower the `va_arg` IR instruction for non-Darwin targets
+    // (AArch64ISelLowering.cpp asserts `isTargetDarwin()`; see
+    // https://github.com/ziglang/zig/issues/14096). For `.stage2_llvm`
+    // little-endian aarch64, `src/codegen/llvm/FuncGen.zig::airCVaArg`
+    // now implements the AAPCS64 va_arg sequence manually for integer
+    // and pointer scalars; other types are surfaced as a codegen error.
+    // `.aarch64_be` still lacks the sub-word slot adjustment for
+    // right-justified loads, so it keeps the defensive compile-error.
+    // See ctaggart/zig#251.
+    .aarch64 => switch (builtin.os.tag) {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .windows => *u8,
+        else => VaListAarch64,
+    },
+    .aarch64_be => switch (builtin.os.tag) {
         .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .windows => *u8,
         else => switch (builtin.zig_backend) {
             else => VaListAarch64,

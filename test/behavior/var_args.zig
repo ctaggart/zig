@@ -97,8 +97,8 @@ test "simple variadic function" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch.isAARCH64()) {
-        // https://github.com/ziglang/zig/issues/14096
+    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
+        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
         return error.SkipZigTest;
     }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
@@ -158,8 +158,8 @@ test "coerce reference to var arg" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch.isAARCH64()) {
-        // https://github.com/ziglang/zig/issues/14096
+    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
+        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
         return error.SkipZigTest;
     }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
@@ -189,8 +189,8 @@ test "variadic functions" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch.isAARCH64()) {
-        // https://github.com/ziglang/zig/issues/14096
+    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
+        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
         return error.SkipZigTest;
     }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
@@ -241,8 +241,8 @@ test "copy VaList" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch.isAARCH64()) {
-        // https://github.com/ziglang/zig/issues/14096
+    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
+        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
         return error.SkipZigTest;
     }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
@@ -275,8 +275,8 @@ test "unused VaList arg" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch.isAARCH64()) {
-        // https://github.com/ziglang/zig/issues/14096
+    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
+        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
         return error.SkipZigTest;
     }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
@@ -296,6 +296,50 @@ test "unused VaList arg" {
     };
     const x = S.thirdArg(0, @as(c_int, 1), @as(c_int, 2));
     try std.testing.expectEqual(@as(c_int, 2), x);
+}
+
+test "variadic function with GP register spill (aarch64 #251)" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
+        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
+        return error.SkipZigTest;
+    }
+    if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
+    if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
+    if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
+
+    // AAPCS64 has 8 GP argument registers (x0-x7). With `count` consuming x0,
+    // passing 10 variadic c_long forces the last ~3 values to spill onto the
+    // stack, exercising both the in-regs and on-stack paths in the manually
+    // lowered va_arg (see ctaggart/zig#251).
+    const S = struct {
+        fn sum(count: c_int, ...) callconv(.c) c_long {
+            var ap = @cVaStart();
+            defer @cVaEnd(&ap);
+            var i: c_int = 0;
+            var acc: c_long = 0;
+            while (i < count) : (i += 1) acc += @cVaArg(&ap, c_long);
+            return acc;
+        }
+    };
+    const total = S.sum(
+        10,
+        @as(c_long, 1),
+        @as(c_long, 2),
+        @as(c_long, 3),
+        @as(c_long, 4),
+        @as(c_long, 5),
+        @as(c_long, 6),
+        @as(c_long, 7),
+        @as(c_long, 8),
+        @as(c_long, 9),
+        @as(c_long, 10),
+    );
+    try std.testing.expectEqual(@as(c_long, 55), total);
 }
 
 test "floating point VaList args" {

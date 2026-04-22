@@ -24,6 +24,10 @@ safe-outputs:
     max: 1
     title-prefix: "[aw daily-status] "
     labels: [libzigc, daily-status, agentic-workflow]
+  # Daily flakes (e.g. agent times out before calling create-issue) are not
+  # actionable — the next day's scheduled run will produce the desired status
+  # anyway. Don't spam the issue list. See ctaggart/zig#276.
+  report-failure-as-issue: false
 ---
 
 # libzigc-daily-status

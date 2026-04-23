@@ -32,6 +32,12 @@ safe-outputs:
     max: 1
     title-prefix: "[aw ci-triage] "
     labels: [libzigc, ci-failure, agentic-workflow, needs-triage]
+  # Triage-agent flakes (e.g. 20-min Copilot CLI timeout while MCP get_job_logs
+  # is blocked by the DIFC integrity policy) carry no signal on their own — the
+  # underlying test-libc failure is the real signal, and the next failed run
+  # will re-trigger this workflow anyway. Don't spam the issue list with
+  # "[aw] ci-failure-triage failed" meta-issues. See ctaggart/zig#279, #266.
+  report-failure-as-issue: false
 ---
 
 # ci-failure-triage

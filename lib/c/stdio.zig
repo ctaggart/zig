@@ -168,6 +168,10 @@ comptime {
         symbol(&putc_unlocked_impl, "putc_unlocked");
         symbol(&fgetc_impl, "fgetc");
         symbol(&fputc_impl, "fputc");
+        symbol(&fputc_impl, "putc");
+        symbol(&fputc_impl, "_IO_putc");
+        symbol(&fgetc_impl, "getc");
+        symbol(&fgetc_impl, "_IO_getc");
         symbol(&toread_impl, "__toread");
         symbol(&towrite_impl, "__towrite");
         symbol(&uflow_impl, "__uflow");

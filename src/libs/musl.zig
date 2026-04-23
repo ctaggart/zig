@@ -859,12 +859,12 @@ const src_files = [_][]const u8{
     "musl/src/mman/mremap.c",
     "musl/src/process/_Fork.c",
     "musl/src/process/fork.c",
-    "musl/src/stdio/fputc.c",
+    //"musl/src/stdio/fputc.c", // migrated to lib/c/stdio.zig (forwarded to fputc_impl)
     "musl/src/stdio/fwide.c",
-    "musl/src/stdio/getc.c",
-    "musl/src/stdio/putc.c",
+    //"musl/src/stdio/getc.c", // migrated to lib/c/stdio.zig (exports getc, _IO_getc via fgetc_impl)
+    //"musl/src/stdio/putc.c", // migrated to lib/c/stdio.zig (exports putc, _IO_putc via fputc_impl)
     "musl/src/stdio/putc_unlocked.c",
-    "musl/src/stdio/putchar.c",
+    //"musl/src/stdio/putchar.c", // migrated to lib/c/stdio.zig
     "musl/src/stdio/putchar_unlocked.c",
     "musl/src/thread/pthread_cancel.c",
     "musl/src/thread/pthread_cond_timedwait.c",

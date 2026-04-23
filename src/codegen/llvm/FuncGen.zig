@@ -1085,8 +1085,8 @@ fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
     // LLVM asserts on the `va_arg` IR instruction for this target
     // ("automatic va_arg instruction only works on Darwin" —
     // AArch64ISelLowering.cpp). Lower manually, mirroring what clang
-    // emits for __builtin_va_arg. See ziglang/zig#14096, ctaggart/zig#251,
-    // ctaggart/zig#282 (big-endian + non-scalar follow-up).
+    // emits for __builtin_va_arg (`EmitAAPCSVAArg`). See ziglang/zig#14096,
+    // ctaggart/zig#251, ctaggart/zig#281, ctaggart/zig#282.
     //
     // AAPCS64 va_list layout (`lib/std/builtin.zig::VaListAarch64`):
     //   +0:  __stack    (ptr)
@@ -1095,96 +1095,257 @@ fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
     //   +24: __gr_offs  (i32, negative or 0; <0 means room remains in GP regs)
     //   +28: __vr_offs  (i32, negative or 0; <0 means room remains in VR regs)
     //
-    // MVP scope: scalar integers and pointers of 1, 2, 4, or 8 bytes
-    // consumed via the GP register save area, with spill-to-stack fallback.
-    // On aarch64_be, sub-8B scalars are right-justified in their 8B slot —
-    // add `8 - arg_size` to the slot base before the load. Larger integers
-    // (i128), floats, vectors, aggregates, HFA/HVA, and 16-byte-aligned
-    // types report a codegen TODO error — every `@cVaArg` site in libzigc
-    // fits the MVP scope (see #282 for the non-scalar follow-up).
+    // Covers all AAPCS64 vararg classes on hard-float:
+    //   * GP scalars (int/bool/ptr/enum/optional-ptr, size 1/2/4/8)
+    //   * GP 16-byte scalars (e.g. i128) — 2 consecutive GP slots at even
+    //     register boundary
+    //   * GP composites ≤ 8 B (one 8-byte slot)
+    //   * GP composites ≤ 16 B (two 8-byte slots)
+    //   * VR floats & vectors (one 16-byte VR slot, right-justified on BE)
+    //   * VR HFAs of 2–4 same-type float members (N × 16-byte VR slots with
+    //     per-element reload into a contiguous temp)
+    //   * Indirect (composites > 16 B) — a pointer is passed via one 8-byte
+    //     GP slot; we load the pointer then the pointee.
+    //
+    // Soft-float AAPCS64 (floats/vectors/HFAs in GP/stack) is surfaced as a
+    // codegen TODO error — no known libzigc consumer and ABI rules differ.
     const is_aapcs64 = (target.cpu.arch == .aarch64 or target.cpu.arch == .aarch64_be) and
         !target.os.tag.isDarwin() and target.os.tag != .windows;
     if (is_aapcs64) {
+        const class = aarch64_c_abi.classifyType(arg_ty, zcu);
+        const tag = arg_ty.zigTypeTag(zcu);
         const arg_size = arg_ty.abiSize(zcu);
-        const arg_align = arg_ty.abiAlignment(zcu);
-        const is_supported_scalar = switch (arg_ty.zigTypeTag(zcu)) {
-            .int, .bool, .pointer, .@"enum" => arg_size <= 8,
-            .optional => arg_ty.isPtrLikeOptional(zcu),
+        const arg_align_bytes: u64 = arg_ty.abiAlignment(zcu).toByteUnits() orelse 1;
+        const is_hard_float = target.abi.float() == .hard;
+        const is_be = target.cpu.arch == .aarch64_be;
+
+        // AAPCS64 "aggregate" = composites (struct/union/array). Scalars
+        // (int/float/vector/bool/enum/ptr/optional) are NOT aggregates.
+        const is_aggregate = switch (tag) {
+            .@"struct", .@"union", .array => true,
             else => false,
         };
-        if (!is_supported_scalar or arg_align.compare(.gt, .@"8")) {
-            return self.todo(
-                "aarch64 AAPCS @cVaArg only supports <=8-byte integer/pointer scalars " ++
-                    "(see ziglang/zig#14096, ctaggart/zig#282); got type '{f}'",
-                .{arg_ty.fmt(self.pt)},
-            );
+
+        // Dispatch each class to {is_fpr, is_indirect, num_regs, base_ty_override}.
+        // base_ty_override is non-null only for HFAs with N>1 (per-element reload).
+        var is_fpr = false;
+        var is_indirect = false;
+        var is_hfa = false;
+        var num_regs: u32 = 1;
+        var hfa_base_ty: ?Type = null;
+        switch (class) {
+            .memory => is_indirect = true,
+            .byval => switch (tag) {
+                .float, .vector => {
+                    if (!is_hard_float) return self.todo(
+                        "aarch64 AAPCS @cVaArg soft-float float/vector (see ctaggart/zig#282); got type '{f}'",
+                        .{arg_ty.fmt(self.pt)},
+                    );
+                    is_fpr = true;
+                },
+                .int, .@"enum", .bool, .error_set => {
+                    // Integer scalars up to 16 B (i128). Larger unreachable here
+                    // because classifier would have returned .memory for > 16 B
+                    // composites; scalar .int > 16 B is a Zig arbitrary-size
+                    // integer — unsupported below.
+                    if (arg_size > 16) return self.todo(
+                        "aarch64 AAPCS @cVaArg integer > 16 bytes (see ctaggart/zig#282); got type '{f}'",
+                        .{arg_ty.fmt(self.pt)},
+                    );
+                },
+                .pointer, .optional => {},
+                else => return self.todo(
+                    "aarch64 AAPCS @cVaArg unsupported scalar type '{f}' (see ctaggart/zig#282)",
+                    .{arg_ty.fmt(self.pt)},
+                ),
+            },
+            .integer => {}, // composite ≤8B, 1 GP slot
+            .double_integer => {}, // composite ≤16B, 2 GP slots
+            .float_array => |n| {
+                if (!is_hard_float) return self.todo(
+                    "aarch64 AAPCS @cVaArg soft-float HFA (see ctaggart/zig#282); got type '{f}'",
+                    .{arg_ty.fmt(self.pt)},
+                );
+                is_fpr = true;
+                is_hfa = true;
+                num_regs = n;
+                // Locate the float element type for HFA-N>1 split-and-reload.
+                if (n > 1) hfa_base_ty = aarch64_c_abi.getFloatArrayType(arg_ty, zcu).?;
+            },
         }
-        const is_be = target.cpu.arch == .aarch64_be;
-        const be_slot_offset: i64 = if (is_be and arg_size < 8) @intCast(8 - arg_size) else 0;
 
         const ptr_align: Builder.Alignment = comptime .fromByteUnits(8);
         const i32_align: Builder.Alignment = comptime .fromByteUnits(4);
 
-        // gr_offs_ptr = &ap->__gr_offs  (offset 24)
-        const gr_offs_ptr = try self.wip.gep(
+        // reg_size = bytes consumed in the register save area.
+        const reg_size_bytes: i32 = if (is_indirect) 8 else if (is_fpr) @intCast(16 * num_regs) else blk: {
+            // GP: round size up to 8.
+            const s: i32 = @intCast(arg_size);
+            break :blk (s + 7) & ~@as(i32, 7);
+        };
+
+        // Struct field offsets in VaListAarch64 and slot size for BE adjust.
+        const reg_offs_struct_off: i32 = if (is_fpr) 28 else 24;
+        const reg_top_struct_off: i32 = if (is_fpr) 16 else 8;
+        const slot_size_bytes: i32 = if (is_fpr) 16 else 8;
+
+        // Load reg_offs (gr_offs or vr_offs).
+        const reg_offs_ptr = try self.wip.gep(
             .inbounds,
             .i8,
             list,
-            &.{try o.builder.intValue(.i32, 24)},
-            "vaarg.gr_offs_ptr",
+            &.{try o.builder.intValue(.i32, reg_offs_struct_off)},
+            "vaarg.reg_offs_ptr",
         );
-        const gr_offs = try self.wip.load(.normal, .i32, gr_offs_ptr, i32_align, "vaarg.gr_offs");
+        const reg_offs = try self.wip.load(.normal, .i32, reg_offs_ptr, i32_align, "vaarg.reg_offs");
         const zero_i32 = try o.builder.intValue(.i32, 0);
-        const in_regs = try self.wip.icmp(.slt, gr_offs, zero_i32, "vaarg.in_regs");
+        // using_stack = reg_offs >= 0. Short-circuit straight to OnStack in
+        // that case to avoid overflowing reg_offs (matches clang's guard).
+        const using_stack = try self.wip.icmp(.sge, reg_offs, zero_i32, "vaarg.using_stack");
 
-        const in_regs_block = try self.wip.block(1, "VaArgInRegs");
-        const on_stack_block = try self.wip.block(1, "VaArgOnStack");
+        const maybe_reg_block = try self.wip.block(1, "VaArgMaybeReg");
+        const in_reg_block = try self.wip.block(1, "VaArgInReg");
+        const on_stack_block = try self.wip.block(2, "VaArgOnStack");
         const done_block = try self.wip.block(2, "VaArgDone");
 
-        _ = try self.wip.brCond(in_regs, in_regs_block, on_stack_block, .none);
+        _ = try self.wip.brCond(using_stack, on_stack_block, maybe_reg_block, .none);
 
-        // in_regs:  reg_addr = __gr_top + sext(__gr_offs);  __gr_offs += 8
-        self.wip.cursor = .{ .block = in_regs_block };
-        const gr_top_ptr = try self.wip.gep(
+        // ------ maybe_reg: align reg_offs, advance by reg_size, test inregs
+        self.wip.cursor = .{ .block = maybe_reg_block };
+        // Integer-only: align reg_offs when arg's natural alignment > 8
+        // (e.g. i128 at 16-byte alignment → x_{2N},x_{2N+1}).
+        var aligned_reg_offs = reg_offs;
+        if (!is_fpr and !is_indirect and arg_align_bytes > 8) {
+            const align_m1 = try o.builder.intValue(.i32, @as(i32, @intCast(arg_align_bytes)) - 1);
+            const neg_align = try o.builder.intValue(.i32, -@as(i32, @intCast(arg_align_bytes)));
+            const added = try self.wip.bin(.add, reg_offs, align_m1, "vaarg.align_off");
+            aligned_reg_offs = try self.wip.bin(.@"and", added, neg_align, "vaarg.aligned_off");
+        }
+        const reg_size_v = try o.builder.intValue(.i32, reg_size_bytes);
+        const new_reg_offs = try self.wip.bin(.add, aligned_reg_offs, reg_size_v, "vaarg.new_reg_offs");
+        _ = try self.wip.store(.normal, new_reg_offs, reg_offs_ptr, i32_align);
+        // in_regs = new_reg_offs <= 0. If false, the arg didn't actually fit;
+        // fall through to on_stack.
+        const in_regs = try self.wip.icmp(.sle, new_reg_offs, zero_i32, "vaarg.in_regs");
+        _ = try self.wip.brCond(in_regs, in_reg_block, on_stack_block, .none);
+
+        // ------ in_reg: base_addr = reg_top + aligned_reg_offs
+        self.wip.cursor = .{ .block = in_reg_block };
+        const reg_top_ptr = try self.wip.gep(
             .inbounds,
             .i8,
             list,
-            &.{try o.builder.intValue(.i32, 8)},
-            "vaarg.gr_top_ptr",
+            &.{try o.builder.intValue(.i32, reg_top_struct_off)},
+            "vaarg.reg_top_ptr",
         );
-        const gr_top = try self.wip.load(.normal, .ptr, gr_top_ptr, ptr_align, "vaarg.gr_top");
-        const gr_offs_i64 = try self.wip.cast(.sext, gr_offs, .i64, "vaarg.gr_offs64");
-        const reg_addr = try self.wip.gep(.inbounds, .i8, gr_top, &.{gr_offs_i64}, "vaarg.reg_addr");
-        const eight_i32 = try o.builder.intValue(.i32, 8);
-        const new_gr_offs = try self.wip.bin(.add, gr_offs, eight_i32, "vaarg.new_gr_offs");
-        _ = try self.wip.store(.normal, new_gr_offs, gr_offs_ptr, i32_align);
-        _ = try self.wip.br(done_block);
+        const reg_top = try self.wip.load(.normal, .ptr, reg_top_ptr, ptr_align, "vaarg.reg_top");
+        const off_i64 = try self.wip.cast(.sext, aligned_reg_offs, .i64, "vaarg.off64");
+        const reg_base_addr = try self.wip.gep(.inbounds, .i8, reg_top, &.{off_i64}, "vaarg.reg_base");
 
-        // on_stack:  stack_addr = ap->__stack;  ap->__stack += 8
+        // reg_addr is what we'll pass to the final load.
+        var reg_addr = reg_base_addr;
+        if (hfa_base_ty) |base_ty| {
+            // HFA N>1: elements are stored 16 B apart in the save area (each
+            // occupies one q-register); load each into a contiguous temp.
+            const base_llvm_ty = try o.lowerType(base_ty);
+            const base_size_bytes: u64 = base_ty.abiSize(zcu);
+            const base_align_bytes: u64 = base_ty.abiAlignment(zcu).toByteUnits() orelse 1;
+            const agg_align_bytes = @max(arg_align_bytes, base_align_bytes);
+            const agg_align: Builder.Alignment = .fromByteUnits(agg_align_bytes);
+            const be_off: i32 = if (is_be and base_size_bytes < 16) @intCast(16 - base_size_bytes) else 0;
+
+            // Alloca a contiguous [N x base_ty] temp.
+            const tmp = try self.buildAlloca(llvm_arg_ty, agg_align);
+            var i: u32 = 0;
+            while (i < num_regs) : (i += 1) {
+                const src_off: i32 = @intCast(16 * i + @as(u32, @intCast(be_off)));
+                const src_addr = try self.wip.gep(
+                    .inbounds,
+                    .i8,
+                    reg_base_addr,
+                    &.{try o.builder.intValue(.i64, src_off)},
+                    "vaarg.hfa_src",
+                );
+                const elem = try self.wip.load(.normal, base_llvm_ty, src_addr, .fromByteUnits(@max(base_align_bytes, 1)), "vaarg.hfa_elem");
+                const dst_addr = try self.wip.gep(
+                    .inbounds,
+                    .i8,
+                    tmp,
+                    &.{try o.builder.intValue(.i64, @as(i32, @intCast(i * base_size_bytes)))},
+                    "vaarg.hfa_dst",
+                );
+                _ = try self.wip.store(.normal, elem, dst_addr, .fromByteUnits(@max(base_align_bytes, 1)));
+            }
+            reg_addr = tmp;
+        } else if (is_be and !is_indirect and arg_size < slot_size_bytes and
+            (!is_aggregate or is_hfa))
+        {
+            // BE right-justify: applies to non-indirect scalars and single-
+            // member HFAs (treated as the scalar), but NOT to generic
+            // composites. slot_size is 8 for GP, 16 for FPR.
+            const delta: i32 = @intCast(@as(i64, @intCast(slot_size_bytes)) - @as(i64, @intCast(arg_size)));
+            reg_addr = try self.wip.gep(
+                .inbounds,
+                .i8,
+                reg_base_addr,
+                &.{try o.builder.intValue(.i64, delta)},
+                "vaarg.reg_be",
+            );
+        }
+        _ = try self.wip.br(done_block);
+        const in_reg_exit_block = self.wip.cursor.block;
+
+        // ------ on_stack: realign stack, advance by stack_size, BE-adjust
         self.wip.cursor = .{ .block = on_stack_block };
-        const stack_addr = try self.wip.load(.normal, .ptr, list, ptr_align, "vaarg.stack");
-        const eight_i64 = try o.builder.intValue(.i64, 8);
-        const new_stack = try self.wip.gep(.inbounds, .i8, stack_addr, &.{eight_i64}, "vaarg.new_stack");
+        const stack_ptr = try self.wip.load(.normal, .ptr, list, ptr_align, "vaarg.stack");
+        // Realign stack for non-indirect args whose natural alignment > 8.
+        var aligned_stack = stack_ptr;
+        if (!is_indirect and arg_align_bytes > 8) {
+            // addr = (addr + align - 1) & -align, done via ptrtoint/and/inttoptr.
+            const as_int = try self.wip.cast(.ptrtoint, stack_ptr, .i64, "vaarg.stack_i");
+            const align_m1 = try o.builder.intValue(.i64, @as(i64, @intCast(arg_align_bytes - 1)));
+            const neg_align = try o.builder.intValue(.i64, -@as(i64, @intCast(arg_align_bytes)));
+            const added = try self.wip.bin(.add, as_int, align_m1, "vaarg.stack_add");
+            const anded = try self.wip.bin(.@"and", added, neg_align, "vaarg.stack_aligned_i");
+            aligned_stack = try self.wip.cast(.inttoptr, anded, .ptr, "vaarg.stack_aligned");
+        }
+        const stack_size_bytes: i32 = if (is_indirect) 8 else blk: {
+            const s: i32 = @intCast(arg_size);
+            break :blk (s + 7) & ~@as(i32, 7);
+        };
+        const stack_adv = try o.builder.intValue(.i64, stack_size_bytes);
+        const new_stack = try self.wip.gep(.inbounds, .i8, aligned_stack, &.{stack_adv}, "vaarg.new_stack");
         _ = try self.wip.store(.normal, new_stack, list, ptr_align);
+        // BE right-justify on stack: non-aggregate scalars whose size < 8
+        // shift by (8 - size). Aggregates (incl. HFAs on stack) are not adjusted.
+        var stack_addr = aligned_stack;
+        if (is_be and !is_aggregate and arg_size < 8 and !is_indirect) {
+            const delta: i32 = @intCast(8 - arg_size);
+            stack_addr = try self.wip.gep(
+                .inbounds,
+                .i8,
+                aligned_stack,
+                &.{try o.builder.intValue(.i64, delta)},
+                "vaarg.stack_be",
+            );
+        }
         _ = try self.wip.br(done_block);
+        const on_stack_exit_block = self.wip.cursor.block;
 
-        // done: addr = phi(reg_addr from regs, stack_addr from stack)
+        // ------ done: phi and final load
         self.wip.cursor = .{ .block = done_block };
         const addr_phi = try self.wip.phi(.ptr, "vaarg.addr");
         addr_phi.finish(
             &.{ reg_addr, stack_addr },
-            &.{ in_regs_block, on_stack_block },
+            &.{ in_reg_exit_block, on_stack_exit_block },
             &self.wip,
         );
-        // On aarch64_be, sub-8B scalars are right-justified in their 8B slot.
-        const load_addr = if (be_slot_offset == 0) addr_phi.toValue() else try self.wip.gep(
-            .inbounds,
-            .i8,
-            addr_phi.toValue(),
-            &.{try o.builder.intValue(.i64, be_slot_offset)},
-            "vaarg.be_addr",
-        );
-        return self.wip.load(.normal, llvm_arg_ty, load_addr, arg_align.toLlvm(), "vaarg.val");
+        if (is_indirect) {
+            // Indirect: the slot contains a pointer to the argument.
+            const arg_ptr = try self.wip.load(.normal, .ptr, addr_phi.toValue(), ptr_align, "vaarg.indirect_ptr");
+            return self.wip.load(.normal, llvm_arg_ty, arg_ptr, arg_ty.abiAlignment(zcu).toLlvm(), "vaarg.val");
+        }
+        return self.wip.load(.normal, llvm_arg_ty, addr_phi.toValue(), arg_ty.abiAlignment(zcu).toLlvm(), "vaarg.val");
     }
 
     return self.wip.vaArg(list, llvm_arg_ty, "");

@@ -198,7 +198,6 @@ comptime {
         symbol(&stdio_write_impl, "__stdio_write");
         symbol(&stdout_write_impl, "__stdout_write");
 
-        // vasprintf, vdprintf kept as C (see #243)
         symbol(&getdelim_impl, "getdelim");
 
         // Variadic entry points forwarding to v* implementations (unblocked by #243 fix).

@@ -853,11 +853,24 @@ comptime {
         symbol(&llrintl, "llrintl");
         symbol(&llroundf, "llroundf");
         symbol(&llroundl, "llroundl");
+        symbol(&llround, "llround");
         symbol(&log1pf, "log1pf");
         symbol(&lrintf, "lrintf");
         symbol(&lrintl, "lrintl");
         symbol(&lroundf, "lroundf");
         symbol(&lroundl, "lroundl");
+        symbol(&lround, "lround");
+        symbol(&__math_invalid, "__math_invalid");
+        symbol(&__math_invalidf, "__math_invalidf");
+        symbol(&__math_xflow, "__math_xflow");
+        symbol(&__math_xflowf, "__math_xflowf");
+        symbol(&__math_oflow, "__math_oflow");
+        symbol(&__math_oflowf, "__math_oflowf");
+        symbol(&__math_uflow, "__math_uflow");
+        symbol(&__math_uflowf, "__math_uflowf");
+        symbol(&__math_divzero, "__math_divzero");
+        symbol(&__math_divzerof, "__math_divzerof");
+        symbol(&__math_invalidl, "__math_invalidl");
         symbol(&modf, "modf");
         symbol(&nearbyintf, "nearbyintf");
         symbol(&nearbyintl, "nearbyintl");
@@ -1269,6 +1282,75 @@ fn llroundf(x: f32) callconv(.c) c_longlong {
 
 fn llroundl(x: c_longdouble) callconv(.c) c_longlong {
     return @intFromFloat(math.round(x));
+}
+
+fn llround(x: f64) callconv(.c) c_longlong {
+    return @intFromFloat(math.round(x));
+}
+
+fn lround(x: f64) callconv(.c) c_long {
+    return @intFromFloat(math.round(x));
+}
+
+/// musl fp_barrier: asm volatile pass-through to keep LLVM from folding
+/// IEEE-exception-raising ops at compile time.
+inline fn mathFpBarrier(comptime T: type, x: T) T {
+    var y: T = x;
+    asm volatile (""
+        : [y] "+r" (y),
+    );
+    return y;
+}
+
+fn __math_invalid(x: f64) callconv(.c) f64 {
+    const a = mathFpBarrier(f64, x) - mathFpBarrier(f64, x);
+    return a / a;
+}
+
+fn __math_invalidf(x: f32) callconv(.c) f32 {
+    const a = mathFpBarrier(f32, x) - mathFpBarrier(f32, x);
+    return a / a;
+}
+
+fn __math_xflow(sign: u32, y: f64) callconv(.c) f64 {
+    const s: f64 = if (sign != 0) -y else y;
+    return mathFpBarrier(f64, s) * y;
+}
+
+fn __math_xflowf(sign: u32, y: f32) callconv(.c) f32 {
+    const s: f32 = if (sign != 0) -y else y;
+    return mathFpBarrier(f32, s) * y;
+}
+
+fn __math_oflow(sign: u32) callconv(.c) f64 {
+    return __math_xflow(sign, 0x1p769);
+}
+
+fn __math_oflowf(sign: u32) callconv(.c) f32 {
+    return __math_xflowf(sign, 0x1p97);
+}
+
+fn __math_uflow(sign: u32) callconv(.c) f64 {
+    return __math_xflow(sign, 0x1p-767);
+}
+
+fn __math_uflowf(sign: u32) callconv(.c) f32 {
+    return __math_xflowf(sign, 0x1p-95);
+}
+
+fn __math_divzero(sign: u32) callconv(.c) f64 {
+    const s: f64 = if (sign != 0) -@as(f64, 1.0) else 1.0;
+    return mathFpBarrier(f64, s) / 0.0;
+}
+
+fn __math_divzerof(sign: u32) callconv(.c) f32 {
+    const s: f32 = if (sign != 0) -@as(f32, 1.0) else 1.0;
+    return mathFpBarrier(f32, s) / 0.0;
+}
+
+fn __math_invalidl(x: c_longdouble) callconv(.c) c_longdouble {
+    const a = mathFpBarrier(c_longdouble, x) - mathFpBarrier(c_longdouble, x);
+    return a / a;
 }
 
 fn log1pf(x: f32) callconv(.c) f32 {

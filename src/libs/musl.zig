@@ -513,21 +513,21 @@ const src_files = [_][]const u8{
     "musl/src/math/erfl.c",
     "musl/src/math/exp10l.c",
     "musl/src/math/expm1.c",
-    "musl/src/math/llround.c",
+    //"musl/src/math/llround.c", // migrated to lib/c/math.zig
     "musl/src/math/log1p.c",
     "musl/src/math/log1pl.c",
-    "musl/src/math/lround.c",
-    "musl/src/math/__math_divzero.c",
-    "musl/src/math/__math_divzerof.c",
-    "musl/src/math/__math_invalid.c",
-    "musl/src/math/__math_invalidf.c",
-    "musl/src/math/__math_invalidl.c",
-    "musl/src/math/__math_oflow.c",
-    "musl/src/math/__math_oflowf.c",
-    "musl/src/math/__math_uflow.c",
-    "musl/src/math/__math_uflowf.c",
-    "musl/src/math/__math_xflow.c",
-    "musl/src/math/__math_xflowf.c",
+    //"musl/src/math/lround.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_divzero.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_divzerof.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_invalid.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_invalidf.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_invalidl.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_oflow.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_oflowf.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_uflow.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_uflowf.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_xflow.c", // migrated to lib/c/math.zig
+    //"musl/src/math/__math_xflowf.c", // migrated to lib/c/math.zig
     "musl/src/misc/getauxval.c",
     "musl/src/misc/getdomainname.c",
     "musl/src/network/accept4.c",

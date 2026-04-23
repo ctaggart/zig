@@ -529,7 +529,7 @@ const src_files = [_][]const u8{
     "musl/src/math/__math_xflow.c",
     "musl/src/math/__math_xflowf.c",
     "musl/src/misc/getauxval.c",
-    "musl/src/misc/getdomainname.c",
+    //"musl/src/misc/getdomainname.c", // migrated to lib/c/ (Zig impl)
     "musl/src/network/accept4.c",
     "musl/src/network/accept.c",
     "musl/src/network/bind.c",
@@ -863,9 +863,9 @@ const src_files = [_][]const u8{
     "musl/src/stdio/fwide.c",
     "musl/src/stdio/getc.c",
     "musl/src/stdio/putc.c",
-    "musl/src/stdio/putc_unlocked.c",
+    //"musl/src/stdio/putc_unlocked.c", // migrated to lib/c/ (Zig impl)
     "musl/src/stdio/putchar.c",
-    "musl/src/stdio/putchar_unlocked.c",
+    //"musl/src/stdio/putchar_unlocked.c", // migrated to lib/c/ (Zig impl)
     "musl/src/thread/pthread_cancel.c",
     "musl/src/thread/pthread_cond_timedwait.c",
     "musl/src/thread/pthread_create.c",
@@ -877,7 +877,7 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_rwlock_tryrdlock.c",
     "musl/src/thread/pthread_rwlock_unlock.c",
     "musl/src/thread/pthread_rwlock_wrlock.c",
-    "musl/src/thread/thrd_exit.c",
+    //"musl/src/thread/thrd_exit.c", // migrated to lib/c/thread.zig (thrd_exit_fn)
     "musl/src/time/__map_file.c",
 };
 

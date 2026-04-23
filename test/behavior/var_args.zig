@@ -97,10 +97,6 @@ test "simple variadic function" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
-        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
-        return error.SkipZigTest;
-    }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
@@ -158,10 +154,6 @@ test "coerce reference to var arg" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
-        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
-        return error.SkipZigTest;
-    }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
 
     const S = struct {
@@ -189,10 +181,6 @@ test "variadic functions" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
-        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
-        return error.SkipZigTest;
-    }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
@@ -241,10 +229,6 @@ test "copy VaList" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
-        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
-        return error.SkipZigTest;
-    }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
@@ -275,10 +259,6 @@ test "unused VaList arg" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
-        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
-        return error.SkipZigTest;
-    }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064
@@ -304,10 +284,6 @@ test "variadic function with GP register spill (aarch64 #251)" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_llvm and !builtin.os.tag.isDarwin() and builtin.cpu.arch == .aarch64_be) {
-        // https://github.com/ziglang/zig/issues/14096 — aarch64_be still unsupported.
-        return error.SkipZigTest;
-    }
     if (builtin.cpu.arch == .s390x and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21350
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25064

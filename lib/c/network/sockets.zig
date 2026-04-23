@@ -19,6 +19,8 @@ const F_SETFL = 4;
 const FD_CLOEXEC = 1;
 const O_NONBLOCK: u32 = 0o4000;
 
+const SIOCATMARK: c_ulong = 0x8905;
+
 comptime {
     if (builtin.os.tag == .linux and builtin.link_libc) {
         symbol(&socketLinux, "socket");
@@ -37,6 +39,11 @@ comptime {
         symbol(&shutdownLinux, "shutdown");
         symbol(&getsockoptLinux, "getsockopt");
         symbol(&setsockoptLinux, "setsockopt");
+        symbol(&sockatmarkLinux, "sockatmark");
+        symbol(&htonlLinux, "htonl");
+        symbol(&htonsLinux, "htons");
+        symbol(&ntohlLinux, "ntohl");
+        symbol(&ntohsLinux, "ntohs");
     }
 }
 
@@ -211,4 +218,31 @@ fn setsockoptLinux(
     optlen: linux.socklen_t,
 ) callconv(.c) c_int {
     return errno(linux.setsockopt(fd, level, @bitCast(optname), @ptrCast(optval), optlen));
+}
+
+fn sockatmarkLinux(fd: c_int) callconv(.c) c_int {
+    var ret: c_int = undefined;
+    const r = linux.ioctl(fd, SIOCATMARK, @intFromPtr(&ret));
+    const signed: isize = @bitCast(r);
+    if (signed < 0) {
+        std.c._errno().* = @intCast(-signed);
+        return -1;
+    }
+    return ret;
+}
+
+fn htonlLinux(n: u32) callconv(.c) u32 {
+    return if (builtin.cpu.arch.endian() == .little) @byteSwap(n) else n;
+}
+
+fn htonsLinux(n: u16) callconv(.c) u16 {
+    return if (builtin.cpu.arch.endian() == .little) @byteSwap(n) else n;
+}
+
+fn ntohlLinux(n: u32) callconv(.c) u32 {
+    return if (builtin.cpu.arch.endian() == .little) @byteSwap(n) else n;
+}
+
+fn ntohsLinux(n: u16) callconv(.c) u16 {
+    return if (builtin.cpu.arch.endian() == .little) @byteSwap(n) else n;
 }

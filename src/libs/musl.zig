@@ -561,8 +561,8 @@ const src_files = [_][]const u8{
     "musl/src/network/h_errno.c",
     "musl/src/network/herror.c",
     "musl/src/network/hstrerror.c",
-    "musl/src/network/htonl.c",
-    "musl/src/network/htons.c",
+    //"musl/src/network/htonl.c", // migrated to lib/c/network/sockets.zig
+    //"musl/src/network/htons.c", // migrated to lib/c/network/sockets.zig
     "musl/src/network/if_freenameindex.c",
     "musl/src/network/if_indextoname.c",
     //"musl/src/network/if_nameindex.c", // migrated to lib/c/network.zig
@@ -582,8 +582,8 @@ const src_files = [_][]const u8{
     //"musl/src/network/netlink.c", // migrated to lib/c/network.zig; exports: __rtnetlink_enumerate
     "musl/src/network/netname.c", // provides getnetbyaddr/getnetbyname (not migrated to Zig)
     //"musl/src/network/ns_parse.c", // migrated to lib/c/network.zig; exports: ns_get16,ns_get32,ns_put16,ns_put32,ns_initparse,ns_skiprr,ns_parserr,ns_name_uncompress
-    "musl/src/network/ntohl.c",
-    "musl/src/network/ntohs.c",
+    //"musl/src/network/ntohl.c", // migrated to lib/c/network/sockets.zig
+    //"musl/src/network/ntohs.c", // migrated to lib/c/network/sockets.zig
     "musl/src/network/proto.c",
     //"musl/src/network/recv.c", // migrated to lib/c/network/sockets.zig
     //"musl/src/network/recvfrom.c", // migrated to lib/c/network/sockets.zig
@@ -604,7 +604,7 @@ const src_files = [_][]const u8{
     "musl/src/network/serv.c",
     //"musl/src/network/setsockopt.c", // migrated to lib/c/network/sockets.zig
     //"musl/src/network/shutdown.c", // migrated to lib/c/network/sockets.zig
-    "musl/src/network/sockatmark.c",
+    //"musl/src/network/sockatmark.c", // migrated to lib/c/network/sockets.zig
     //"musl/src/network/socket.c", // migrated to lib/c/network/sockets.zig
     //"musl/src/network/socketpair.c", // migrated to lib/c/network/sockets.zig
     "musl/src/process/posix_spawn.c",

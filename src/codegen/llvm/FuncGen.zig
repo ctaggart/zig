@@ -1081,11 +1081,12 @@ fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
         return self.wip.load(.normal, llvm_arg_ty, cur, slot_align, "");
     }
 
-    // AAPCS64 SysV (non-Darwin, non-Windows, little-endian aarch64).
+    // AAPCS64 SysV (non-Darwin, non-Windows; little- and big-endian aarch64).
     // LLVM asserts on the `va_arg` IR instruction for this target
     // ("automatic va_arg instruction only works on Darwin" —
     // AArch64ISelLowering.cpp). Lower manually, mirroring what clang
-    // emits for __builtin_va_arg. See ziglang/zig#14096, ctaggart/zig#251.
+    // emits for __builtin_va_arg. See ziglang/zig#14096, ctaggart/zig#251,
+    // ctaggart/zig#282 (big-endian + non-scalar follow-up).
     //
     // AAPCS64 va_list layout (`lib/std/builtin.zig::VaListAarch64`):
     //   +0:  __stack    (ptr)
@@ -1096,10 +1097,12 @@ fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
     //
     // MVP scope: scalar integers and pointers of 1, 2, 4, or 8 bytes
     // consumed via the GP register save area, with spill-to-stack fallback.
-    // Larger integers (i128), floats, vectors, aggregates, and 16-byte-
-    // aligned types report a codegen TODO error — every `@cVaArg` site in
-    // libzigc fits the MVP scope.
-    const is_aapcs64 = target.cpu.arch == .aarch64 and
+    // On aarch64_be, sub-8B scalars are right-justified in their 8B slot —
+    // add `8 - arg_size` to the slot base before the load. Larger integers
+    // (i128), floats, vectors, aggregates, HFA/HVA, and 16-byte-aligned
+    // types report a codegen TODO error — every `@cVaArg` site in libzigc
+    // fits the MVP scope (see #282 for the non-scalar follow-up).
+    const is_aapcs64 = (target.cpu.arch == .aarch64 or target.cpu.arch == .aarch64_be) and
         !target.os.tag.isDarwin() and target.os.tag != .windows;
     if (is_aapcs64) {
         const arg_size = arg_ty.abiSize(zcu);
@@ -1112,10 +1115,12 @@ fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
         if (!is_supported_scalar or arg_align.compare(.gt, .@"8")) {
             return self.todo(
                 "aarch64 AAPCS @cVaArg only supports <=8-byte integer/pointer scalars " ++
-                    "(see ziglang/zig#14096); got type '{f}'",
+                    "(see ziglang/zig#14096, ctaggart/zig#282); got type '{f}'",
                 .{arg_ty.fmt(self.pt)},
             );
         }
+        const is_be = target.cpu.arch == .aarch64_be;
+        const be_slot_offset: i64 = if (is_be and arg_size < 8) @intCast(8 - arg_size) else 0;
 
         const ptr_align: Builder.Alignment = comptime .fromByteUnits(8);
         const i32_align: Builder.Alignment = comptime .fromByteUnits(4);
@@ -1171,7 +1176,15 @@ fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
             &.{ in_regs_block, on_stack_block },
             &self.wip,
         );
-        return self.wip.load(.normal, llvm_arg_ty, addr_phi.toValue(), arg_align.toLlvm(), "vaarg.val");
+        // On aarch64_be, sub-8B scalars are right-justified in their 8B slot.
+        const load_addr = if (be_slot_offset == 0) addr_phi.toValue() else try self.wip.gep(
+            .inbounds,
+            .i8,
+            addr_phi.toValue(),
+            &.{try o.builder.intValue(.i64, be_slot_offset)},
+            "vaarg.be_addr",
+        );
+        return self.wip.load(.normal, llvm_arg_ty, load_addr, arg_align.toLlvm(), "vaarg.val");
     }
 
     return self.wip.vaArg(list, llvm_arg_ty, "");

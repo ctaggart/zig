@@ -563,12 +563,12 @@ const src_files = [_][]const u8{
     "musl/src/network/hstrerror.c",
     "musl/src/network/htonl.c",
     "musl/src/network/htons.c",
-    "musl/src/network/if_freenameindex.c",
+    //"musl/src/network/if_freenameindex.c", // migrated to lib/c/network/stubs.zig
     "musl/src/network/if_indextoname.c",
     //"musl/src/network/if_nameindex.c", // migrated to lib/c/network.zig
     "musl/src/network/if_nametoindex.c",
-    "musl/src/network/in6addr_any.c",
-    "musl/src/network/in6addr_loopback.c",
+    //"musl/src/network/in6addr_any.c", // migrated to lib/c/network/stubs.zig
+    //"musl/src/network/in6addr_loopback.c", // migrated to lib/c/network/stubs.zig
     "musl/src/network/inet_addr.c",
     "musl/src/network/inet_aton.c",
     "musl/src/network/inet_legacy.c",
@@ -589,14 +589,14 @@ const src_files = [_][]const u8{
     "musl/src/network/recvfrom.c",
     "musl/src/network/recvmmsg.c",
     "musl/src/network/recvmsg.c",
-    "musl/src/network/res_init.c",
+    //"musl/src/network/res_init.c", // migrated to lib/c/network/stubs.zig
     //"musl/src/network/res_mkquery.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_msend.c", // migrated to lib/c/network.zig; exports: __res_msend,__res_msend_rc
     //"musl/src/network/resolvconf.c", // migrated to lib/c/network.zig; exports: __get_resolv_conf
     //"musl/src/network/res_query.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_querydomain.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_send.c", // migrated to lib/c/network.zig
-    "musl/src/network/res_state.c",
+    //"musl/src/network/res_state.c", // migrated to lib/c/network/stubs.zig
     "musl/src/network/send.c",
     "musl/src/network/sendmmsg.c",
     "musl/src/network/sendmsg.c",

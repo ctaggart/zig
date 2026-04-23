@@ -201,4 +201,5 @@ comptime {
     // Subdirectory modules with real implementations
     _ = @import("network/dns.zig");
     _ = @import("network/resolver.zig");
+    _ = @import("network/stubs.zig");
 }

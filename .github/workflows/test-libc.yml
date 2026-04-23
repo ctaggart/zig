@@ -198,7 +198,35 @@ jobs:
             ARGS+=(-fwasmtime)
           fi
 
-          if ! stage4/bin/zig build test-libc --zig-lib-dir lib "${ARGS[@]}"; then
+          # Run with flake-detection retry (issue #286). aarch64 matrix job
+          # intermittently hits libc++ 'mutex lock failed' / 'condition_variable
+          # wait failed' from the stage4 zig's internal codegen thread pool
+          # under qemu + libLLVM, despite -j1. Retry up to 3 total attempts
+          # only when stderr matches those exact strings; other failures go
+          # straight to the post-mortem diagnostics block.
+          FLAKE_RE='mutex lock failed: No error information|condition_variable wait failed: No error information'
+          run_with_flake_retry() {
+            local attempt=1 max=3 rc=0 err
+            err=$(mktemp)
+            while :; do
+              stage4/bin/zig build test-libc --zig-lib-dir lib "${ARGS[@]}" 2> >(tee "$err" >&2)
+              rc=$?
+              if [ $rc -eq 0 ]; then
+                rm -f "$err"
+                return 0
+              fi
+              if [ $attempt -ge $max ] || ! grep -qE "$FLAKE_RE" "$err"; then
+                rm -f "$err"
+                return $rc
+              fi
+              echo "::warning::test-libc ${{ matrix.name }} flake retry $attempt/$((max-1)) — libc++ mutex/cond failed in stage4 zig (issue #286)"
+              attempt=$((attempt+1))
+              sleep 5
+              : > "$err"
+            done
+          }
+
+          if ! run_with_flake_retry; then
             echo "=== test-libc failed (exit $?), getting backtrace ==="
             sudo apt-get install -y gdb binutils 2>/dev/null || true
 

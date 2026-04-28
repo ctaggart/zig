@@ -72,6 +72,7 @@ comptime {
         symbol(&timeLinux, "time");
         symbol(&clockLinux, "clock");
         symbol(&clock_getcpuclockidLinux, "clock_getcpuclockid");
+        symbol(&timer_deleteLinux, "timer_delete");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&difftimeImpl, "difftime");
@@ -516,4 +517,33 @@ fn clock_nanosleepLinux(clk: c_int, flags: c_int, req: *const linux.timespec, re
         return -1;
     }
     return 0;
+}
+
+// timer_delete.c
+const SIGTIMER: usize = 32;
+const ptr_size = @sizeOf(usize);
+const tls_above_tp = switch (builtin.cpu.arch) {
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb,
+    .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el,
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
+    .loongarch64, .m68k => true,
+    else => false,
+};
+const part1_size: usize = if (tls_above_tp) 4 * ptr_size else 6 * ptr_size;
+const map_base_off: usize = if (ptr_size == 8) 24 else 20;
+const off_tid = part1_size;
+const off_timer_id = part1_size + map_base_off + 11 * ptr_size + 4;
+
+fn timer_deleteLinux(t: *opaque {}) callconv(.c) c_int {
+    const t_int: isize = @bitCast(@intFromPtr(t));
+    if (t_int < 0) {
+        const td_addr: usize = @intFromPtr(t) << 1;
+        const timer_id_ptr: *volatile c_int = @ptrFromInt(td_addr + off_timer_id);
+        const old_val = @atomicLoad(c_int, timer_id_ptr, .seq_cst);
+        @atomicStore(c_int, timer_id_ptr, old_val | std.math.minInt(c_int), .seq_cst);
+        const tid: c_int = (@as(*const c_int, @ptrFromInt(td_addr + off_tid))).*;
+        _ = linux.syscall2(.tkill, @as(usize, @intCast(tid)), SIGTIMER);
+        return 0;
+    }
+    return errno(linux.syscall1(.timer_delete, @intFromPtr(t)));
 }

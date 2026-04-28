@@ -16,7 +16,10 @@ tools:
     toolsets: [default]
   bash: [":*"]
 
-network: defaults
+network:
+  allowed:
+    - defaults
+    - "codeberg.org"
 
 safe-outputs:
   create-issue:

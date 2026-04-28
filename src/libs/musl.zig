@@ -871,13 +871,13 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_create.c",
     "musl/src/thread/pthread_join.c",
     "musl/src/thread/pthread_key_create.c",
-    "musl/src/thread/pthread_mutex_lock.c",
-    "musl/src/thread/pthread_mutex_unlock.c",
-    "musl/src/thread/pthread_rwlock_rdlock.c",
-    "musl/src/thread/pthread_rwlock_tryrdlock.c",
-    "musl/src/thread/pthread_rwlock_unlock.c",
-    "musl/src/thread/pthread_rwlock_wrlock.c",
-    "musl/src/thread/thrd_exit.c",
+    //"musl/src/thread/pthread_mutex_lock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_mutex_unlock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_rwlock_rdlock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_rwlock_tryrdlock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_rwlock_unlock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_rwlock_wrlock.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/thrd_exit.c", // migrated to lib/c/thread.zig
     "musl/src/time/__map_file.c",
 };
 

@@ -74,6 +74,7 @@ comptime {
         symbol(&clock_getcpuclockidLinux, "clock_getcpuclockid");
         symbol(&timer_deleteLinux, "timer_delete");
         symbol(&timer_getoverrunLinux, "timer_getoverrun");
+        symbol(&timer_gettimeLinux, "timer_gettime");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&difftimeImpl, "difftime");
@@ -559,4 +560,42 @@ fn timer_getoverrunLinux(t: *opaque {}) callconv(.c) c_int {
         sys_t = @as(usize, @intCast(timer_id & std.math.maxInt(c_int)));
     }
     return errno(linux.syscall1(.timer_getoverrun, sys_t));
+}
+
+// timer_gettime.c
+fn timer_gettimeLinux(t: *opaque {}, val: *linux.itimerspec) callconv(.c) c_int {
+    var sys_t: usize = @intFromPtr(t);
+    const t_int: isize = @bitCast(sys_t);
+    if (t_int < 0) {
+        const td_addr: usize = sys_t << 1;
+        const timer_id: c_int = (@as(*const c_int, @ptrFromInt(td_addr + off_timer_id))).*;
+        sys_t = @as(usize, @intCast(timer_id & std.math.maxInt(c_int)));
+    }
+
+    if (comptime !@hasField(linux.SYS, "timer_gettime64")) {
+        // 64-bit-time arches: timer_gettime is the kernel's natural 64-bit-time entry.
+        return errno(linux.syscall2(.timer_gettime, sys_t, @intFromPtr(val)));
+    }
+    if (comptime !@hasField(linux.SYS, "timer_gettime")) {
+        // 32-bit-time-only arches (riscv32, loongarch32): only timer_gettime64 exists.
+        return errno(linux.syscall2(.timer_gettime64, sys_t, @intFromPtr(val)));
+    }
+    // Legacy 32-bit arches with both: prefer time64, fall back to legacy on -ENOSYS.
+    const enosys: isize = -@as(isize, @intFromEnum(linux.E.NOSYS));
+    var r: isize = enosys;
+    if (@sizeOf(linux.time_t) > 4) {
+        r = @bitCast(linux.syscall2(.timer_gettime64, sys_t, @intFromPtr(val)));
+    }
+    if (r != enosys) {
+        return errno(@as(usize, @bitCast(r)));
+    }
+    var val32: [4]c_long = undefined;
+    r = @bitCast(linux.syscall2(.timer_gettime, sys_t, @intFromPtr(&val32)));
+    if (r == 0) {
+        val.it_interval.sec = @intCast(val32[0]);
+        val.it_interval.nsec = @intCast(val32[1]);
+        val.it_value.sec = @intCast(val32[2]);
+        val.it_value.nsec = @intCast(val32[3]);
+    }
+    return errno(@as(usize, @bitCast(r)));
 }

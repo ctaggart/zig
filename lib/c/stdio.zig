@@ -46,11 +46,11 @@ const _IOLBF = 1;
 const _IONBF = 2;
 const BUFSIZ = 1024;
 const EOF = -1;
+const WEOF: wint_t = -1;
+const MB_LEN_MAX = 4;
 // Extern references to musl C functions that are still compiled from C sources.
 const setvbuf_fn = @extern(*const fn (?*FILE, ?[*]u8, c_int, usize) callconv(.c) c_int, .{ .name = "setvbuf" });
 const getdelim_fn = @extern(*const fn (?*[*]u8, ?*usize, c_int, ?*FILE) callconv(.c) ssize_t, .{ .name = "getdelim" });
-const fgetwc_fn = @extern(*const fn (?*FILE) callconv(.c) wint_t, .{ .name = "fgetwc" });
-const fputwc_fn = @extern(*const fn (wchar_t, ?*FILE) callconv(.c) wint_t, .{ .name = "fputwc" });
 const fread_fn = @extern(*const fn (*anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fread" });
 const fwrite_fn = @extern(*const fn (*const anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fwrite" });
 const stdin_ext = @extern(*const ?*FILE, .{ .name = "stdin" });
@@ -103,7 +103,10 @@ const malloc_fn = @extern(*const fn (usize) callconv(.c) ?*anyopaque, .{ .name =
 const realloc_fn = @extern(*const fn (?*anyopaque, usize) callconv(.c) ?*anyopaque, .{ .name = "realloc" });
 const aio_close_fn = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__aio_close" });
 const mbtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize) callconv(.c) c_int, .{ .name = "mbtowc" });
-const wcsrtombs_fn = @extern(*const fn (?[*]u8, *?[*:0]const wchar_t, usize, ?*anyopaque) callconv(.c) usize, .{ .name = "wcsrtombs" });
+const mbrtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize, ?*mbstate_t) callconv(.c) usize, .{ .name = "mbrtowc" });
+const wctomb_fn = @extern(*const fn (?[*]u8, wchar_t) callconv(.c) c_int, .{ .name = "wctomb" });
+const wcrtomb_fn = @extern(*const fn (?[*]u8, wchar_t, ?*mbstate_t) callconv(.c) usize, .{ .name = "wcrtomb" });
+const wcsrtombs_fn = @extern(*const fn (?[*]u8, *?[*:0]const wchar_t, usize, ?*mbstate_t) callconv(.c) usize, .{ .name = "wcsrtombs" });
 
 comptime {
     if (builtin.link_libc and builtin.target.isMuslLibC()) {
@@ -115,6 +118,20 @@ comptime {
         symbol(&putwchar, "putwchar");
         symbol(&getwc, "getwc");
         symbol(&putwc, "putwc");
+        symbol(&fwide_impl, "fwide");
+        symbol(&fgetwc_impl, "fgetwc");
+        symbol(&fgetwc_unlocked_impl, "__fgetwc_unlocked");
+        symbol(&fgetwc_unlocked_impl, "fgetwc_unlocked");
+        symbol(&fgetwc_unlocked_impl, "getwc_unlocked");
+        symbol(&fgetws_impl, "fgetws");
+        symbol(&fgetws_impl, "fgetws_unlocked");
+        symbol(&fputwc_impl, "fputwc");
+        symbol(&fputwc_unlocked_impl, "__fputwc_unlocked");
+        symbol(&fputwc_unlocked_impl, "fputwc_unlocked");
+        symbol(&fputwc_unlocked_impl, "putwc_unlocked");
+        symbol(&fputws_impl, "fputws");
+        symbol(&fputws_impl, "fputws_unlocked");
+        symbol(&ungetwc_impl, "ungetwc");
         symbol(&getw, "getw");
         symbol(&putw, "putw");
         symbol(&getchar, "getchar");
@@ -260,22 +277,242 @@ fn getline(s: ?*[*]u8, n: ?*usize, f: ?*FILE) callconv(.c) ssize_t {
 
 /// getwchar.c: wint_t getwchar(void)
 fn getwchar() callconv(.c) wint_t {
-    return fgetwc_fn(stdin_ext.*);
+    return fgetwc_impl(@ptrCast(stdin_ext.*));
 }
 
 /// putwchar.c: wint_t putwchar(wchar_t c)
 fn putwchar(c: wchar_t) callconv(.c) wint_t {
-    return fputwc_fn(c, stdout_ext.*);
+    return fputwc_impl(c, @ptrCast(stdout_ext.*));
 }
 
 /// getwc.c: wint_t getwc(FILE *f)
-fn getwc(f: ?*FILE) callconv(.c) wint_t {
-    return fgetwc_fn(f);
+fn getwc(f: *FILE) callconv(.c) wint_t {
+    return fgetwc_impl(f);
 }
 
 /// putwc.c: wint_t putwc(wchar_t c, FILE *f)
-fn putwc(c: wchar_t, f: ?*FILE) callconv(.c) wint_t {
-    return fputwc_fn(c, f);
+fn putwc(c: wchar_t, f: *FILE) callconv(.c) wint_t {
+    return fputwc_impl(c, f);
+}
+
+const LocaleStruct = extern struct {
+    cat: [6]?*const anyopaque,
+};
+
+const c_locale_obj = @extern(*const LocaleStruct, .{ .name = "__c_locale" });
+const c_dot_utf8_locale_obj = @extern(*const LocaleStruct, .{ .name = "__c_dot_utf8_locale" });
+const size_t_minus1: usize = @bitCast(@as(isize, -1));
+const size_t_minus2: usize = @bitCast(@as(isize, -2));
+
+inline fn currentLocalePtr() *?*LocaleStruct {
+    return &pthread_self_fn().locale;
+}
+
+inline fn isAscii(c: anytype) bool {
+    return @as(u32, @bitCast(@as(i32, @intCast(c)))) < 128;
+}
+
+/// fwide.c: int fwide(FILE *f, int mode)
+fn fwide_impl(f: *FILE, mode_arg: c_int) callconv(.c) c_int {
+    var mode = mode_arg;
+    const need_unlock = flock(f);
+    if (mode != 0) {
+        if (f.locale == null) {
+            f.locale = @ptrCast(if (currentLocalePtr().*.?.cat[0] == null) c_locale_obj else c_dot_utf8_locale_obj);
+        }
+        if (f.mode == 0) f.mode = if (mode > 0) 1 else -1;
+    }
+    mode = f.mode;
+    funlock(f, need_unlock);
+    return mode;
+}
+
+fn fgetwc_unlocked_internal(f: *FILE) wint_t {
+    var wc: wchar_t = undefined;
+    var l: usize = 0;
+
+    if (f.rpos != f.rend) {
+        const len = @intFromPtr(f.rend.?) - @intFromPtr(f.rpos.?);
+        l = @intCast(mbtowc_fn(&wc, f.rpos, len));
+        if (l +% 1 >= 1) {
+            f.rpos = f.rpos.? + l + @intFromBool(l == 0);
+            return @intCast(wc);
+        }
+    }
+
+    var st: mbstate_t = .{};
+    var b: u8 = undefined;
+    var first = true;
+    while (true) {
+        const c = getc_unlocked_impl(f);
+        b = @truncate(@as(c_uint, @bitCast(c)));
+        if (c < 0) {
+            if (!first) {
+                f.flags |= F_ERR;
+                std.c._errno().* = @intFromEnum(std.posix.E.ILSEQ);
+            }
+            return WEOF;
+        }
+        l = mbrtowc_fn(&wc, @ptrCast(&b), 1, &st);
+        if (l == size_t_minus1) {
+            if (!first) {
+                f.flags |= F_ERR;
+                _ = ungetc(b, f);
+            }
+            return WEOF;
+        }
+        first = false;
+        if (l != size_t_minus2) break;
+    }
+
+    return @intCast(wc);
+}
+
+/// fgetwc.c: wint_t __fgetwc_unlocked(FILE *f)
+fn fgetwc_unlocked_impl(f: *FILE) callconv(.c) wint_t {
+    const ploc = currentLocalePtr();
+    const loc = ploc.*;
+    if (f.mode <= 0) _ = fwide_impl(f, 1);
+    ploc.* = @ptrCast(@alignCast(f.locale));
+    const wc = fgetwc_unlocked_internal(f);
+    ploc.* = loc;
+    return wc;
+}
+
+/// fgetwc.c: wint_t fgetwc(FILE *f)
+fn fgetwc_impl(f: *FILE) callconv(.c) wint_t {
+    const need_unlock = flock(f);
+    const c = fgetwc_unlocked_impl(f);
+    funlock(f, need_unlock);
+    return c;
+}
+
+/// fgetws.c: wchar_t *fgetws(wchar_t *restrict s, int n, FILE *restrict f)
+fn fgetws_impl(s: [*]wchar_t, n_arg: c_int, f: *FILE) callconv(.c) ?[*]wchar_t {
+    var p = s;
+    var n = n_arg;
+
+    if (n == 0) return s;
+    n -= 1;
+
+    const need_unlock = flock(f);
+    while (n != 0) : (n -= 1) {
+        const c = fgetwc_unlocked_impl(f);
+        if (c == WEOF) break;
+        p[0] = @intCast(c);
+        p += 1;
+        if (c == '\n') break;
+    }
+    p[0] = 0;
+    if (f.flags & F_ERR != 0) p = s;
+
+    funlock(f, need_unlock);
+    return if (p == s) null else s;
+}
+
+/// fputwc.c: wint_t __fputwc_unlocked(wchar_t c, FILE *f)
+fn fputwc_unlocked_impl(c_arg: wchar_t, f: *FILE) callconv(.c) wint_t {
+    var c = c_arg;
+    var mbc: [MB_LEN_MAX]u8 = undefined;
+    const ploc = currentLocalePtr();
+    const loc = ploc.*;
+
+    if (f.mode <= 0) _ = fwide_impl(f, 1);
+    ploc.* = @ptrCast(@alignCast(f.locale));
+
+    if (isAscii(c)) {
+        c = @intCast(putc_unlocked_impl(@intCast(c), f));
+    } else if (f.wpos != null and f.wend != null and @intFromPtr(f.wpos.?) + MB_LEN_MAX < @intFromPtr(f.wend.?)) {
+        const l = wctomb_fn(f.wpos, c);
+        if (l < 0) {
+            c = @intCast(WEOF);
+        } else {
+            f.wpos = f.wpos.? + @as(usize, @intCast(l));
+        }
+    } else {
+        const l = wctomb_fn(&mbc, c);
+        if (l < 0 or __fwritex(&mbc, @intCast(l), f) < @as(usize, @intCast(l))) c = @intCast(WEOF);
+    }
+    if (@as(wint_t, @intCast(c)) == WEOF) f.flags |= F_ERR;
+    ploc.* = loc;
+    return @intCast(c);
+}
+
+/// fputwc.c: wint_t fputwc(wchar_t c, FILE *f)
+fn fputwc_impl(c: wchar_t, f: *FILE) callconv(.c) wint_t {
+    const need_unlock = flock(f);
+    const ret = fputwc_unlocked_impl(c, f);
+    funlock(f, need_unlock);
+    return ret;
+}
+
+/// fputws.c: int fputws(const wchar_t *restrict ws, FILE *restrict f)
+fn fputws_impl(ws_arg: ?[*:0]const wchar_t, f: *FILE) callconv(.c) c_int {
+    var buf: [BUFSIZ]u8 = undefined;
+    var l: usize = 0;
+    var ws = ws_arg;
+    const ploc = currentLocalePtr();
+    const loc = ploc.*;
+
+    const need_unlock = flock(f);
+
+    _ = fwide_impl(f, 1);
+    ploc.* = @ptrCast(@alignCast(f.locale));
+
+    while (ws != null) {
+        l = wcsrtombs_fn(&buf, &ws, buf.len, null);
+        if (l +% 1 <= 1) break;
+        if (__fwritex(&buf, l, f) < l) {
+            funlock(f, need_unlock);
+            ploc.* = loc;
+            return -1;
+        }
+    }
+
+    funlock(f, need_unlock);
+
+    ploc.* = loc;
+    return @intCast(l);
+}
+
+/// ungetwc.c: wint_t ungetwc(wint_t c, FILE *f)
+fn ungetwc_impl(c: wint_t, f: *FILE) callconv(.c) wint_t {
+    var mbc: [MB_LEN_MAX]u8 = undefined;
+    var l: usize = undefined;
+    const ploc = currentLocalePtr();
+    const loc = ploc.*;
+
+    const need_unlock = flock(f);
+
+    if (f.mode <= 0) _ = fwide_impl(f, 1);
+    ploc.* = @ptrCast(@alignCast(f.locale));
+
+    if (f.rpos == null) _ = toread_fn(f);
+    if (c == WEOF) {
+        funlock(f, need_unlock);
+        ploc.* = loc;
+        return WEOF;
+    }
+    l = wcrtomb_fn(&mbc, @intCast(c), null);
+    if (f.rpos == null or l == size_t_minus1 or @intFromPtr(f.rpos.?) < @intFromPtr(f.buf.? - UNGET) + l) {
+        funlock(f, need_unlock);
+        ploc.* = loc;
+        return WEOF;
+    }
+
+    if (isAscii(c)) {
+        f.rpos = f.rpos.? - 1;
+        f.rpos.?[0] = @truncate(@as(c_uint, @bitCast(c)));
+    } else {
+        f.rpos = f.rpos.? - l;
+        @memcpy(f.rpos.?[0..l], mbc[0..l]);
+    }
+
+    f.flags &= ~F_EOF;
+
+    funlock(f, need_unlock);
+    ploc.* = loc;
+    return c;
 }
 
 /// getw.c: int getw(FILE *f)
@@ -863,23 +1100,14 @@ fn overflow_impl(f: *FILE, _c: c_int) callconv(.c) c_int {
 }
 
 /// fprintf.c: int fprintf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// printf.c: int printf(const char *restrict fmt, ...)
-
 /// snprintf.c: int snprintf(char *restrict s, size_t n, const char *restrict fmt, ...)
-
 /// sprintf.c: int sprintf(char *restrict s, const char *restrict fmt, ...)
-
 /// asprintf.c: int asprintf(char **s, const char *fmt, ...)
-
 /// dprintf.c: int dprintf(int fd, const char *restrict fmt, ...)
-
 /// scanf.c: int scanf(const char *restrict fmt, ...)
-
 /// fscanf.c: int fscanf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// sscanf.c: int sscanf(const char *restrict s, const char *restrict fmt, ...)
-
 /// perror.c: void perror(const char *msg)
 fn perror_impl(msg: ?[*:0]const u8) callconv(.c) void {
     const f: *FILE = @ptrCast(stderr_ext.*);
@@ -1389,17 +1617,11 @@ fn vswscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ap: VaList) cal
 }
 
 /// wprintf.c: int wprintf(const wchar_t *restrict fmt, ...)
-
 /// fwprintf.c: int fwprintf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swprintf.c: int swprintf(wchar_t *restrict s, size_t n, const wchar_t *restrict fmt, ...)
-
 /// wscanf.c: int wscanf(const wchar_t *restrict fmt, ...)
-
 /// fwscanf.c: int fwscanf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swscanf.c: int swscanf(const wchar_t *restrict s, const wchar_t *restrict fmt, ...)
-
 /// vwprintf.c: int vwprintf(const wchar_t *restrict fmt, va_list ap)
 fn vwprintf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
     return vfwprintf_fn(stdout_ext.*, fmt, ap);
@@ -1539,18 +1761,31 @@ const MAYBE_WAITERS: c_int = 0x40000000;
 const PThread = extern struct {
     _header: [header_size]u8,
     tid: c_int,
-    _p2: [p2_size]u8,
+    _p2a: [p2a_size]u8,
+    locale: ?*LocaleStruct,
+    _p2b: [p2b_size]u8,
     stdio_locks: ?*FILE,
 
     /// Architectures where musl defines TLS_ABOVE_TP.
     const tls_above_tp: bool = switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be,
-        .arm, .armeb, .thumb, .thumbeb,
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
         .loongarch64,
         .m68k,
-        .mips, .mipsel, .mips64, .mips64el,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-        .riscv32, .riscv64,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .riscv32,
+        .riscv64,
         => true,
         else => false,
     };
@@ -1562,9 +1797,9 @@ const PThread = extern struct {
     const part1_fields: usize = if (tls_above_tp) 4 else if (has_canary_pad) 7 else 6;
     const header_size: usize = part1_fields * @sizeOf(usize);
 
-    /// Byte gap between end-of-tid and start-of-stdio_locks inside Part 2.
-    /// Covers errno_val through dlerror_buf (see pthread_impl.h lines 36-59).
-    const p2_size: usize = if (@sizeOf(usize) == 8) 140 else 80;
+    /// Byte gaps inside Part 2 (see pthread_impl.h lines 36-59).
+    const p2a_size: usize = if (@sizeOf(usize) == 8) 116 else 68;
+    const p2b_size: usize = if (@sizeOf(usize) == 8) 16 else 8;
 };
 
 const pthread_self_fn = @extern(*const fn () callconv(.c) *PThread, .{ .name = "pthread_self" });

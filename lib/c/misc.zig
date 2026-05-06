@@ -250,6 +250,8 @@ comptime {
         symbol(&getresgidLinux, "getresgid");
         symbol(&setdomainnameLinux, "setdomainname");
         symbol(&gethostid, "gethostid");
+        symbol(&__getauxval, "__getauxval");
+        symbol(&__getauxval, "getauxval");
         symbol(&getdomainnameLinux, "getdomainname");
         symbol(&getrlimitLinux, "getrlimit");
         symbol(&setrlimitLinux, "setrlimit");
@@ -263,8 +265,7 @@ comptime {
         symbol(&ioctlImpl, "ioctl");
         symbol(&syscall_fn, "syscall");
     }
-    if (builtin.target.isWasiLibC()) {
-    }
+    if (builtin.target.isWasiLibC()) {}
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&basename, "basename");
         symbol(&dirname, "dirname");
@@ -332,6 +333,35 @@ fn setdomainnameLinux(name: [*]const u8, len: usize) callconv(.c) c_int {
 }
 
 fn gethostid() callconv(.c) c_long {
+    return 0;
+}
+
+const LibC = extern struct {
+    can_do_threads: u8,
+    threaded: u8,
+    secure: u8,
+    need_locks: i8,
+    threads_minus_1: c_int,
+    auxv: ?[*]usize,
+    tls_head: ?*anyopaque,
+    tls_size: usize,
+    tls_align: usize,
+    tls_cnt: usize,
+    page_size: usize,
+};
+extern var __libc: LibC;
+
+fn __getauxval(item: c_ulong) callconv(.c) c_ulong {
+    if (item == std.elf.AT_SECURE) return __libc.secure;
+
+    var auxv = __libc.auxv orelse {
+        std.c._errno().* = @intFromEnum(linux.E.NOENT);
+        return 0;
+    };
+    while (auxv[0] != 0) : (auxv += 2) {
+        if (auxv[0] == item) return @intCast(auxv[1]);
+    }
+    std.c._errno().* = @intFromEnum(linux.E.NOENT);
     return 0;
 }
 
@@ -757,12 +787,7 @@ fn fmtmsg(
         if (consolefd < 0) {
             ret = MM_NOCON;
         } else {
-            if (dprintf(consolefd, "%s%s%s%s%s%s%s%s\n",
-                if (label) |l| l else empty, if (label != null) @as([*:0]const u8, ": ") else empty,
-                if (severity != 0) errstring else empty, if (text) |t| t else empty,
-                if (action != null) @as([*:0]const u8, "\nTO FIX: ") else empty,
-                if (action) |a| a else empty, if (action != null) @as([*:0]const u8, " ") else empty,
-                if (tag) |t| t else empty) < 1)
+            if (dprintf(consolefd, "%s%s%s%s%s%s%s%s\n", if (label) |l| l else empty, if (label != null) @as([*:0]const u8, ": ") else empty, if (severity != 0) errstring else empty, if (text) |t| t else empty, if (action != null) @as([*:0]const u8, "\nTO FIX: ") else empty, if (action) |a| a else empty, if (action != null) @as([*:0]const u8, " ") else empty, if (tag) |t| t else empty) < 1)
                 ret = MM_NOCON;
             _ = close(consolefd);
         }
@@ -783,20 +808,15 @@ fn fmtmsg(
                     break;
                 }
             }
-            if (!found) { verb = 0xFF; break; }
+            if (!found) {
+                verb = 0xFF;
+                break;
+            }
             cmsg = if (strchr(cm, ':')) |p| @ptrCast(@as([*]u8, @ptrCast(p)) + 1) else null;
         }
         if (verb == 0) verb = 0xFF;
 
-        if (dprintf(2, "%s%s%s%s%s%s%s%s\n",
-            if (verb & 1 != 0 and label != null) label.? else empty,
-            if (verb & 1 != 0 and label != null) @as([*:0]const u8, ": ") else empty,
-            if (verb & 2 != 0 and severity != 0) errstring else empty,
-            if (verb & 4 != 0 and text != null) text.? else empty,
-            if (verb & 8 != 0 and action != null) @as([*:0]const u8, "\nTO FIX: ") else empty,
-            if (verb & 8 != 0 and action != null) action.? else empty,
-            if (verb & 8 != 0 and action != null) @as([*:0]const u8, " ") else empty,
-            if (verb & 16 != 0 and tag != null) tag.? else empty) < 1)
+        if (dprintf(2, "%s%s%s%s%s%s%s%s\n", if (verb & 1 != 0 and label != null) label.? else empty, if (verb & 1 != 0 and label != null) @as([*:0]const u8, ": ") else empty, if (verb & 2 != 0 and severity != 0) errstring else empty, if (verb & 4 != 0 and text != null) text.? else empty, if (verb & 8 != 0 and action != null) @as([*:0]const u8, "\nTO FIX: ") else empty, if (verb & 8 != 0 and action != null) action.? else empty, if (verb & 8 != 0 and action != null) @as([*:0]const u8, " ") else empty, if (verb & 16 != 0 and tag != null) tag.? else empty) < 1)
             ret |= MM_NOMSG;
     }
 
@@ -815,7 +835,8 @@ fn get_current_dir_name() callconv(.c) ?[*:0]u8 {
     // Compare st_dev (first field) and st_ino (second field on most archs).
     // Both are typically 8 bytes each, starting at offset 0.
     if (@as(*const u64, @ptrCast(@alignCast(&a[0]))).* == @as(*const u64, @ptrCast(@alignCast(&b[0]))).* and
-        @as(*const u64, @ptrCast(@alignCast(&a[8]))).* == @as(*const u64, @ptrCast(@alignCast(&b[8]))).*) {
+        @as(*const u64, @ptrCast(@alignCast(&a[8]))).* == @as(*const u64, @ptrCast(@alignCast(&b[8]))).*)
+    {
         return strdup(res);
     }
     return getcwd(null, 0);
@@ -889,9 +910,7 @@ fn getmntent_r(f: *FILE, mnt_out: *mntent, linebuf_arg: [*]u8, buflen: c_int) ca
 
         const len: c_int = @intCast(strlen(linebuf));
         for (&n) |*p| p.* = len;
-        _ = sscanf(linebuf, " %n%*[^ \t]%n %n%*[^ \t]%n %n%*[^ \t]%n %n%*[^ \t]%n %d %d",
-            &n[0], &n[1], &n[2], &n[3], &n[4], &n[5], &n[6], &n[7],
-            &mnt_out.mnt_freq, &mnt_out.mnt_passno);
+        _ = sscanf(linebuf, " %n%*[^ \t]%n %n%*[^ \t]%n %n%*[^ \t]%n %n%*[^ \t]%n %d %d", &n[0], &n[1], &n[2], &n[3], &n[4], &n[5], &n[6], &n[7], &mnt_out.mnt_freq, &mnt_out.mnt_passno);
 
         const lb: [*]u8 = @ptrCast(linebuf);
         if (lb[@intCast(n[0])] == '#' or n[1] == len) continue;
@@ -916,9 +935,7 @@ fn getmntent(f: *FILE) callconv(.c) ?*mntent {
 
 fn addmntent(f: *FILE, mnt_in: *const mntent) callconv(.c) c_int {
     if (fseek(f, 0, SEEK_END) != 0) return 1;
-    return if (fprintf(f, "%s\t%s\t%s\t%s\t%d\t%d\n",
-        mnt_in.mnt_fsname, mnt_in.mnt_dir, mnt_in.mnt_type, mnt_in.mnt_opts,
-        mnt_in.mnt_freq, mnt_in.mnt_passno) < 0) @as(c_int, 1) else 0;
+    return if (fprintf(f, "%s\t%s\t%s\t%s\t%d\t%d\n", mnt_in.mnt_fsname, mnt_in.mnt_dir, mnt_in.mnt_type, mnt_in.mnt_opts, mnt_in.mnt_freq, mnt_in.mnt_passno) < 0) @as(c_int, 1) else 0;
 }
 
 fn hasmntopt(mnt_in: *const mntent, opt: [*:0]const u8) callconv(.c) ?[*:0]const u8 {
@@ -1017,7 +1034,7 @@ fn realpath(filename: ?[*:0]const u8, resolved: ?[*]u8) callconv(.c) ?[*:0]u8 {
                     continue;
                 }
             }
-            const k = readlink(@ptrCast(output[0..q + comp_l :0]), &stack, p);
+            const k = readlink(@ptrCast(output[0 .. q + comp_l :0]), &stack, p);
             if (k == @as(isize, @intCast(p))) {
                 std.c._errno().* = @intFromEnum(linux.E.NAMETOOLONG);
                 return null;
@@ -1216,12 +1233,7 @@ fn _vsyslog(priority: c_int, message: [*:0]const u8, ap: VaList) void {
 
     const pid: c_int = if (log_opt & LOG_PID != 0) getpid() else 0;
     var hlen: c_int = 0;
-    const l_raw = snprintf(&buf, buf.len, "<%d>%s %n%s%s%.0d%s: ",
-        prio, &timebuf, &hlen,
-        &log_ident,
-        if (pid != 0) @as([*:0]const u8, "[") else @as([*:0]const u8, ""),
-        pid,
-        if (pid != 0) @as([*:0]const u8, "]") else @as([*:0]const u8, ""));
+    const l_raw = snprintf(&buf, buf.len, "<%d>%s %n%s%s%.0d%s: ", prio, &timebuf, &hlen, &log_ident, if (pid != 0) @as([*:0]const u8, "[") else @as([*:0]const u8, ""), pid, if (pid != 0) @as([*:0]const u8, "]") else @as([*:0]const u8, ""));
     var l: usize = if (l_raw >= 0) @intCast(l_raw) else return;
 
     std.c._errno().* = errno_save;
@@ -1238,8 +1250,8 @@ fn _vsyslog(priority: c_int, message: [*:0]const u8, ap: VaList) void {
         }
         if (send(log_fd, &buf, l, 0) < 0 and
             (!is_lost_conn(std.c._errno().*) or
-            connect(log_fd, &log_addr, @sizeOf(@TypeOf(log_addr))) < 0 or
-            send(log_fd, &buf, l, 0) < 0) and
+                connect(log_fd, &log_addr, @sizeOf(@TypeOf(log_addr))) < 0 or
+                send(log_fd, &buf, l, 0) < 0) and
             (log_opt & LOG_CONS != 0))
         {
             const fd = open("/dev/console", O_WRONLY | O_NOCTTY | O_CLOEXEC);
@@ -1320,7 +1332,7 @@ fn getopt_long_core(
 
     if (longopts != null and cur[0] == '-' and
         ((longonly != 0 and cur[1] != 0 and cur[1] != '-') or
-        (cur[1] == '-' and cur[2] != 0)))
+            (cur[1] == '-' and cur[2] != 0)))
     {
         const opts = longopts.?;
         const os_b: [*]const u8 = @ptrCast(optstring);
@@ -1667,7 +1679,7 @@ fn do_nftw(path: [*:0]u8, func: nftw_fn_t, fd_limit: c_int, flags: c_int, h: ?*c
     var dfd: c_int = -1;
     var err: c_int = 0;
 
-    const stat_rc = if (flags & FTW_PHYS != 0) lstat(path, &st) else @"stat"(path, &st);
+    const stat_rc = if (flags & FTW_PHYS != 0) lstat(path, &st) else stat(path, &st);
     if (stat_rc < 0) {
         const e = std.c._errno().*;
         if (flags & FTW_PHYS == 0 and e == @intFromEnum(linux.E.NOENT) and lstat(path, &st) == 0)
@@ -1708,7 +1720,7 @@ fn do_nftw(path: [*:0]u8, func: nftw_fn_t, fd_limit: c_int, flags: c_int, h: ?*c
     };
 
     if (ftw_type == FTW_D or ftw_type == FTW_DP) {
-        dfd = @"open"(path, O_RDONLY);
+        dfd = open(path, O_RDONLY);
         err = std.c._errno().*;
         if (dfd < 0 and err == @intFromEnum(linux.E.ACCES)) ftw_type = FTW_DNR;
         if (fd_limit == 0) _ = close(dfd);

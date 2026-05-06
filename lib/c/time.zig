@@ -73,6 +73,7 @@ comptime {
         symbol(&clockLinux, "clock");
         symbol(&clock_getcpuclockidLinux, "clock_getcpuclockid");
         symbol(&timer_deleteLinux, "timer_delete");
+        symbol(&timer_getoverrunLinux, "timer_getoverrun");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&difftimeImpl, "difftime");
@@ -546,4 +547,16 @@ fn timer_deleteLinux(t: *opaque {}) callconv(.c) c_int {
         return 0;
     }
     return errno(linux.syscall1(.timer_delete, @intFromPtr(t)));
+}
+
+// timer_getoverrun.c
+fn timer_getoverrunLinux(t: *opaque {}) callconv(.c) c_int {
+    var sys_t: usize = @intFromPtr(t);
+    const t_int: isize = @bitCast(sys_t);
+    if (t_int < 0) {
+        const td_addr: usize = sys_t << 1;
+        const timer_id: c_int = (@as(*const c_int, @ptrFromInt(td_addr + off_timer_id))).*;
+        sys_t = @as(usize, @intCast(timer_id & std.math.maxInt(c_int)));
+    }
+    return errno(linux.syscall1(.timer_getoverrun, sys_t));
 }

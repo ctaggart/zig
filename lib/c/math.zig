@@ -789,6 +789,55 @@ fn tanhf(x: f32) callconv(.c) f32 {
     return math.tanh(x);
 }
 
+inline fn fpBarrierValue(comptime T: type, x: T) T {
+    var val = x;
+    const ptr: *volatile T = &val;
+    return ptr.*;
+}
+
+fn __math_divzero(sign: u32) callconv(.c) f64 {
+    return fpBarrierValue(f64, if (sign != 0) -1.0 else 1.0) / 0.0;
+}
+
+fn __math_divzerof(sign: u32) callconv(.c) f32 {
+    return fpBarrierValue(f32, if (sign != 0) -1.0 else 1.0) / 0.0;
+}
+
+fn __math_invalid(x: f64) callconv(.c) f64 {
+    return (x - x) / (x - x);
+}
+
+fn __math_invalidf(x: f32) callconv(.c) f32 {
+    return (x - x) / (x - x);
+}
+
+fn __math_invalidl(x: c_longdouble) callconv(.c) c_longdouble {
+    return (x - x) / (x - x);
+}
+
+fn __math_xflow(sign: u32, y: f64) callconv(.c) f64 {
+    return fpBarrierValue(f64, if (sign != 0) -y else y) * y;
+}
+
+fn __math_xflowf(sign: u32, y: f32) callconv(.c) f32 {
+    return fpBarrierValue(f32, if (sign != 0) -y else y) * y;
+}
+
+fn __math_oflow(sign: u32) callconv(.c) f64 {
+    return __math_xflow(sign, 0x1p769);
+}
+
+fn __math_oflowf(sign: u32) callconv(.c) f32 {
+    return __math_xflowf(sign, 0x1p97);
+}
+
+fn __math_uflow(sign: u32) callconv(.c) f64 {
+    return __math_xflow(sign, 0x1p-767);
+}
+
+fn __math_uflowf(sign: u32) callconv(.c) f32 {
+    return __math_xflowf(sign, 0x1p-95);
+}
 
 comptime {
     if (builtin.target.isMinGW()) {
@@ -930,6 +979,17 @@ comptime {
         symbol(&powl, "powl");
     }
     if (builtin.target.isMuslLibC()) {
+        symbol(&__math_divzero, "__math_divzero");
+        symbol(&__math_divzerof, "__math_divzerof");
+        symbol(&__math_invalid, "__math_invalid");
+        symbol(&__math_invalidf, "__math_invalidf");
+        symbol(&__math_invalidl, "__math_invalidl");
+        symbol(&__math_oflow, "__math_oflow");
+        symbol(&__math_oflowf, "__math_oflowf");
+        symbol(&__math_uflow, "__math_uflow");
+        symbol(&__math_uflowf, "__math_uflowf");
+        symbol(&__math_xflow, "__math_xflow");
+        symbol(&__math_xflowf, "__math_xflowf");
         symbol(&copysign, "copysign");
         symbol(&copysignf, "copysignf");
         symbol(&rint, "rint");
@@ -1172,8 +1232,6 @@ fn rint(x: f64) callconv(.c) f64 {
     }
     return y;
 }
-
-
 
 fn acosl(x: c_longdouble) callconv(.c) c_longdouble {
     return math.acos(x);
@@ -2248,7 +2306,7 @@ fn erf_erfc2(ix: u32, x: f64) f64 {
     const s = 1 / (abs_x * abs_x);
     var R: f64 = undefined;
     var S: f64 = undefined;
-    
+
     if (ix < 0x4006db6d) { // |x| < 1/.35 ~ 2.85714
         R = erf_ra0 + s * (erf_ra1 + s * (erf_ra2 + s * (erf_ra3 + s * (erf_ra4 + s * (erf_ra5 + s * (erf_ra6 + s * erf_ra7))))));
         S = 1.0 + s * (erf_sa1 + s * (erf_sa2 + s * (erf_sa3 + s * (erf_sa4 + s * (erf_sa5 + s * (erf_sa6 + s * (erf_sa7 + s * erf_sa8)))))));
@@ -2256,13 +2314,13 @@ fn erf_erfc2(ix: u32, x: f64) f64 {
         R = erf_rb0 + s * (erf_rb1 + s * (erf_rb2 + s * (erf_rb3 + s * (erf_rb4 + s * (erf_rb5 + s * erf_rb6)))));
         S = 1.0 + s * (erf_sb1 + s * (erf_sb2 + s * (erf_sb3 + s * (erf_sb4 + s * (erf_sb5 + s * (erf_sb6 + s * erf_sb7))))));
     }
-    
+
     // SET_LOW_WORD equivalent: clear lower 32 bits
     var z = abs_x;
     const z_bits: u64 = @bitCast(z);
     const z_cleared: u64 = z_bits & 0xFFFFFFFF00000000;
     z = @bitCast(z_cleared);
-    
+
     return @exp(-z * z - 0.5625) * @exp((z - abs_x) * (z + abs_x) + R / S) / abs_x;
 }
 
@@ -2272,12 +2330,12 @@ fn erf_(x: f64) callconv(.c) f64 {
     var ix: u32 = @truncate(x_bits >> 32);
     const sign = ix >> 31;
     ix &= 0x7fffffff;
-    
+
     if (ix >= 0x7ff00000) {
         // erf(nan)=nan, erf(+-inf)=+-1
         return @as(f64, @floatFromInt(1 - 2 * @as(i32, @intCast(sign)))) + 1 / x;
     }
-    
+
     if (ix < 0x3feb0000) { // |x| < 0.84375
         if (ix < 0x3e300000) { // |x| < 2**-28
             // avoid underflow
@@ -2289,14 +2347,14 @@ fn erf_(x: f64) callconv(.c) f64 {
         const y = r / s;
         return x + x * y;
     }
-    
+
     var y: f64 = undefined;
     if (ix < 0x40180000) { // 0.84375 <= |x| < 6
         y = 1 - erf_erfc2(ix, x);
     } else {
         y = 1 - 0x1p-1022;
     }
-    
+
     return if (sign != 0) -y else y;
 }
 
@@ -2306,12 +2364,12 @@ fn erfc_(x: f64) callconv(.c) f64 {
     var ix: u32 = @truncate(x_bits >> 32);
     const sign = ix >> 31;
     ix &= 0x7fffffff;
-    
+
     if (ix >= 0x7ff00000) {
         // erfc(nan)=nan, erfc(+-inf)=0,2
         return @as(f64, @floatFromInt(2 * @as(i32, @intCast(sign)))) + 1 / x;
     }
-    
+
     if (ix < 0x3feb0000) { // |x| < 0.84375
         if (ix < 0x3c700000) // |x| < 2**-56
             return 1.0 - x;
@@ -2324,11 +2382,11 @@ fn erfc_(x: f64) callconv(.c) f64 {
         }
         return 0.5 - (x - 0.5 + x * y);
     }
-    
+
     if (ix < 0x403c0000) { // 0.84375 <= |x| < 28
         return if (sign != 0) 2 - erf_erfc2(ix, x) else erf_erfc2(ix, x);
     }
-    
+
     return if (sign != 0) 2 - 0x1p-1022 else 0x1p-1022 * 0x1p-1022;
 }
 
@@ -2347,7 +2405,7 @@ fn erff_erfc2(ix: u32, x: f32) f32 {
     const s = 1 / (abs_x * abs_x);
     var R: f32 = undefined;
     var S: f32 = undefined;
-    
+
     if (ix < 0x4036db6d) { // |x| < 1/0.35
         R = erff_ra0 + s * (erff_ra1 + s * (erff_ra2 + s * (erff_ra3 + s * (erff_ra4 + s * (erff_ra5 + s * (erff_ra6 + s * erff_ra7))))));
         S = 1.0 + s * (erff_sa1 + s * (erff_sa2 + s * (erff_sa3 + s * (erff_sa4 + s * (erff_sa5 + s * (erff_sa6 + s * (erff_sa7 + s * erff_sa8)))))));
@@ -2355,13 +2413,13 @@ fn erff_erfc2(ix: u32, x: f32) f32 {
         R = erff_rb0 + s * (erff_rb1 + s * (erff_rb2 + s * (erff_rb3 + s * (erff_rb4 + s * (erff_rb5 + s * erff_rb6)))));
         S = 1.0 + s * (erff_sb1 + s * (erff_sb2 + s * (erff_sb3 + s * (erff_sb4 + s * (erff_sb5 + s * (erff_sb6 + s * erff_sb7))))));
     }
-    
+
     // SET_FLOAT_WORD equivalent: clear lower bits
     var z = abs_x;
     const z_bits: u32 = @bitCast(z);
     const z_cleared: u32 = z_bits & 0xffffe000;
     z = @bitCast(z_cleared);
-    
+
     return @exp(-z * z - 0.5625) * @exp((z - abs_x) * (z + abs_x) + R / S) / abs_x;
 }
 
@@ -2370,12 +2428,12 @@ fn erff_(x: f32) callconv(.c) f32 {
     const ix_raw: u32 = @bitCast(x);
     const sign = ix_raw >> 31;
     const ix = ix_raw & 0x7fffffff;
-    
+
     if (ix >= 0x7f800000) {
         // erf(nan)=nan, erf(+-inf)=+-1
         return @as(f32, @floatFromInt(1 - 2 * @as(i32, @intCast(sign)))) + 1 / x;
     }
-    
+
     if (ix < 0x3f580000) { // |x| < 0.84375
         if (ix < 0x31800000) { // |x| < 2**-28
             // avoid underflow
@@ -2387,14 +2445,14 @@ fn erff_(x: f32) callconv(.c) f32 {
         const y = r / s;
         return x + x * y;
     }
-    
+
     var y: f32 = undefined;
     if (ix < 0x40c00000) { // |x| < 6
         y = 1 - erff_erfc2(ix, x);
     } else {
         y = 1 - 0x1p-120;
     }
-    
+
     return if (sign != 0) -y else y;
 }
 
@@ -2403,12 +2461,12 @@ fn erfcf_(x: f32) callconv(.c) f32 {
     const ix_raw: u32 = @bitCast(x);
     const sign = ix_raw >> 31;
     const ix = ix_raw & 0x7fffffff;
-    
+
     if (ix >= 0x7f800000) {
         // erfc(nan)=nan, erfc(+-inf)=0,2
         return @as(f32, @floatFromInt(2 * @as(i32, @intCast(sign)))) + 1 / x;
     }
-    
+
     if (ix < 0x3f580000) { // |x| < 0.84375
         if (ix < 0x23800000) // |x| < 2**-56
             return 1.0 - x;
@@ -2421,11 +2479,11 @@ fn erfcf_(x: f32) callconv(.c) f32 {
         }
         return 0.5 - (x - 0.5 + x * y);
     }
-    
+
     if (ix < 0x41e00000) { // |x| < 28
         return if (sign != 0) 2 - erff_erfc2(ix, x) else erff_erfc2(ix, x);
     }
-    
+
     return if (sign != 0) 2 - 0x1p-120 else 0x1p-120 * 0x1p-120;
 }
 

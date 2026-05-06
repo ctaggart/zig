@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const c = @import("../c.zig");
+const linux = std.os.linux;
 
 // syscall_ret.c — syscall return value to errno conversion
 fn syscall_retLinux(r: c_ulong) callconv(.c) c_long {
@@ -63,10 +64,70 @@ var hwcap: usize = 0;
 var progname: ?[*]u8 = null;
 var progname_full: ?[*]u8 = null;
 
+// emulate_wait4.c — wait4 emulation via SYS_waitid for arches lacking
+// SYS_wait4 (currently riscv32, loongarch32). Mirrors musl's
+// `#ifndef SYS_wait4` gate and reproduces the kernel-ABI status word that
+// wait4 would have returned by translating siginfo_t fields.
+const WEXITED: c_int = 4;
+
+fn __emulate_wait4Linux(
+    pid: c_int,
+    status: ?*c_int,
+    options: c_int,
+    kru: ?*linux.rusage,
+    cp: c_int,
+) callconv(.c) c_long {
+    _ = cp; // cancellation point not implemented; same path as non-cp
+    var info: linux.siginfo_t = undefined;
+    info.fields.common.first.piduid.pid = 0;
+
+    var p: c_int = pid;
+    const t: linux.P = if (pid < -1) blk: {
+        p = -pid;
+        break :blk .PGID;
+    } else if (pid == -1) .ALL else if (pid == 0) .PGID else .PID;
+
+    const r: isize = @bitCast(linux.syscall5(
+        .waitid,
+        @intFromEnum(t),
+        @as(usize, @bitCast(@as(isize, p))),
+        @intFromPtr(&info),
+        @as(usize, @bitCast(@as(isize, options | WEXITED))),
+        @intFromPtr(kru),
+    ));
+
+    if (r < 0) return @intCast(r);
+
+    const si_pid = info.fields.common.first.piduid.pid;
+    if (si_pid != 0) if (status) |sp| {
+        const si_status = info.fields.common.second.sigchld.status;
+        const code: linux.CLD = @enumFromInt(info.code);
+        var sw: c_int = 0;
+        switch (code) {
+            .CONTINUED => sw = 0xffff,
+            .DUMPED => sw = (si_status & 0x7f) | 0x80,
+            .EXITED => sw = (si_status & 0xff) << 8,
+            .KILLED => sw = si_status & 0x7f,
+            .STOPPED, .TRAPPED => sw = (si_status << 8) + 0x7f,
+            else => {},
+        }
+        sp.* = sw;
+    };
+
+    return @as(c_long, si_pid);
+}
+
 comptime {
     if (builtin.target.isMuslLibC()) {
         c.symbol(&syscall_retLinux, "__syscall_ret");
         c.symbol(&procfdnameLinux, "__procfdname");
+
+        // Export __emulate_wait4 only on arches where musl needs it (i.e. those
+        // lacking SYS_wait4). On other arches musl's `__sys_wait4` macro inlines
+        // a direct SYS_wait4 syscall and never calls this helper.
+        if (!@hasField(linux.SYS, "wait4")) {
+            c.symbol(&__emulate_wait4Linux, "__emulate_wait4");
+        }
 
         @export(&libc_version, .{ .name = "__libc_version", .linkage = .weak, .visibility = .hidden });
         @export(&sysinfo, .{ .name = "__sysinfo", .linkage = .weak, .visibility = .hidden });

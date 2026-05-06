@@ -471,7 +471,7 @@ const src_files = [_][]const u8{
     "musl/src/fenv/s390x/fenv.c",
     "musl/src/fenv/x32/fenv.s",
     "musl/src/fenv/x86_64/fenv.s",
-    "musl/src/internal/emulate_wait4.c",
+    //"musl/src/internal/emulate_wait4.c", // migrated to lib/c/internal.zig
     "musl/src/internal/floatscan.c",
     "musl/src/internal/i386/defsysinfo.s",
     "musl/src/internal/intscan.c",

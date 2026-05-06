@@ -878,7 +878,7 @@ const src_files = [_][]const u8{
     //"musl/src/thread/pthread_rwlock_unlock.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_rwlock_wrlock.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/thrd_exit.c", // migrated to lib/c/thread.zig
-    "musl/src/time/__map_file.c",
+    //"musl/src/time/__map_file.c", // migrated to lib/c/time.zig
 };
 
 const compat_time32_files = [_][]const u8{

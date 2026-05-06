@@ -57,6 +57,8 @@ const stdin_ext = @extern(*const ?*FILE, .{ .name = "stdin" });
 const stdout_ext = @extern(*const ?*FILE, .{ .name = "stdout" });
 const fgetc_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "fgetc" });
 const fputc_fn = @extern(*const fn (c_int, ?*FILE) callconv(.c) c_int, .{ .name = "fputc" });
+const musl_lock_fn = @extern(*const fn (*volatile c_int) callconv(.c) void, .{ .name = "__lock" });
+const musl_unlock_fn = @extern(*const fn (*volatile c_int) callconv(.c) void, .{ .name = "__unlock" });
 const getc_unlocked_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "getc_unlocked" });
 const putc_unlocked_fn = @extern(*const fn (c_int, ?*FILE) callconv(.c) c_int, .{ .name = "putc_unlocked" });
 /// Musl FILE flag constants (from stdio_impl.h)
@@ -222,6 +224,12 @@ comptime {
         symbol(&fwscanf_impl, "__isoc99_fwscanf");
         symbol(&swscanf_impl, "swscanf");
         symbol(&swscanf_impl, "__isoc99_swscanf");
+
+        // Open-file linked list (ofl.c, ofl_add.c)
+        symbol(&ofl_lock_impl, "__ofl_lock");
+        symbol(&ofl_unlock_impl, "__ofl_unlock");
+        symbol(&ofl_add_impl, "__ofl_add");
+        symbol(&ofl_lock_storage, "__stdio_ofl_lockptr");
 
         // Locking (__lockfile.c, flockfile.c, funlockfile.c, ftrylockfile.c)
         symbol(&lockfile_impl, "__lockfile");
@@ -863,23 +871,14 @@ fn overflow_impl(f: *FILE, _c: c_int) callconv(.c) c_int {
 }
 
 /// fprintf.c: int fprintf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// printf.c: int printf(const char *restrict fmt, ...)
-
 /// snprintf.c: int snprintf(char *restrict s, size_t n, const char *restrict fmt, ...)
-
 /// sprintf.c: int sprintf(char *restrict s, const char *restrict fmt, ...)
-
 /// asprintf.c: int asprintf(char **s, const char *fmt, ...)
-
 /// dprintf.c: int dprintf(int fd, const char *restrict fmt, ...)
-
 /// scanf.c: int scanf(const char *restrict fmt, ...)
-
 /// fscanf.c: int fscanf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// sscanf.c: int sscanf(const char *restrict s, const char *restrict fmt, ...)
-
 /// perror.c: void perror(const char *msg)
 fn perror_impl(msg: ?[*:0]const u8) callconv(.c) void {
     const f: *FILE = @ptrCast(stderr_ext.*);
@@ -1389,17 +1388,11 @@ fn vswscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ap: VaList) cal
 }
 
 /// wprintf.c: int wprintf(const wchar_t *restrict fmt, ...)
-
 /// fwprintf.c: int fwprintf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swprintf.c: int swprintf(wchar_t *restrict s, size_t n, const wchar_t *restrict fmt, ...)
-
 /// wscanf.c: int wscanf(const wchar_t *restrict fmt, ...)
-
 /// fwscanf.c: int fwscanf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swscanf.c: int swscanf(const wchar_t *restrict s, const wchar_t *restrict fmt, ...)
-
 /// vwprintf.c: int vwprintf(const wchar_t *restrict fmt, va_list ap)
 fn vwprintf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
     return vfwprintf_fn(stdout_ext.*, fmt, ap);
@@ -1527,6 +1520,32 @@ fn swscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ...) callconv(.c
     return vswscanf_impl(s, fmt, ap);
 }
 
+// --- Open-file linked list (ofl.c, ofl_add.c) ---
+
+var ofl_head: ?*FILE = null;
+var ofl_lock_storage: c_int = 0;
+
+/// ofl.c: FILE **__ofl_lock(void)
+fn ofl_lock_impl() callconv(.c) *?*FILE {
+    musl_lock_fn(&ofl_lock_storage);
+    return &ofl_head;
+}
+
+/// ofl.c: void __ofl_unlock(void)
+fn ofl_unlock_impl() callconv(.c) void {
+    musl_unlock_fn(&ofl_lock_storage);
+}
+
+/// ofl_add.c: FILE *__ofl_add(FILE *f)
+fn ofl_add_impl(f: *FILE) callconv(.c) *FILE {
+    const head = ofl_lock_impl();
+    f.next = head.*;
+    if (head.*) |old_head| old_head.prev = f;
+    head.* = f;
+    ofl_unlock_impl();
+    return f;
+}
+
 // --- Locking (__lockfile.c, flockfile.c, funlockfile.c, ftrylockfile.c) ---
 
 const MAYBE_WAITERS: c_int = 0x40000000;
@@ -1544,13 +1563,24 @@ const PThread = extern struct {
 
     /// Architectures where musl defines TLS_ABOVE_TP.
     const tls_above_tp: bool = switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be,
-        .arm, .armeb, .thumb, .thumbeb,
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
         .loongarch64,
         .m68k,
-        .mips, .mipsel, .mips64, .mips64el,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-        .riscv32, .riscv64,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .riscv32,
+        .riscv64,
         => true,
         else => false,
     };
@@ -1829,7 +1859,7 @@ fn fmemopen_impl(user_buf: ?[*]u8, size: usize, mode: [*:0]const u8) callconv(.c
 
     if (libc_ptr.threaded == 0) mf.f.lock = -1;
 
-    return ofl_add_fn(&mf.f);
+    return ofl_add_impl(&mf.f);
 }
 
 // --- open_memstream.c ---
@@ -1934,7 +1964,7 @@ fn open_memstream_impl(bufp: *?[*]u8, sizep: *usize) callconv(.c) ?*FILE {
 
     if (libc_ptr.threaded == 0) ms.f.lock = -1;
 
-    return ofl_add_fn(&ms.f);
+    return ofl_add_impl(&ms.f);
 }
 
 // --- open_wmemstream.c ---
@@ -2048,7 +2078,7 @@ fn open_wmemstream_impl(bufp: *?[*]wchar_t, sizep: *usize) callconv(.c) ?*FILE {
 
     _ = fwide_fn(&wms.f, 1);
 
-    return ofl_add_fn(&wms.f);
+    return ofl_add_impl(&wms.f);
 }
 
 // --- fopencookie.c ---
@@ -2200,12 +2230,11 @@ fn fopencookie_impl(cookie: ?*anyopaque, mode: [*:0]const u8, iofuncs: CookieIoF
     cf.f.seek_fn = &cookieseek_impl;
     cf.f.close_fn = &cookieclose_impl;
 
-    return ofl_add_fn(&cf.f);
+    return ofl_add_impl(&cf.f);
 }
 
 // Extern references to musl C functions that are still compiled from C sources.
 const free_fn = @extern(*const fn (?*anyopaque) callconv(.c) void, .{ .name = "free" });
-const ofl_add_fn = @extern(*const fn (*FILE) callconv(.c) ?*FILE, .{ .name = "__ofl_add" });
 const libc_ptr = @extern(*const Libc, .{ .name = "__libc" });
 const fwide_fn = @extern(*const fn (*FILE, c_int) callconv(.c) c_int, .{ .name = "fwide" });
 const mbsnrtowcs_fn = @extern(*const fn (?[*]wchar_t, *?[*]const u8, usize, usize, *mbstate_t) callconv(.c) usize, .{ .name = "mbsnrtowcs" });

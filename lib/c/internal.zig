@@ -41,6 +41,129 @@ const libc_version: [5:0]u8 = "1.2.5".*;
 // defsysinfo.c — vDSO pointer
 var sysinfo: usize = 0;
 
+// vdso.c — vDSO symbol lookup
+const elf = std.elf;
+const Ehdr = if (@sizeOf(usize) == 4) elf.Elf32_Ehdr else elf.Elf64_Ehdr;
+const Phdr = if (@sizeOf(usize) == 4) elf.Elf32_Phdr else elf.Elf64_Phdr;
+const Sym = if (@sizeOf(usize) == 4) elf.Elf32_Sym else elf.Elf64_Sym;
+const Verdef = elf.Verdef;
+const Verdaux = elf.Verdaux;
+
+const OK_TYPES = (1 << elf.STT_NOTYPE) | (1 << elf.STT_OBJECT) | (1 << elf.STT_FUNC) | (1 << elf.STT_COMMON);
+const OK_BINDS = (1 << elf.STB_GLOBAL) | (1 << elf.STB_WEAK) | (1 << elf.STB_GNU_UNIQUE);
+
+fn vDSOUseful() bool {
+    return builtin.os.tag == .linux and switch (builtin.cpu.arch) {
+        .x86, .x86_64, .arm, .thumb, .aarch64, .mips, .mipsel, .mips64, .mips64el, .riscv32, .riscv64, .loongarch64 => true,
+        else => false,
+    };
+}
+
+fn phdrType(ph: *const Phdr) elf.Word {
+    return if (@sizeOf(usize) == 4) ph.p_type else ph.p_type;
+}
+
+fn phdrOffset(ph: *const Phdr) usize {
+    return @intCast(ph.p_offset);
+}
+
+fn phdrVaddr(ph: *const Phdr) usize {
+    return @intCast(ph.p_vaddr);
+}
+
+fn symValue(sym: Sym) usize {
+    return @intCast(sym.st_value);
+}
+
+fn checkver(def_arg: *const Verdef, vsym_arg: u16, vername: [*:0]const u8, strings: [*]const u8) bool {
+    var def = def_arg;
+    const vsym = vsym_arg & 0x7fff;
+    while (true) {
+        if ((def.flags & elf.VER_FLG_BASE) == 0 and (@intFromEnum(def.ndx) & 0x7fff) == vsym) break;
+        if (def.next == 0) return false;
+        def = @ptrFromInt(@intFromPtr(def) + def.next);
+    }
+
+    const aux: *const Verdaux = @ptrFromInt(@intFromPtr(def) + def.aux);
+    return cstrEql(vername, @ptrCast(strings + aux.name));
+}
+
+fn cstrEql(a: [*:0]const u8, b: [*:0]const u8) bool {
+    var i: usize = 0;
+    while (true) : (i += 1) {
+        if (a[i] != b[i]) return false;
+        if (a[i] == 0) return true;
+    }
+}
+
+fn __vdsosymLinux(vername: [*:0]const u8, name: [*:0]const u8) callconv(.c) ?*anyopaque {
+    if (!vDSOUseful()) return null;
+
+    const auxv = libc_struct.auxv orelse return null;
+    var i: usize = 0;
+    while (auxv[i] != elf.AT_SYSINFO_EHDR) : (i += 2) {
+        if (auxv[i] == 0) return null;
+    }
+    if (auxv[i + 1] == 0) return null;
+
+    const eh: *const Ehdr = @ptrFromInt(auxv[i + 1]);
+    var ph: *const Phdr = @ptrFromInt(@intFromPtr(eh) + eh.e_phoff);
+    var dynv: ?[*]const usize = null;
+    var base: usize = std.math.maxInt(usize);
+    i = 0;
+    while (i < eh.e_phnum) : ({
+        i += 1;
+        ph = @ptrFromInt(@intFromPtr(ph) + eh.e_phentsize);
+    }) {
+        switch (phdrType(ph)) {
+            elf.PT_LOAD => base = @intFromPtr(eh) + phdrOffset(ph) - phdrVaddr(ph),
+            elf.PT_DYNAMIC => dynv = @ptrFromInt(@intFromPtr(eh) + phdrOffset(ph)),
+            else => {},
+        }
+    }
+    const dyn = dynv orelse return null;
+    if (base == std.math.maxInt(usize)) return null;
+
+    var strings: ?[*]const u8 = null;
+    var syms: ?[*]const Sym = null;
+    var hashtab: ?[*]const u32 = null;
+    var versym: ?[*]const u16 = null;
+    var verdef: ?*const Verdef = null;
+
+    i = 0;
+    while (dyn[i] != 0) : (i += 2) {
+        const p = base + dyn[i + 1];
+        switch (dyn[i]) {
+            elf.DT_STRTAB => strings = @ptrFromInt(p),
+            elf.DT_SYMTAB => syms = @ptrFromInt(p),
+            elf.DT_HASH => hashtab = @ptrFromInt(p),
+            elf.DT_VERSYM => versym = @ptrFromInt(p),
+            elf.DT_VERDEF => verdef = @ptrFromInt(p),
+            else => {},
+        }
+    }
+
+    const string_table = strings orelse return null;
+    const sym_table = syms orelse return null;
+    const hash_table = hashtab orelse return null;
+    if (verdef == null) versym = null;
+
+    i = 0;
+    while (i < hash_table[1]) : (i += 1) {
+        const info = sym_table[i].st_info;
+        if (((@as(usize, 1) << @as(u4, @truncate(info))) & OK_TYPES) == 0) continue;
+        if (((@as(usize, 1) << @as(u4, @truncate(info >> 4))) & OK_BINDS) == 0) continue;
+        if (sym_table[i].st_shndx == 0) continue;
+        if (!cstrEql(name, @ptrCast(string_table + sym_table[i].st_name))) continue;
+        if (versym) |vs| {
+            if (!checkver(verdef.?, vs[i], vername, string_table)) continue;
+        }
+        return @ptrFromInt(base + symValue(sym_table[i]));
+    }
+
+    return null;
+}
+
 // libc.c — libc struct initialization and globals
 const LibcStruct = extern struct {
     can_do_threads: u8,
@@ -121,6 +244,7 @@ comptime {
     if (builtin.target.isMuslLibC()) {
         c.symbol(&syscall_retLinux, "__syscall_ret");
         c.symbol(&procfdnameLinux, "__procfdname");
+        c.symbol(&__vdsosymLinux, "__vdsosym");
 
         // Export __emulate_wait4 only on arches where musl needs it (i.e. those
         // lacking SYS_wait4). On other arches musl's `__sys_wait4` macro inlines

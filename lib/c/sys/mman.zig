@@ -19,6 +19,9 @@ comptime {
 
         symbol(&mprotectLinux, "mprotect");
 
+        symbol(&mremapLinux, "mremap");
+        symbol(&mremapLinux, "__mremap");
+
         symbol(&msyncLinux, "msync");
 
         symbol(&munlockLinux, "munlock");
@@ -59,6 +62,39 @@ fn mprotectLinux(addr: *anyopaque, len: usize, prot: c_int) callconv(.c) c_int {
     return errno(std.os.linux.mprotect(@ptrFromInt(start), aligned_len, @bitCast(prot)));
 }
 
+fn mremapLinux(old_addr: ?*anyopaque, old_len: usize, new_len: usize, flags: c_int, ...) callconv(.c) ?*anyopaque {
+    if (new_len >= @as(usize, @intCast(std.math.maxInt(isize)))) {
+        std.c._errno().* = @intFromEnum(linux.E.NOMEM);
+        return MAP_FAILED;
+    }
+
+    var new_addr: ?*anyopaque = null;
+    const mremap_flags: linux.MREMAP = @bitCast(@as(u32, @bitCast(flags)));
+    if (mremap_flags.FIXED) {
+        const __vm_wait = @extern(*const fn () callconv(.c) void, .{ .name = "__vm_wait" });
+        __vm_wait();
+
+        var ap = @cVaStart();
+        defer @cVaEnd(&ap);
+        new_addr = @cVaArg(&ap, ?*anyopaque);
+    }
+
+    const ret = linux.mremap(
+        @ptrCast(old_addr),
+        old_len,
+        new_len,
+        mremap_flags,
+        @ptrCast(new_addr),
+    );
+    const signed: isize = @bitCast(ret);
+    if (signed < 0 and signed >= -4095) {
+        @branchHint(.unlikely);
+        std.c._errno().* = @intCast(-signed);
+        return MAP_FAILED;
+    }
+    return @ptrFromInt(ret);
+}
+
 fn msyncLinux(addr: *anyopaque, len: usize, flags: c_int) callconv(.c) c_int {
     return errno(std.os.linux.msync(@ptrCast(addr), len, flags));
 }
@@ -79,7 +115,6 @@ fn posix_madviseLinux(addr: *anyopaque, len: usize, advice: c_int) callconv(.c) 
     if (advice == std.os.linux.MADV.DONTNEED) return 0;
     return @intCast(-@as(isize, @bitCast(std.os.linux.madvise(@ptrCast(addr), len, @bitCast(advice)))));
 }
-
 
 fn shm_openLinux(name: [*:0]const u8, flag: c_int, mode: linux.mode_t) callconv(.c) c_int {
     // Validate and construct /dev/shm/<name> path
@@ -171,5 +206,3 @@ fn mmapLinux(addr: ?*anyopaque, len: usize, prot: c_int, flags: c_int, fd: c_int
     }
     return @ptrFromInt(ret);
 }
-
-

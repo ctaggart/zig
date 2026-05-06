@@ -670,12 +670,12 @@ const src_files = [_][]const u8{
     "musl/src/signal/x86_64/sigsetjmp.s",
     //"musl/src/stdio/ext2.c", // migrated to lib/c/stdio.zig; exports: __freadahead,__freadptrinc,__fseterr
     //"musl/src/stdio/ext.c", // migrated to lib/c/stdio.zig; exports: _flushlbf,__fsetlocking,__fwriting,__freading,__freadable,__fwritable,__flbf,__fbufsize,__fpending,__fpurge
-    "musl/src/stdio/fclose.c",
+    //"musl/src/stdio/fclose.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/__fclose_ca.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/__fdopen.c",
+    //"musl/src/stdio/__fdopen.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/feof.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/ferror.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/fflush.c",
+    //"musl/src/stdio/fflush.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fgetc.c", // migrated to lib/c/stdio.zig
     "musl/src/stdio/fgetwc.c",
     "musl/src/stdio/fgetws.c",
@@ -683,14 +683,14 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/flockfile.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fmemopen.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/__fmodeflags.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/fopen.c",
+    //"musl/src/stdio/fopen.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fopencookie.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/__fopen_rb_ca.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fputs.c", // migrated to lib/c/stdio.zig
     "musl/src/stdio/fputwc.c",
     "musl/src/stdio/fputws.c",
     //"musl/src/stdio/fread.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/freopen.c",
+    //"musl/src/stdio/freopen.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/getline.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/gets.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/getw.c", // migrated to lib/c/stdio.zig
@@ -721,7 +721,7 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/swprintf.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/swscanf.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/tempnam.c", // migrated to lib/c/temp.zig
-    "musl/src/stdio/tmpfile.c",
+    //"musl/src/stdio/tmpfile.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/tmpnam.c", // migrated to lib/c/temp.zig
     //"musl/src/stdio/ungetc.c", // migrated to lib/c/stdio.zig
     "musl/src/stdio/ungetwc.c",

@@ -856,7 +856,7 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/sscanf.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/wprintf.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/wscanf.c", // migrated to lib/c/stdio.zig
-    "musl/src/mman/mremap.c",
+    //"musl/src/mman/mremap.c", // migrated to lib/c/sys/mman.zig
     "musl/src/process/_Fork.c",
     "musl/src/process/fork.c",
     "musl/src/stdio/fputc.c",

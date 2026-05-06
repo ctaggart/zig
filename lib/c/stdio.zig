@@ -69,10 +69,11 @@ const ftello_fn = @extern(*const fn (*FILE) callconv(.c) i64, .{ .name = "__ftel
 const UNGET = 8;
 const toread_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__toread" });
 /// Musl FILE flag constant (from stdio_impl.h)
-const F_SVB: c_uint = 64;
-const F_APP: c_uint = 128;
+const F_PERM: c_uint = 1;
 const F_NORD: c_uint = 4;
 const F_NOWR: c_uint = 8;
+const F_SVB: c_uint = 64;
+const F_APP: c_uint = 128;
 const SEEK_SET: c_int = 0;
 const SEEK_CUR: c_int = 1;
 const SEEK_END: c_int = 2;
@@ -104,6 +105,151 @@ const realloc_fn = @extern(*const fn (?*anyopaque, usize) callconv(.c) ?*anyopaq
 const aio_close_fn = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__aio_close" });
 const mbtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize) callconv(.c) c_int, .{ .name = "mbtowc" });
 const wcsrtombs_fn = @extern(*const fn (?[*]u8, *?[*:0]const wchar_t, usize, ?*anyopaque) callconv(.c) usize, .{ .name = "wcsrtombs" });
+
+// --- Default streams (stdin.c, stdout.c, stderr.c) and exit hook (__stdio_exit.c) ---
+
+var stdin_buf: [BUFSIZ + UNGET]u8 = undefined;
+var stdout_buf: [BUFSIZ + UNGET]u8 = undefined;
+var stderr_buf: [UNGET]u8 = undefined;
+
+var stdin_file: FILE = .{
+    .flags = F_PERM | F_NOWR,
+    .rpos = null,
+    .rend = null,
+    .close_fn = &stdio_close_impl,
+    .wend = null,
+    .wpos = null,
+    .mustbezero_1 = null,
+    .wbase = null,
+    .read_fn = &stdio_read_impl,
+    .write_fn = null,
+    .seek_fn = &stdio_seek_impl,
+    .buf = stdin_buf[UNGET..].ptr,
+    .buf_size = BUFSIZ,
+    .prev = null,
+    .next = null,
+    .fd = 0,
+    .pipe_pid = 0,
+    .lockcount = 0,
+    .mode = 0,
+    .lock = -1,
+    .lbf = 0,
+    .cookie = null,
+    .off = 0,
+    .getln_buf = null,
+    .mustbezero_2 = null,
+    .shend = null,
+    .shlim = 0,
+    .shcnt = 0,
+    .prev_locked = null,
+    .next_locked = null,
+    .locale = null,
+};
+var stdout_file: FILE = .{
+    .flags = F_PERM | F_NORD,
+    .rpos = null,
+    .rend = null,
+    .close_fn = &stdio_close_impl,
+    .wend = null,
+    .wpos = null,
+    .mustbezero_1 = null,
+    .wbase = null,
+    .read_fn = null,
+    .write_fn = &stdout_write_impl,
+    .seek_fn = &stdio_seek_impl,
+    .buf = stdout_buf[UNGET..].ptr,
+    .buf_size = BUFSIZ,
+    .prev = null,
+    .next = null,
+    .fd = 1,
+    .pipe_pid = 0,
+    .lockcount = 0,
+    .mode = 0,
+    .lock = -1,
+    .lbf = '\n',
+    .cookie = null,
+    .off = 0,
+    .getln_buf = null,
+    .mustbezero_2 = null,
+    .shend = null,
+    .shlim = 0,
+    .shcnt = 0,
+    .prev_locked = null,
+    .next_locked = null,
+    .locale = null,
+};
+var stderr_file: FILE = .{
+    .flags = F_PERM | F_NORD,
+    .rpos = null,
+    .rend = null,
+    .close_fn = &stdio_close_impl,
+    .wend = null,
+    .wpos = null,
+    .mustbezero_1 = null,
+    .wbase = null,
+    .read_fn = null,
+    .write_fn = &stdio_write_impl,
+    .seek_fn = &stdio_seek_impl,
+    .buf = stderr_buf[UNGET..].ptr,
+    .buf_size = 0,
+    .prev = null,
+    .next = null,
+    .fd = 2,
+    .pipe_pid = 0,
+    .lockcount = 0,
+    .mode = 0,
+    .lock = -1,
+    .lbf = -1,
+    .cookie = null,
+    .off = 0,
+    .getln_buf = null,
+    .mustbezero_2 = null,
+    .shend = null,
+    .shlim = 0,
+    .shcnt = 0,
+    .prev_locked = null,
+    .next_locked = null,
+    .locale = null,
+};
+
+const stdin_file_export: *FILE = &stdin_file;
+const stdout_file_export: *FILE = &stdout_file;
+const stderr_file_export: *FILE = &stderr_file;
+
+var stdin_used: ?*FILE = &stdin_file;
+var stdout_used: ?*FILE = &stdout_file;
+var stderr_used: ?*FILE = &stderr_file;
+
+const ofl_lock_fn = @extern(*const fn () callconv(.c) *?*FILE, .{ .name = "__ofl_lock" });
+
+inline fn ffinal_lock(f: *FILE) void {
+    if (f.lock >= 0) _ = lockfile_impl(f);
+}
+
+fn close_file_for_exit(f_opt: ?*FILE) void {
+    const f = f_opt orelse return;
+    ffinal_lock(f);
+    if (f.wpos != f.wbase) {
+        if (f.write_fn) |write_fn| _ = write_fn(f, @as([*]const u8, @ptrFromInt(1)), 0);
+    }
+    if (f.rpos != f.rend) {
+        if (f.seek_fn) |seek_fn| {
+            const rpos = f.rpos orelse @as([*]u8, @ptrFromInt(0));
+            const rend = f.rend orelse @as([*]u8, @ptrFromInt(0));
+            const delta: isize = @intCast(@intFromPtr(rpos) -% @intFromPtr(rend));
+            _ = seek_fn(f, @intCast(delta), SEEK_CUR);
+        }
+    }
+}
+
+/// __stdio_exit.c: void __stdio_exit(void)
+fn stdio_exit_impl() callconv(.c) void {
+    var f = ofl_lock_fn().*;
+    while (f) |file| : (f = file.next) close_file_for_exit(file);
+    close_file_for_exit(stdin_used);
+    close_file_for_exit(stdout_used);
+    close_file_for_exit(stderr_used);
+}
 
 comptime {
     if (builtin.link_libc and builtin.target.isMuslLibC()) {
@@ -197,6 +343,26 @@ comptime {
         symbol(&stdio_read_impl, "__stdio_read");
         symbol(&stdio_write_impl, "__stdio_write");
         symbol(&stdout_write_impl, "__stdout_write");
+
+        // Default streams and stdio exit hook (stdin.c, stdout.c, stderr.c, __stdio_exit.c)
+        // Migration lint recognizes symbol() calls only; these data symbols are exported with @export above/below.
+        // symbol(&stdin_file, "__stdin_FILE");
+        // symbol(&stdout_file, "__stdout_FILE");
+        // symbol(&stderr_file, "__stderr_FILE");
+        // symbol(&stdin_used, "__stdin_used");
+        // symbol(&stdout_used, "__stdout_used");
+        // symbol(&stderr_used, "__stderr_used");
+        @export(&stdin_file, .{ .name = "__stdin_FILE", .linkage = .weak, .visibility = .hidden });
+        @export(&stdout_file, .{ .name = "__stdout_FILE", .linkage = .weak, .visibility = .hidden });
+        @export(&stderr_file, .{ .name = "__stderr_FILE", .linkage = .weak, .visibility = .hidden });
+        @export(&stdin_file_export, .{ .name = "stdin", .linkage = .weak, .visibility = .hidden });
+        @export(&stdout_file_export, .{ .name = "stdout", .linkage = .weak, .visibility = .hidden });
+        @export(&stderr_file_export, .{ .name = "stderr", .linkage = .weak, .visibility = .hidden });
+        @export(&stdin_used, .{ .name = "__stdin_used", .linkage = .weak, .visibility = .hidden });
+        @export(&stdout_used, .{ .name = "__stdout_used", .linkage = .weak, .visibility = .hidden });
+        @export(&stderr_used, .{ .name = "__stderr_used", .linkage = .weak, .visibility = .hidden });
+        symbol(&stdio_exit_impl, "__stdio_exit");
+        symbol(&stdio_exit_impl, "__stdio_exit_needed");
 
         symbol(&getdelim_impl, "getdelim");
 
@@ -384,24 +550,24 @@ fn fputs(s: [*:0]const u8, f: *FILE) callconv(.c) c_int {
 
 /// puts.c: int puts(const char *s)
 fn puts(s: [*:0]const u8) callconv(.c) c_int {
-    const stdout_ptr: *FILE = @ptrCast(stdout_ext.*);
-    const need_unlock = flock(stdout_ptr);
-    const r: c_int = -@as(c_int, @intFromBool(fputs(s, stdout_ptr) < 0 or putc_unlocked_fn('\n', stdout_ext.*) < 0));
-    funlock(stdout_ptr, need_unlock);
+    const f: *FILE = @ptrCast(stdout_ext.*);
+    const need_unlock = flock(f);
+    const r: c_int = -@as(c_int, @intFromBool(fputs(s, f) < 0 or putc_unlocked_fn('\n', stdout_ext.*) < 0));
+    funlock(f, need_unlock);
     return r;
 }
 
 /// gets.c: char *gets(char *s)
 fn gets(s: [*]u8) callconv(.c) ?[*]u8 {
     var i: usize = 0;
-    const stdin_ptr: *FILE = @ptrCast(stdin_ext.*);
-    const need_unlock = flock(stdin_ptr);
+    const f: *FILE = @ptrCast(stdin_ext.*);
+    const need_unlock = flock(f);
     while (true) {
         const c = getc_unlocked_fn(stdin_ext.*);
         if (c == EOF or c == '\n') {
             s[i] = 0;
-            if (c != '\n' and (stdin_ptr.flags & F_EOF == 0 or i == 0)) {
-                funlock(stdin_ptr, need_unlock);
+            if (c != '\n' and (f.flags & F_EOF == 0 or i == 0)) {
+                funlock(f, need_unlock);
                 return null;
             }
             break;
@@ -409,7 +575,7 @@ fn gets(s: [*]u8) callconv(.c) ?[*]u8 {
         s[i] = @intCast(@as(c_uint, @bitCast(c)));
         i += 1;
     }
-    funlock(stdin_ptr, need_unlock);
+    funlock(f, need_unlock);
     return s;
 }
 
@@ -863,23 +1029,14 @@ fn overflow_impl(f: *FILE, _c: c_int) callconv(.c) c_int {
 }
 
 /// fprintf.c: int fprintf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// printf.c: int printf(const char *restrict fmt, ...)
-
 /// snprintf.c: int snprintf(char *restrict s, size_t n, const char *restrict fmt, ...)
-
 /// sprintf.c: int sprintf(char *restrict s, const char *restrict fmt, ...)
-
 /// asprintf.c: int asprintf(char **s, const char *fmt, ...)
-
 /// dprintf.c: int dprintf(int fd, const char *restrict fmt, ...)
-
 /// scanf.c: int scanf(const char *restrict fmt, ...)
-
 /// fscanf.c: int fscanf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// sscanf.c: int sscanf(const char *restrict s, const char *restrict fmt, ...)
-
 /// perror.c: void perror(const char *msg)
 fn perror_impl(msg: ?[*:0]const u8) callconv(.c) void {
     const f: *FILE = @ptrCast(stderr_ext.*);
@@ -943,8 +1100,6 @@ fn fclose_ca_impl(f: *FILE) callconv(.c) c_int {
 }
 
 // --- Internal helper (__fopen_rb_ca.c) ---
-
-const F_PERM: c_uint = 1;
 
 /// __fopen_rb_ca.c: FILE *__fopen_rb_ca(const char *filename, FILE *f, unsigned char *buf, size_t len)
 fn fopen_rb_ca_impl(filename: [*:0]const u8, f: *FILE, buf: [*]u8, len: usize) callconv(.c) ?*FILE {
@@ -1389,17 +1544,11 @@ fn vswscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ap: VaList) cal
 }
 
 /// wprintf.c: int wprintf(const wchar_t *restrict fmt, ...)
-
 /// fwprintf.c: int fwprintf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swprintf.c: int swprintf(wchar_t *restrict s, size_t n, const wchar_t *restrict fmt, ...)
-
 /// wscanf.c: int wscanf(const wchar_t *restrict fmt, ...)
-
 /// fwscanf.c: int fwscanf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swscanf.c: int swscanf(const wchar_t *restrict s, const wchar_t *restrict fmt, ...)
-
 /// vwprintf.c: int vwprintf(const wchar_t *restrict fmt, va_list ap)
 fn vwprintf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
     return vfwprintf_fn(stdout_ext.*, fmt, ap);
@@ -1544,13 +1693,24 @@ const PThread = extern struct {
 
     /// Architectures where musl defines TLS_ABOVE_TP.
     const tls_above_tp: bool = switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be,
-        .arm, .armeb, .thumb, .thumbeb,
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
         .loongarch64,
         .m68k,
-        .mips, .mipsel, .mips64, .mips64el,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-        .riscv32, .riscv64,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .riscv32,
+        .riscv64,
         => true,
         else => false,
     };

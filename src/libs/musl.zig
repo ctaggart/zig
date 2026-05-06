@@ -709,14 +709,14 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/putw.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/putwc.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/putwchar.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/stderr.c",
-    "musl/src/stdio/stdin.c",
+    //"musl/src/stdio/stderr.c", // migrated to lib/c/stdio.zig; exports: __stderr_FILE,__stderr_used
+    //"musl/src/stdio/stdin.c", // migrated to lib/c/stdio.zig; exports: __stdin_FILE,__stdin_used
     //"musl/src/stdio/__stdio_close.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/__stdio_exit.c",
+    //"musl/src/stdio/__stdio_exit.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/__stdio_read.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/__stdio_seek.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/__stdio_write.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/stdout.c",
+    //"musl/src/stdio/stdout.c", // migrated to lib/c/stdio.zig; exports: __stdout_FILE,__stdout_used
     //"musl/src/stdio/__stdout_write.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/swprintf.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/swscanf.c", // migrated to lib/c/stdio.zig

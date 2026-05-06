@@ -886,6 +886,8 @@ comptime {
         symbol(&cosl, "cosl");
         symbol(&exp10, "exp10");
         symbol(&exp10f, "exp10f");
+        symbol(&exp10l, "exp10l");
+        symbol(&expm1, "expm1");
         symbol(&expm1f, "expm1f");
         symbol(&fdimf, "fdimf");
         symbol(&fdiml, "fdiml");
@@ -900,11 +902,14 @@ comptime {
         symbol(&ldexpl, "ldexpl");
         symbol(&llrintf, "llrintf");
         symbol(&llrintl, "llrintl");
+        symbol(&llround, "llround");
         symbol(&llroundf, "llroundf");
         symbol(&llroundl, "llroundl");
+        symbol(&log1p, "log1p");
         symbol(&log1pf, "log1pf");
         symbol(&lrintf, "lrintf");
         symbol(&lrintl, "lrintl");
+        symbol(&lround, "lround");
         symbol(&lroundf, "lroundf");
         symbol(&lroundl, "lroundl");
         symbol(&modf, "modf");
@@ -917,6 +922,7 @@ comptime {
         symbol(&pow, "pow");
         symbol(&pow10, "pow10");
         symbol(&pow10f, "pow10f");
+        symbol(&pow10l, "pow10l");
         symbol(&sincosl, "sincosl");
         symbol(&sinhf, "sinhf");
         symbol(&sinl, "sinl");
@@ -1079,6 +1085,14 @@ fn exp10(x: f64) callconv(.c) f64 {
 
 fn exp10f(x: f32) callconv(.c) f32 {
     return math.pow(f32, 10.0, x);
+}
+
+fn exp10l(x: c_longdouble) callconv(.c) c_longdouble {
+    return math.exp2(@as(c_longdouble, 3.32192809488736234787031942948939) * x);
+}
+
+fn expm1(x: f64) callconv(.c) f64 {
+    return math.expm1(x);
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
@@ -1321,12 +1335,20 @@ fn llrintl(x: c_longdouble) callconv(.c) c_longlong {
     return @intFromFloat(rintGeneric(c_longdouble, x));
 }
 
+fn llround(x: f64) callconv(.c) c_longlong {
+    return @intFromFloat(math.round(x));
+}
+
 fn llroundf(x: f32) callconv(.c) c_longlong {
     return @intFromFloat(math.round(x));
 }
 
 fn llroundl(x: c_longdouble) callconv(.c) c_longlong {
     return @intFromFloat(math.round(x));
+}
+
+fn log1p(x: f64) callconv(.c) f64 {
+    return math.log1p(x);
 }
 
 fn log1pf(x: f32) callconv(.c) f32 {
@@ -1339,6 +1361,10 @@ fn lrintf(x: f32) callconv(.c) c_long {
 
 fn lrintl(x: c_longdouble) callconv(.c) c_long {
     return @intFromFloat(rintGeneric(c_longdouble, x));
+}
+
+fn lround(x: f64) callconv(.c) c_long {
+    return @intFromFloat(math.round(x));
 }
 
 fn lroundf(x: f32) callconv(.c) c_long {
@@ -2664,6 +2690,10 @@ fn nearbyint(x: f64) callconv(.c) f64 {
 
 fn powl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
     return @floatCast(math.pow(f64, @floatCast(x), @floatCast(y)));
+}
+
+fn pow10l(x: c_longdouble) callconv(.c) c_longdouble {
+    return exp10l(x);
 }
 
 fn sinh(x: f64) callconv(.c) f64 {

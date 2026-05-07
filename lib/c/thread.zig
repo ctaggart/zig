@@ -167,6 +167,12 @@ const FUTEX_WAIT: usize = 0;
 const FUTEX_WAKE: usize = 1;
 const FUTEX_REQUEUE: usize = 3;
 const FUTEX_PRIVATE: usize = 128;
+const SYS_futex_time64: usize = if (@hasField(linux.SYS, "futex_time64")) @intFromEnum(linux.SYS.futex_time64) else 0;
+const SYS_futex: usize = if (@hasField(linux.SYS, "futex")) @intFromEnum(linux.SYS.futex) else SYS_futex_time64;
+var dummy_eintr_valid_flag: c_int = 0;
+var unmap_base: ?*anyopaque = null;
+var unmap_size: usize = 0;
+var shared_stack: [256]u8 = undefined;
 var vmlock: [2]c_int = .{ 0, 0 };
 var __default_stacksize: c_uint = 131072; // DEFAULT_STACK_SIZE
 var __default_guardsize: c_uint = 8192; // DEFAULT_GUARD_SIZE
@@ -419,6 +425,10 @@ comptime {
             symbol(&getattr_default_np_fn, "pthread_getattr_default_np");
             symbol(&syscall_cp_fn, "__syscall_cp");
             symbol(&testcancel_fn, "__testcancel");
+            symbol(&timedwait_cp_fn, "__timedwait_cp");
+            symbol(&timedwait_fn, "__timedwait");
+            symbol(&dummy_eintr_valid_flag, "__eintr_valid_flag");
+            symbol(&unmapself_fn, "__unmapself");
         }
     }
     @export(&vmlock, .{ .name = "__vmlock_lockptr" });
@@ -3187,6 +3197,90 @@ fn set_thread_area_fn(p: usize) callconv(.c) c_int {
     } else {
         return -eint(.NOSYS);
     }
+}
+
+fn is32bitTime(x: i64) bool {
+    return x >= std.math.minInt(i32) and x <= std.math.maxInt(i32);
+}
+
+fn clampTime(x: i64) isize {
+    if (is32bitTime(x)) return @intCast(x);
+    return if (x < 0) std.math.minInt(i32) else std.math.maxInt(i32);
+}
+
+fn syscall_cp4(nr: usize, a1: usize, a2: usize, a3: usize, a4: usize) isize {
+    const __syscall_cp = @extern(*const fn (usize, usize, usize, usize, usize, usize, usize) callconv(.c) isize, .{ .name = "__syscall_cp" });
+    return __syscall_cp(nr, a1, a2, a3, a4, 0, 0);
+}
+
+fn futex4_cp(addr: *volatile c_int, op: usize, val: c_int, to: ?*const linux.timespec) isize {
+    var timeout32: linux.timespec = undefined;
+    var r: isize = -@as(isize, @intCast(eint(.NOSYS)));
+
+    if (comptime @hasField(linux.SYS, "futex_time64")) {
+        const s: i64 = if (to) |timeout| @intCast(timeout.sec) else 0;
+        const ns: i64 = if (to) |timeout| @intCast(timeout.nsec) else 0;
+        if (SYS_futex == SYS_futex_time64 or !is32bitTime(s)) {
+            var timeout64: linux.kernel_timespec = .{ .sec = s, .nsec = ns };
+            r = syscall_cp4(SYS_futex_time64, @intFromPtr(addr), op, @bitCast(@as(isize, val)), if (to != null) @intFromPtr(&timeout64) else 0);
+        }
+        if (SYS_futex == SYS_futex_time64 or r != -@as(isize, @intCast(eint(.NOSYS)))) return r;
+        if (to) |_| timeout32 = .{ .sec = clampTime(s), .nsec = @intCast(ns) };
+    }
+
+    const to_addr = if (to) |timeout| blk: {
+        if (comptime @hasField(linux.SYS, "futex_time64")) break :blk @intFromPtr(&timeout32);
+        break :blk @intFromPtr(timeout);
+    } else 0;
+    r = syscall_cp4(SYS_futex, @intFromPtr(addr), op, @bitCast(@as(isize, val)), to_addr);
+    if (r != -@as(isize, @intCast(eint(.NOSYS)))) return r;
+    return syscall_cp4(SYS_futex, @intFromPtr(addr), op & ~FUTEX_PRIVATE, @bitCast(@as(isize, val)), to_addr);
+}
+
+fn timedwait_cp_fn(addr: *volatile c_int, val: c_int, clk: c_int, at: ?*const linux.timespec, priv_arg: c_int) callconv(.c) c_int {
+    var to: linux.timespec = undefined;
+    var top: ?*const linux.timespec = null;
+    const priv: usize = if (priv_arg != 0) FUTEX_PRIVATE else 0;
+
+    if (at) |deadline| {
+        if (deadline.nsec >= 1000000000) return eint(.INVAL);
+        if (deadline.nsec < 0) return eint(.INVAL);
+        if (linux.clock_gettime(@enumFromInt(@as(u32, @bitCast(clk))), &to) != 0) return eint(.INVAL);
+        to.sec = deadline.sec - to.sec;
+        to.nsec = deadline.nsec - to.nsec;
+        if (to.nsec < 0) {
+            to.sec -= 1;
+            to.nsec += 1000000000;
+        }
+        if (to.sec < 0) return eint(.TIMEDOUT);
+        top = &to;
+    }
+
+    var r: c_int = @intCast(-futex4_cp(addr, FUTEX_WAIT | priv, val, top));
+    if (r != eint(.INTR) and r != eint(.TIMEDOUT) and r != eint(.CANCELED)) r = 0;
+    if (r == eint(.INTR) and @atomicLoad(c_int, &dummy_eintr_valid_flag, .monotonic) == 0) r = 0;
+    return r;
+}
+
+fn timedwait_fn(addr: *volatile c_int, val: c_int, clk: c_int, at: ?*const linux.timespec, priv: c_int) callconv(.c) c_int {
+    var cs: c_int = undefined;
+    const pthread_setcancelstate_ext = @extern(*const fn (c_int, ?*c_int) callconv(.c) c_int, .{ .name = "__pthread_setcancelstate" });
+    _ = pthread_setcancelstate_ext(1, &cs); // PTHREAD_CANCEL_DISABLE
+    const r = timedwait_cp_fn(addr, val, clk, at, priv);
+    _ = pthread_setcancelstate_ext(cs, null);
+    return r;
+}
+
+fn do_unmap() callconv(.c) noreturn {
+    _ = linux.syscall2(.munmap, @intFromPtr(unmap_base), unmap_size);
+    _ = linux.syscall1(.exit, 0);
+    unreachable;
+}
+
+fn unmapself_fn(base: ?*anyopaque, size: usize) callconv(.c) void {
+    unmap_base = base;
+    unmap_size = size;
+    do_unmap();
 }
 
 // The real cancellation-point logic is in arch-specific .s files

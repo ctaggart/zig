@@ -8,6 +8,8 @@ on:
     paths:
       - src/libs/musl.zig
       - lib/c/**
+      - test/libc.zig
+      - test/src/Libc.zig
       - scripts/check_musl_migration.py
       - .github/workflows/lint-libc-migration.yml
       - .github/workflows/pr-build.yml
@@ -15,6 +17,8 @@ on:
     paths:
       - src/libs/musl.zig
       - lib/c/**
+      - test/libc.zig
+      - test/src/Libc.zig
       - scripts/check_musl_migration.py
       - .github/workflows/lint-libc-migration.yml
       - .github/workflows/pr-build.yml

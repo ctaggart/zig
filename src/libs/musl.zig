@@ -609,7 +609,7 @@ const src_files = [_][]const u8{
     "musl/src/network/socketpair.c",
     "musl/src/process/posix_spawn.c",
     "musl/src/process/posix_spawnp.c",
-    "musl/src/sched/affinity.c",
+    //"musl/src/sched/affinity.c", // migrated to lib/c/sched.zig; exports: sched_getaffinity,sched_setaffinity,pthread_getaffinity_np,pthread_setaffinity_np
     "musl/src/setjmp/aarch64/longjmp.s",
     "musl/src/setjmp/aarch64/setjmp.s",
     "musl/src/setjmp/arm/longjmp.S",

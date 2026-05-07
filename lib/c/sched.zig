@@ -5,6 +5,15 @@ const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
 const c = @import("../c.zig");
 
+const arch = builtin.target.cpu.arch;
+const tls_above_tp = switch (arch) {
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .loongarch64, .m68k => true,
+    else => false,
+};
+const ptr_size = @sizeOf(usize);
+const part1_size: usize = if (tls_above_tp) 4 * ptr_size else 6 * ptr_size;
+const off_tid = part1_size;
+
 comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&sched_yieldLinux, "sched_yield");
@@ -16,6 +25,10 @@ comptime {
         symbol(&sched_setschedulerStub, "sched_setscheduler");
         symbol(&sched_rr_get_intervalLinux, "sched_rr_get_interval");
         symbol(&__sched_cpucount, "__sched_cpucount");
+        symbol(&sched_getaffinityLinux, "sched_getaffinity");
+        symbol(&sched_setaffinityLinux, "sched_setaffinity");
+        symbol(&pthread_getaffinity_npLinux, "pthread_getaffinity_np");
+        symbol(&pthread_setaffinity_npLinux, "pthread_setaffinity_np");
         symbol(&sched_getcpuLinux, "sched_getcpu");
     }
 }
@@ -71,6 +84,50 @@ fn __sched_cpucount(size: usize, set: [*]const u8) callconv(.c) c_int {
         cnt += @intCast(@popCount(byte));
     }
     return cnt;
+}
+
+fn do_getaffinity(tid: linux.pid_t, size: usize, set: [*]u8) c_long {
+    const rc: isize = @bitCast(linux.syscall3(
+        .sched_getaffinity,
+        @as(usize, @bitCast(@as(isize, tid))),
+        size,
+        @intFromPtr(set),
+    ));
+    if (rc < 0) return @intCast(rc);
+    const ret: usize = @intCast(rc);
+    if (ret < size) @memset(set[ret..size], 0);
+    return 0;
+}
+
+fn sched_getaffinityLinux(tid: linux.pid_t, size: usize, set: [*]u8) callconv(.c) c_int {
+    return errno(@bitCast(@as(isize, @intCast(do_getaffinity(tid, size, set)))));
+}
+
+fn sched_setaffinityLinux(tid: linux.pid_t, size: usize, set: [*]const u8) callconv(.c) c_int {
+    return errno(linux.syscall3(
+        .sched_setaffinity,
+        @as(usize, @bitCast(@as(isize, tid))),
+        size,
+        @intFromPtr(set),
+    ));
+}
+
+fn pthread_tid(thread: std.c.pthread_t) linux.pid_t {
+    return (@as(*const linux.pid_t, @ptrFromInt(@intFromPtr(thread) + off_tid))).*;
+}
+
+fn pthread_getaffinity_npLinux(thread: std.c.pthread_t, size: usize, set: [*]u8) callconv(.c) c_int {
+    return @intCast(-do_getaffinity(pthread_tid(thread), size, set));
+}
+
+fn pthread_setaffinity_npLinux(thread: std.c.pthread_t, size: usize, set: [*]const u8) callconv(.c) c_int {
+    const rc: isize = @bitCast(linux.syscall3(
+        .sched_setaffinity,
+        @as(usize, @bitCast(@as(isize, pthread_tid(thread)))),
+        size,
+        @intFromPtr(set),
+    ));
+    return if (rc < 0) @intCast(-rc) else 0;
 }
 
 /// sched_getcpu — returns the CPU the calling thread is running on.

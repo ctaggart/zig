@@ -573,8 +573,8 @@ const src_files = [_][]const u8{
     //"musl/src/network/inet_aton.c", // migrated to lib/c/network.zig; exports: __inet_aton,inet_aton
     //"musl/src/network/inet_legacy.c", // migrated to lib/c/network.zig; exports: inet_network,inet_makeaddr,inet_lnaof,inet_netof
     //"musl/src/network/inet_ntoa.c", // migrated to lib/c/network.zig
-    "musl/src/network/inet_ntop.c",
-    "musl/src/network/inet_pton.c",
+    //"musl/src/network/inet_ntop.c", // migrated to lib/c/network.zig
+    //"musl/src/network/inet_pton.c", // migrated to lib/c/network.zig
     "musl/src/network/listen.c",
     //"musl/src/network/lookup_ipliteral.c", // migrated to lib/c/network.zig; exports: __lookup_ipliteral
     //"musl/src/network/lookup_name.c", // migrated to lib/c/network.zig; exports: __lookup_name

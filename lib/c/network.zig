@@ -162,8 +162,6 @@ const c = if (builtin.link_libc) struct {
     const htons = @extern(*const fn (u16) callconv(.c) u16, .{ .name = "htons" });
     const ntohs = @extern(*const fn (u16) callconv(.c) u16, .{ .name = "ntohs" });
     const inet_aton = @extern(*const fn ([*:0]const u8, *anyopaque) callconv(.c) c_int, .{ .name = "__inet_aton" });
-    const inet_pton = @extern(*const fn (c_int, [*:0]const u8, *anyopaque) callconv(.c) c_int, .{ .name = "inet_pton" });
-    const inet_ntop = @extern(*const fn (c_int, *const anyopaque, [*]u8, u32) callconv(.c) ?[*]u8, .{ .name = "inet_ntop" });
     const if_nametoindex = @extern(*const fn ([*:0]const u8) callconv(.c) c_uint, .{ .name = "if_nametoindex" });
     const snprintf = @extern(*const fn ([*]u8, usize, [*:0]const u8, ...) callconv(.c) c_int, .{ .name = "snprintf" });
     const socket_fn = @extern(*const fn (c_int, c_int, c_int) callconv(.c) c_int, .{ .name = "socket" });
@@ -231,6 +229,10 @@ comptime {
         symbol(&inet_lnaof_impl, "inet_lnaof");
         symbol(&inet_netof_impl, "inet_netof");
         symbol(&inet_ntoa_impl, "inet_ntoa");
+
+        // inet_ntop.c / inet_pton.c
+        symbol(&inet_ntop_impl, "inet_ntop");
+        symbol(&inet_pton_impl, "inet_pton");
     }
 
     // Subdirectory modules with real implementations
@@ -267,6 +269,13 @@ fn ntohs_impl(n: u16) callconv(.c) u16 {
 
 fn asciiIsDigit(ch: u8) bool {
     return ch >= '0' and ch <= '9';
+}
+
+fn hexval(c0: u8) c_int {
+    if (c0 -% '0' < 10) return c0 - '0';
+    const c1 = c0 | 32;
+    if (c1 -% 'a' < 6) return c1 - 'a' + 10;
+    return -1;
 }
 
 fn inet_addr_impl(p: [*:0]const u8) callconv(.c) in_addr_t {
@@ -347,6 +356,94 @@ fn inet_aton_impl(s0: [*:0]const u8, dest: *in_addr) callconv(.c) c_int {
     return 1;
 }
 
+fn inet_pton_impl(af: c_int, s0: [*:0]const u8, a0: *anyopaque) callconv(.c) c_int {
+    var s = s0;
+    const a: [*]u8 = @ptrCast(a0);
+    var ip: [8]u16 = undefined;
+    var brk: c_int = -1;
+    var need_v4 = false;
+
+    if (af == linux.AF.INET) {
+        var i: usize = 0;
+        while (i < 4) : (i += 1) {
+            var v: c_int = 0;
+            var j: usize = 0;
+            while (j < 3 and asciiIsDigit(s[j])) : (j += 1) {
+                v = 10 * v + s[j] - '0';
+            }
+            if (j == 0 or (j > 1 and s[0] == '0') or v > 255) return 0;
+            a[i] = @intCast(v);
+            if (s[j] == 0 and i == 3) return 1;
+            if (s[j] != '.') return 0;
+            s += j + 1;
+        }
+        return 0;
+    } else if (af != linux.AF.INET6) {
+        std.c._errno().* = @intFromEnum(linux.E.AFNOSUPPORT);
+        return -1;
+    }
+
+    if (s[0] == ':') {
+        s += 1;
+        if (s[0] != ':') return 0;
+    }
+
+    var i: c_int = 0;
+    while (true) : (i += 1) {
+        if (s[0] == ':' and brk < 0) {
+            brk = i;
+            ip[@intCast(i & 7)] = 0;
+            s += 1;
+            if (s[0] == 0) break;
+            if (i == 7) return 0;
+            continue;
+        }
+
+        var v: c_int = 0;
+        var j: usize = 0;
+        var d = hexval(s[j]);
+        while (j < 4 and d >= 0) : ({
+            j += 1;
+            d = hexval(s[j]);
+        }) {
+            v = 16 * v + d;
+        }
+        if (j == 0) return 0;
+        ip[@intCast(i & 7)] = @intCast(v);
+        if (s[j] == 0 and (brk >= 0 or i == 7)) break;
+        if (i == 7) return 0;
+        if (s[j] != ':') {
+            if (s[j] != '.' or (i < 6 and brk < 0)) return 0;
+            need_v4 = true;
+            i += 1;
+            ip[@intCast(i & 7)] = 0;
+            break;
+        }
+        s += j + 1;
+    }
+
+    if (brk >= 0) {
+        const src: usize = @intCast(brk);
+        const dst: usize = @intCast(brk + 7 - i);
+        const count: usize = @intCast(i + 1 - brk);
+        std.mem.copyBackwards(u16, ip[dst..][0..count], ip[src..][0..count]);
+        var j: usize = 0;
+        while (j < @as(usize, @intCast(7 - i))) : (j += 1) {
+            ip[src + j] = 0;
+        }
+    }
+
+    var out: [*]u8 = a;
+    var j: usize = 0;
+    while (j < 8) : (j += 1) {
+        out[0] = @intCast(ip[j] >> 8);
+        out[1] = @intCast(ip[j]);
+        out += 2;
+    }
+    if (need_v4 and inet_pton_impl(linux.AF.INET, s, a + 12) <= 0) return 0;
+    return 1;
+}
+
 fn inet_network_impl(p: [*:0]const u8) callconv(.c) in_addr_t {
     return ntohl_impl(inet_addr_impl(p));
 }
@@ -383,4 +480,111 @@ fn inet_ntoa_impl(in: in_addr) callconv(.c) [*]u8 {
     const a: *const [4]u8 = @ptrCast(&in);
     _ = c.snprintf(&inet_ntoa_buf, inet_ntoa_buf.len, "%d.%d.%d.%d", a[0], a[1], a[2], a[3]);
     return &inet_ntoa_buf;
+}
+
+fn inetNtopWriteByte(dst: [*]u8, pos: *usize, byte: u8) void {
+    dst[pos.*] = byte;
+    pos.* += 1;
+}
+
+fn inetNtopWriteUnsigned(dst: [*]u8, pos: *usize, comptime base: u8, n0: u32) void {
+    var buf: [10]u8 = undefined;
+    var n = n0;
+    var len: usize = 0;
+    while (true) {
+        const digit: u8 = @intCast(n % base);
+        buf[len] = if (digit < 10) '0' + digit else 'a' + digit - 10;
+        len += 1;
+        n /= base;
+        if (n == 0) break;
+    }
+    while (len > 0) {
+        len -= 1;
+        inetNtopWriteByte(dst, pos, buf[len]);
+    }
+}
+
+fn inetNtopStrspnColonZero(s: [*]const u8) usize {
+    var n: usize = 0;
+    while (s[n] == ':' or s[n] == '0') : (n += 1) {}
+    return n;
+}
+
+fn inet_ntop_impl(af: c_int, a0: *const anyopaque, s: [*]u8, l: linux.socklen_t) callconv(.c) ?[*]u8 {
+    const a: [*]const u8 = @ptrCast(a0);
+    var buf: [100]u8 = undefined;
+    var len: usize = 0;
+
+    switch (af) {
+        linux.AF.INET => {
+            inetNtopWriteUnsigned(s, &len, 10, a[0]);
+            inetNtopWriteByte(s, &len, '.');
+            inetNtopWriteUnsigned(s, &len, 10, a[1]);
+            inetNtopWriteByte(s, &len, '.');
+            inetNtopWriteUnsigned(s, &len, 10, a[2]);
+            inetNtopWriteByte(s, &len, '.');
+            inetNtopWriteUnsigned(s, &len, 10, a[3]);
+            if (len < l) {
+                s[len] = 0;
+                return s;
+            }
+        },
+        linux.AF.INET6 => {
+            const v4_prefix = [_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
+            const is_v4_mapped = std.mem.eql(u8, a[0..12], &v4_prefix);
+
+            var group: usize = 0;
+            while (group < 6) : (group += 1) {
+                if (group != 0) inetNtopWriteByte(&buf, &len, ':');
+                inetNtopWriteUnsigned(&buf, &len, 16, 256 * @as(u32, a[2 * group]) + a[2 * group + 1]);
+            }
+            inetNtopWriteByte(&buf, &len, ':');
+            if (is_v4_mapped) {
+                inetNtopWriteUnsigned(&buf, &len, 10, a[12]);
+                inetNtopWriteByte(&buf, &len, '.');
+                inetNtopWriteUnsigned(&buf, &len, 10, a[13]);
+                inetNtopWriteByte(&buf, &len, '.');
+                inetNtopWriteUnsigned(&buf, &len, 10, a[14]);
+                inetNtopWriteByte(&buf, &len, '.');
+                inetNtopWriteUnsigned(&buf, &len, 10, a[15]);
+            } else {
+                inetNtopWriteUnsigned(&buf, &len, 16, 256 * @as(u32, a[12]) + a[13]);
+                inetNtopWriteByte(&buf, &len, ':');
+                inetNtopWriteUnsigned(&buf, &len, 16, 256 * @as(u32, a[14]) + a[15]);
+            }
+            buf[len] = 0;
+
+            var i: usize = 0;
+            var best: usize = 0;
+            var max: usize = 2;
+            while (buf[i] != 0) : (i += 1) {
+                if (i != 0 and buf[i] != ':') continue;
+                const j = inetNtopStrspnColonZero(buf[i..].ptr);
+                if (j > max) {
+                    best = i;
+                    max = j;
+                }
+            }
+            if (max > 3) {
+                buf[best] = ':';
+                buf[best + 1] = ':';
+                const tail_start = best + max;
+                const tail_len = i - tail_start + 1;
+                std.mem.copyForwards(u8, buf[best + 2 ..][0..tail_len], buf[tail_start..][0..tail_len]);
+                len = best + 2 + tail_len - 1;
+            }
+
+            if (len < l) {
+                @memcpy(s[0 .. len + 1], buf[0 .. len + 1]);
+                return s;
+            }
+        },
+        else => {
+            std.c._errno().* = @intFromEnum(linux.E.AFNOSUPPORT);
+            return null;
+        },
+    }
+
+    std.c._errno().* = @intFromEnum(linux.E.NOSPC);
+    return null;
 }

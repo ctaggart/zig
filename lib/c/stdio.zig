@@ -90,7 +90,6 @@ const SwCookie = extern struct {
 const stderr_ext = @extern(*const ?*FILE, .{ .name = "stderr" });
 const strerror_fn = @extern(*const fn (c_int) callconv(.c) [*:0]const u8, .{ .name = "strerror" });
 const vfprintf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfprintf" });
-const vfwprintf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwprintf" });
 const vfscanf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfscanf" });
 const vfwscanf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwscanf" });
 const memchr_fn = @extern(*const fn (?[*]const u8, c_int, usize) callconv(.c) ?[*]u8, .{ .name = "memchr" });
@@ -99,6 +98,10 @@ const malloc_fn = @extern(*const fn (usize) callconv(.c) ?*anyopaque, .{ .name =
 const realloc_fn = @extern(*const fn (?*anyopaque, usize) callconv(.c) ?*anyopaque, .{ .name = "realloc" });
 const aio_close_fn = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__aio_close" });
 const mbtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize) callconv(.c) c_int, .{ .name = "mbtowc" });
+const btowc_fn = @extern(*const fn (c_int) callconv(.c) wint_t, .{ .name = "btowc" });
+const snprintf_fn = @extern(*const fn ([*]u8, usize, [*:0]const u8, ...) callconv(.c) c_int, .{ .name = "snprintf" });
+const fprintf_fn = @extern(*const fn (?*FILE, [*:0]const u8, ...) callconv(.c) c_int, .{ .name = "fprintf" });
+const wcsnlen_fn = @extern(*const fn ([*:0]const wchar_t, usize) callconv(.c) usize, .{ .name = "wcsnlen" });
 const wcsrtombs_fn = @extern(*const fn (?[*]u8, *?[*:0]const wchar_t, usize, ?*anyopaque) callconv(.c) usize, .{ .name = "wcsrtombs" });
 
 comptime {
@@ -187,6 +190,7 @@ comptime {
         symbol(&vsscanf_impl, "vsscanf");
         symbol(&vswprintf_impl, "vswprintf");
         symbol(&vswscanf_impl, "vswscanf");
+        symbol(&vfwprintf_impl, "vfwprintf");
         // Internal helpers (__fmodeflags.c, __fclose_ca.c, __fopen_rb_ca.c)
         symbol(&fmodeflags_impl, "__fmodeflags");
         symbol(&fclose_ca_impl, "__fclose_ca");
@@ -1639,7 +1643,7 @@ fn vswprintf_impl(s: [*]wchar_t, n: usize, fmt: [*:0]const wchar_t, ap: VaList) 
     f.buf_size = buf.len;
     f.cookie = @ptrCast(&c);
     if (n == 0) return -1;
-    const r = vfwprintf_fn(@ptrCast(&f), fmt, ap);
+    const r = vfwprintf_impl(@ptrCast(&f), fmt, ap);
     _ = sw_write(&f, @ptrCast(&f), 0);
     return if (r >= @as(c_int, @intCast(n))) @as(c_int, -1) else r;
 }
@@ -1681,7 +1685,7 @@ fn vswscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ap: VaList) cal
 /// swscanf.c: int swscanf(const wchar_t *restrict s, const wchar_t *restrict fmt, ...)
 /// vwprintf.c: int vwprintf(const wchar_t *restrict fmt, va_list ap)
 fn vwprintf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
-    return vfwprintf_fn(stdout_ext.*, fmt, ap);
+    return vfwprintf_impl(stdout_ext.*, fmt, ap);
 }
 
 /// vwscanf.c: int vwscanf(const wchar_t *restrict fmt, va_list ap)
@@ -1747,14 +1751,14 @@ fn asprintf_impl(s: *?[*]u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
 fn wprintf_impl(fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfwprintf_fn(stdout_ext.*, fmt, ap);
+    return vfwprintf_impl(stdout_ext.*, fmt, ap);
 }
 
 /// fwprintf.c
 fn fwprintf_impl(f: ?*FILE, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfwprintf_fn(f, fmt, ap);
+    return vfwprintf_impl(f, fmt, ap);
 }
 
 /// swprintf.c

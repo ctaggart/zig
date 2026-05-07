@@ -1629,30 +1629,34 @@ fn wordfree_fn(we: *wordexp_t) callconv(.c) void {
 
 fn syscall_fn(n: c_long, ...) callconv(.c) c_long {
     var ap = @cVaStart();
-    const a = @cVaArg(&ap, usize);
-    const b = @cVaArg(&ap, usize);
-    const c = @cVaArg(&ap, usize);
-    const d = @cVaArg(&ap, usize);
-    const e = @cVaArg(&ap, usize);
-    const f = @cVaArg(&ap, usize);
+    const a = @cVaArg(&ap, c_long);
+    const b = @cVaArg(&ap, c_long);
+    const c = @cVaArg(&ap, c_long);
+    const d = @cVaArg(&ap, c_long);
+    const e = @cVaArg(&ap, c_long);
+    const f = @cVaArg(&ap, c_long);
     @cVaEnd(&ap);
 
     const rc = linux.syscall6(
-        @enumFromInt(@as(usize, @bitCast(@as(isize, n)))),
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
+        syscallArg(n),
+        syscallArg(a),
+        syscallArg(b),
+        syscallArg(c),
+        syscallArg(d),
+        syscallArg(e),
+        syscallArg(f),
     );
 
-    const signed: isize = @bitCast(rc);
+    const signed: isize = @bitCast(@as(usize, @intCast(rc)));
     if (signed < 0 and signed > -4096) {
         std.c._errno().* = @intCast(-signed);
         return -1;
     }
     return @intCast(signed);
+}
+
+fn syscallArg(x: c_long) usize {
+    return @as(usize, @bitCast(@as(isize, @intCast(x))));
 }
 
 fn d_name(de: *anyopaque) [*:0]const u8 {

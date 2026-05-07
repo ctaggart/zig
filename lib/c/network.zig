@@ -7,6 +7,8 @@ const linux = std.os.linux;
 const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
 
+const in_addr_t = u32;
+
 // ============================================================
 // Internal struct definitions (from lookup.h / netlink.h)
 // ============================================================
@@ -94,6 +96,10 @@ const if_nameindex_t = extern struct {
     if_name: ?[*:0]u8,
 };
 
+const in_addr = extern struct {
+    s_addr: in_addr_t,
+};
+
 const in6_addr = extern struct {
     __in6_union: extern union {
         __s6_addr: [16]u8,
@@ -152,7 +158,6 @@ const c = if (builtin.link_libc) struct {
     const strncmp = @extern(*const fn ([*]const u8, [*]const u8, usize) callconv(.c) c_int, .{ .name = "strncmp" });
     const strcpy = @extern(*const fn ([*]u8, [*:0]const u8) callconv(.c) [*]u8, .{ .name = "strcpy" });
     const strncpy = @extern(*const fn ([*]u8, [*:0]const u8, usize) callconv(.c) [*]u8, .{ .name = "strncpy" });
-    const strtoul = @extern(*const fn ([*:0]const u8, ?*[*:0]u8, c_int) callconv(.c) c_ulong, .{ .name = "strtoul" });
     const strtol = @extern(*const fn ([*:0]const u8, ?*[*:0]u8, c_int) callconv(.c) c_long, .{ .name = "strtol" });
     const htons = @extern(*const fn (u16) callconv(.c) u16, .{ .name = "htons" });
     const ntohs = @extern(*const fn (u16) callconv(.c) u16, .{ .name = "ntohs" });
@@ -216,6 +221,16 @@ comptime {
         // in6addr_any.c / in6addr_loopback.c
         symbol(&in6addr_any, "in6addr_any");
         symbol(&in6addr_loopback, "in6addr_loopback");
+
+        // inet_addr.c / inet_aton.c / inet_legacy.c / inet_ntoa.c
+        symbol(&inet_addr_impl, "inet_addr");
+        symbol(&inet_aton_impl, "__inet_aton");
+        symbol(&inet_aton_impl, "inet_aton");
+        symbol(&inet_network_impl, "inet_network");
+        symbol(&inet_makeaddr_impl, "inet_makeaddr");
+        symbol(&inet_lnaof_impl, "inet_lnaof");
+        symbol(&inet_netof_impl, "inet_netof");
+        symbol(&inet_ntoa_impl, "inet_ntoa");
     }
 
     // Subdirectory modules with real implementations
@@ -248,4 +263,124 @@ fn ntohl_impl(n: u32) callconv(.c) u32 {
 
 fn ntohs_impl(n: u16) callconv(.c) u16 {
     return networkEndian(u16, n);
+}
+
+fn asciiIsDigit(ch: u8) bool {
+    return ch >= '0' and ch <= '9';
+}
+
+fn inet_addr_impl(p: [*:0]const u8) callconv(.c) in_addr_t {
+    var a: in_addr = undefined;
+    if (inet_aton_impl(p, &a) == 0) return std.math.maxInt(in_addr_t);
+    return a.s_addr;
+}
+
+fn parseLegacyNumber(s: [*:0]const u8, z: *[*:0]const u8) c_ulong {
+    var p = s;
+    var base: c_ulong = 10;
+    if (p[0] == '0') {
+        base = 8;
+        if ((p[1] == 'x' or p[1] == 'X') and std.ascii.isHex(p[2])) {
+            base = 16;
+            p += 2;
+        }
+    }
+
+    var n: c_ulong = 0;
+    while (true) : (p += 1) {
+        const digit: c_ulong = switch (p[0]) {
+            '0'...'9' => p[0] - '0',
+            'a'...'f' => p[0] - 'a' + 10,
+            'A'...'F' => p[0] - 'A' + 10,
+            else => break,
+        };
+        if (digit >= base) break;
+        n = std.math.mul(c_ulong, n, base) catch std.math.maxInt(c_ulong);
+        n = std.math.add(c_ulong, n, digit) catch std.math.maxInt(c_ulong);
+    }
+    z.* = p;
+    return n;
+}
+
+fn inet_aton_impl(s0: [*:0]const u8, dest: *in_addr) callconv(.c) c_int {
+    var s: [*:0]const u8 = s0;
+    const d: *[4]u8 = @ptrCast(dest);
+    var a = [4]c_ulong{ 0, 0, 0, 0 };
+    var i: usize = 0;
+
+    while (i < 4) : (i += 1) {
+        var z: [*:0]const u8 = undefined;
+        a[i] = parseLegacyNumber(s, &z);
+        if (z == s or (z[0] != 0 and z[0] != '.') or !asciiIsDigit(s[0])) return 0;
+        if (z[0] == 0) break;
+        s = z + 1;
+    }
+    if (i == 4) return 0;
+
+    switch (i) {
+        0 => {
+            a[1] = a[0] & 0xffffff;
+            a[0] >>= 24;
+            a[2] = a[1] & 0xffff;
+            a[1] >>= 16;
+            a[3] = a[2] & 0xff;
+            a[2] >>= 8;
+        },
+        1 => {
+            a[2] = a[1] & 0xffff;
+            a[1] >>= 16;
+            a[3] = a[2] & 0xff;
+            a[2] >>= 8;
+        },
+        2 => {
+            a[3] = a[2] & 0xff;
+            a[2] >>= 8;
+        },
+        else => {},
+    }
+
+    i = 0;
+    while (i < 4) : (i += 1) {
+        if (a[i] > 255) return 0;
+        d[i] = @intCast(a[i]);
+    }
+    return 1;
+}
+
+fn inet_network_impl(p: [*:0]const u8) callconv(.c) in_addr_t {
+    return ntohl_impl(inet_addr_impl(p));
+}
+
+fn inet_makeaddr_impl(n: in_addr_t, host: in_addr_t) callconv(.c) in_addr {
+    var h = host;
+    if (n < 256) {
+        h |= n << 24;
+    } else if (n < 65536) {
+        h |= n << 16;
+    } else {
+        h |= n << 8;
+    }
+    return .{ .s_addr = h };
+}
+
+fn inet_lnaof_impl(in: in_addr) callconv(.c) in_addr_t {
+    const h = in.s_addr;
+    if (h >> 24 < 128) return h & 0xffffff;
+    if (h >> 24 < 192) return h & 0xffff;
+    return h & 0xff;
+}
+
+fn inet_netof_impl(in: in_addr) callconv(.c) in_addr_t {
+    const h = in.s_addr;
+    if (h >> 24 < 128) return h >> 24;
+    if (h >> 24 < 192) return h >> 16;
+    return h >> 8;
+}
+
+var inet_ntoa_buf: [16]u8 = undefined;
+
+fn inet_ntoa_impl(in: in_addr) callconv(.c) [*]u8 {
+    const a: *const [4]u8 = @ptrCast(&in);
+    _ = c.snprintf(&inet_ntoa_buf, inet_ntoa_buf.len, "%d.%d.%d.%d", a[0], a[1], a[2], a[3]);
+    return &inet_ntoa_buf;
 }

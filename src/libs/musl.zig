@@ -569,10 +569,10 @@ const src_files = [_][]const u8{
     "musl/src/network/if_nametoindex.c",
     //"musl/src/network/in6addr_any.c", // migrated to lib/c/network.zig
     //"musl/src/network/in6addr_loopback.c", // migrated to lib/c/network.zig
-    "musl/src/network/inet_addr.c",
-    "musl/src/network/inet_aton.c",
-    "musl/src/network/inet_legacy.c",
-    "musl/src/network/inet_ntoa.c",
+    //"musl/src/network/inet_addr.c", // migrated to lib/c/network.zig
+    //"musl/src/network/inet_aton.c", // migrated to lib/c/network.zig; exports: __inet_aton,inet_aton
+    //"musl/src/network/inet_legacy.c", // migrated to lib/c/network.zig; exports: inet_network,inet_makeaddr,inet_lnaof,inet_netof
+    //"musl/src/network/inet_ntoa.c", // migrated to lib/c/network.zig
     "musl/src/network/inet_ntop.c",
     "musl/src/network/inet_pton.c",
     "musl/src/network/listen.c",

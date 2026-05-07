@@ -841,7 +841,7 @@ const src_files = [_][]const u8{
     //"musl/src/time/timer_getoverrun.c", // migrated to lib/c/time.zig
     //"musl/src/time/timer_gettime.c", // migrated to lib/c/time.zig
     "musl/src/time/timer_settime.c",
-    "musl/src/time/__tz.c",
+    //"musl/src/time/__tz.c", // migrated to lib/c/time.zig
     "musl/src/time/wcsftime.c",
     //"musl/src/stdio/asprintf.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/dprintf.c", // migrated to lib/c/stdio.zig

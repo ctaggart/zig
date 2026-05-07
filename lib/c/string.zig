@@ -305,7 +305,7 @@ fn strdup_fn(s: [*:0]const u8) callconv(.c) ?[*:0]u8 {
     const l = std.mem.len(s);
     const d: [*]u8 = @ptrCast(std.c.malloc(l + 1) orelse return null);
     @memcpy(d[0 .. l + 1], s[0 .. l + 1]);
-    return d[0 .. l + 1 :0].ptr;
+    return d[0..l :0].ptr;
 }
 
 fn strndup_fn(s: [*:0]const u8, n: usize) callconv(.c) ?[*:0]u8 {
@@ -313,7 +313,7 @@ fn strndup_fn(s: [*:0]const u8, n: usize) callconv(.c) ?[*:0]u8 {
     const d: [*]u8 = @ptrCast(std.c.malloc(l + 1) orelse return null);
     @memcpy(d[0..l], s[0..l]);
     d[l] = 0;
-    return d[0 .. l + 1 :0].ptr;
+    return d[0..l :0].ptr;
 }
 
 fn wcsdup_fn(s: [*:0]const wchar_t) callconv(.c) ?[*:0]wchar_t {
@@ -321,7 +321,7 @@ fn wcsdup_fn(s: [*:0]const wchar_t) callconv(.c) ?[*:0]wchar_t {
     const byte_len = (l + 1) * @sizeOf(wchar_t);
     const d: [*]wchar_t = @ptrCast(@alignCast(@as([*]u8, @ptrCast(std.c.malloc(byte_len) orelse return null))));
     @memcpy(d[0 .. l + 1], s[0 .. l + 1]);
-    return d[0 .. l + 1 :0].ptr;
+    return d[0..l :0].ptr;
 }
 
 const strerror_c = @extern(*const fn (c_int) callconv(.c) [*:0]u8, .{ .name = "strerror" });

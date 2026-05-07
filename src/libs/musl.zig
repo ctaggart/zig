@@ -476,7 +476,7 @@ const src_files = [_][]const u8{
     "musl/src/internal/i386/defsysinfo.s",
     "musl/src/internal/intscan.c",
     "musl/src/internal/shgetc.c",
-    "musl/src/internal/vdso.c",
+    //"musl/src/internal/vdso.c", // migrated to lib/c/internal.zig; exports: __vdsosym
     "musl/src/ldso/aarch64/dlsym.s",
     "musl/src/ldso/aarch64/tlsdesc.s",
     "musl/src/ldso/arm/dlsym.s",

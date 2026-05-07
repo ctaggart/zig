@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
 var environ_var: ?[*:null]?[*:0]u8 = null;
 const std = @import("std");
-const elf = std.elf;
 const linux = std.os.linux;
 const symbol = @import("../c.zig").symbol;
 // C library dependencies.
@@ -28,93 +27,8 @@ const tls_module = extern struct {
     @"align": usize,
     offset: usize,
 };
-
-const LocaleStruct = extern struct {
-    cat: [6]?*const anyopaque,
-};
-
-const RobustList = extern struct {
-    head: ?*volatile anyopaque,
-    off: c_long,
-    pending: ?*volatile anyopaque,
-};
-
-const PThread = extern struct {
-    self: ?*PThread,
-    dtv_or_prev: ?[*]usize,
-    prev_or_next: ?*PThread,
-    next_or_sysinfo: usize,
-    sysinfo_or_canary: usize,
-    canary: usize,
-    tid: c_int,
-    errno_val: c_int,
-    detach_state: c_int,
-    cancel: c_int,
-    canceldisable: u8,
-    cancelasync: u8,
-    tsd_flags: u8,
-    map_base: ?[*]u8,
-    map_size: usize,
-    stack: ?*anyopaque,
-    stack_size: usize,
-    guard_size: usize,
-    result: ?*anyopaque,
-    cancelbuf: ?*anyopaque,
-    tsd: ?[*]?*anyopaque,
-    robust_list: RobustList,
-    h_errno_val: c_int,
-    timer_id: c_int,
-    locale: ?*LocaleStruct,
-    killlock: [1]c_int,
-    dlerror_buf: ?[*]u8,
-    stdio_locks: ?*anyopaque,
-    tls_above_canary: usize,
-    tls_above_dtv: ?[*]usize,
-
-    fn dtvPtr(td: *PThread) *?[*]usize {
-        return if (TLS_ABOVE_TP) &td.tls_above_dtv else &td.dtv_or_prev;
-    }
-
-    fn prevPtr(td: *PThread) *?*PThread {
-        return if (TLS_ABOVE_TP) @ptrCast(&td.dtv_or_prev) else @ptrCast(&td.prev_or_next);
-    }
-
-    fn nextPtr(td: *PThread) *?*PThread {
-        return if (TLS_ABOVE_TP) @ptrCast(&td.prev_or_next) else @ptrCast(&td.next_or_sysinfo);
-    }
-
-    fn sysinfoPtr(td: *PThread) *usize {
-        return if (TLS_ABOVE_TP) &td.next_or_sysinfo else &td.sysinfo_or_canary;
-    }
-};
-
-const BuiltinTls = extern struct {
-    c: u8,
-    pt: PThread,
-    space: [16]?*anyopaque,
-};
-
-const MIN_TLS_ALIGN = @offsetOf(BuiltinTls, "pt");
-const TP_OFFSET: usize = if (builtin.cpu.arch.isMIPS() or builtin.cpu.arch.isPowerPC() or builtin.cpu.arch == .m68k) 0x7000 else 0;
-const GAP_ABOVE_TP: usize = switch (builtin.cpu.arch) {
-    .aarch64, .aarch64_be => 16,
-    .arm, .armeb, .thumb, .thumbeb => 8,
-    else => 0,
-};
-const TLS_ABOVE_TP = switch (builtin.cpu.arch) {
-    .aarch64, .aarch64_be,
-    .arm, .armeb, .thumb, .thumbeb,
-    .loongarch64,
-    .m68k,
-    .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpc64, .powerpc64le,
-    .riscv32, .riscv64,
-    => true,
-    else => false,
-};
-var builtin_tls: [1]BuiltinTls = undefined;
-var main_tls: tls_module = undefined;
-// Partial __libc struct — fields through global_locale.
+// Partial __libc struct — only the fields we access.
+// After page_size, there's global_locale which we don't touch.
 const LibC = extern struct {
     can_do_threads: u8,
     threaded: u8,
@@ -127,11 +41,9 @@ const LibC = extern struct {
     tls_align: usize,
     tls_cnt: usize,
     page_size: usize,
-    global_locale: LocaleStruct,
 };
 extern "c" fn __set_thread_area(tp: *anyopaque) c_int;
 extern "c" fn memset(dst: *anyopaque, c: c_int, n: usize) *anyopaque;
-extern "c" fn a_crash() noreturn;
 extern "c" fn _init() void;
 extern "c" fn exit(code: c_int) noreturn;
 const AT_PHDR = 3;
@@ -171,120 +83,6 @@ else
 // On x86_64 (TLS below TP): self(8), dtv(8) at offset 8.
 // On aarch64 (TLS_ABOVE_TP): dtv is at end of struct after canary.
 const DTV_OFFSET: usize = @sizeOf(usize); // offset of dtv in struct pthread (after self ptr)
-
-fn __init_tp_fn(p: *anyopaque) callconv(.c) c_int {
-    const td: *PThread = @ptrCast(@alignCast(p));
-    td.self = td;
-    const tp = if (TLS_ABOVE_TP) @as(*anyopaque, @ptrFromInt(@intFromPtr(p) + @sizeOf(PThread) + TP_OFFSET)) else p;
-    const r = __set_thread_area(tp);
-    if (r < 0) return -1;
-    if (r == 0) __libc.can_do_threads = 1;
-    td.detach_state = 2; // DT_JOINABLE
-    td.tid = @bitCast(linux.syscall1(.set_tid_address, @intFromPtr(&__thread_list_lock)));
-    td.locale = &__libc.global_locale;
-    td.robust_list.head = @ptrCast(&td.robust_list.head);
-    td.sysinfoPtr().* = __sysinfo;
-    td.nextPtr().* = td;
-    td.prevPtr().* = td;
-    return 0;
-}
-
-fn __copy_tls_fn(mem_arg: [*]u8) callconv(.c) *anyopaque {
-    var mem = mem_arg;
-    var td: *PThread = undefined;
-    var dtv: [*]usize = undefined;
-
-    if (TLS_ABOVE_TP) {
-        dtv = @ptrCast(@alignCast(mem + __libc.tls_size - (@sizeOf(usize) * (__libc.tls_cnt + 1))));
-
-        mem += (0 -% (@intFromPtr(mem) + @sizeOf(PThread))) & (__libc.tls_align - 1);
-        td = @ptrCast(@alignCast(mem));
-        mem += @sizeOf(PThread);
-
-        var i: usize = 1;
-        var p = __libc.tls_head;
-        while (p) |mod| : ({
-            i += 1;
-            p = mod.next;
-        }) {
-            dtv[i] = @intFromPtr(mem + mod.offset) + DTP_OFFSET;
-            _ = memcpy(mem + mod.offset, mod.image orelse continue, mod.len);
-        }
-    } else {
-        dtv = @ptrCast(@alignCast(mem));
-
-        mem += __libc.tls_size - @sizeOf(PThread);
-        mem -= @intFromPtr(mem) & (__libc.tls_align - 1);
-        td = @ptrCast(@alignCast(mem));
-
-        var i: usize = 1;
-        var p = __libc.tls_head;
-        while (p) |mod| : ({
-            i += 1;
-            p = mod.next;
-        }) {
-            dtv[i] = @intFromPtr(mem - mod.offset) + DTP_OFFSET;
-            _ = memcpy(mem - mod.offset, mod.image orelse continue, mod.len);
-        }
-    }
-
-    dtv[0] = __libc.tls_cnt;
-    td.dtvPtr().* = dtv;
-    return td;
-}
-
-fn __init_tls_fn(aux: [*]usize) callconv(.c) void {
-    var tls_phdr: ?*elf.Phdr = null;
-    var base: usize = 0;
-
-    var p: [*]u8 = @ptrFromInt(aux[AT_PHDR]);
-    var n = aux[AT_PHNUM];
-    while (n != 0) : ({
-        n -= 1;
-        p += aux[AT_PHENT];
-    }) {
-        const phdr: *elf.Phdr = @ptrCast(@alignCast(p));
-        switch (phdr.p_type) {
-            elf.PT_PHDR => base = aux[AT_PHDR] - phdr.p_vaddr,
-            elf.PT_TLS => tls_phdr = phdr,
-            PT_GNU_STACK => if (phdr.p_memsz > __default_stacksize) {
-                __default_stacksize = if (phdr.p_memsz < DEFAULT_STACK_MAX) @intCast(phdr.p_memsz) else DEFAULT_STACK_MAX;
-            },
-            else => {},
-        }
-    }
-
-    if (tls_phdr) |phdr| {
-        main_tls.image = @ptrFromInt(base + phdr.p_vaddr);
-        main_tls.len = phdr.p_filesz;
-        main_tls.size = phdr.p_memsz;
-        main_tls.@"align" = phdr.p_align;
-        __libc.tls_cnt = 1;
-        __libc.tls_head = &main_tls;
-    }
-
-    const image_addr = @intFromPtr(main_tls.image);
-    main_tls.size += (0 -% main_tls.size -% image_addr) & (main_tls.@"align" - 1);
-    if (TLS_ABOVE_TP) {
-        main_tls.offset = GAP_ABOVE_TP;
-        main_tls.offset += (0 -% GAP_ABOVE_TP +% image_addr) & (main_tls.@"align" - 1);
-    } else {
-        main_tls.offset = main_tls.size;
-    }
-    if (main_tls.@"align" < MIN_TLS_ALIGN) main_tls.@"align" = MIN_TLS_ALIGN;
-
-    __libc.tls_align = main_tls.@"align";
-    __libc.tls_size = (2 * @sizeOf(?*anyopaque) + @sizeOf(PThread) +
-        (if (TLS_ABOVE_TP) main_tls.offset else 0) + main_tls.size + main_tls.@"align" +
-        MIN_TLS_ALIGN - 1) & (0 -% MIN_TLS_ALIGN);
-
-    const mem: [*]u8 = if (__libc.tls_size > @sizeOf(@TypeOf(builtin_tls)))
-        @ptrFromInt(linux.mmap(null, __libc.tls_size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0))
-    else
-        @ptrCast(&builtin_tls);
-
-    if (__init_tp_fn(__copy_tls_fn(mem)) < 0) a_crash();
-}
 
 fn __reset_tls_fn() callconv(.c) void {
     const tp = get_tp();
@@ -333,9 +131,6 @@ comptime {
         symbol(&__init_ssp, "__init_ssp");
         symbol(&__stack_chk_fail, "__stack_chk_fail");
         symbol(&issetugidImpl, "issetugid");
-        symbol(&__init_tp_fn, "__init_tp");
-        symbol(&__copy_tls_fn, "__copy_tls");
-        symbol(&__init_tls_fn, "__init_tls");
         symbol(&__reset_tls_fn, "__reset_tls");
         symbol(&dummy, "_init");
         symbol(&libc_start_init_fn, "__libc_start_init");

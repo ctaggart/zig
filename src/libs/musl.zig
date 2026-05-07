@@ -474,8 +474,8 @@ const src_files = [_][]const u8{
     //"musl/src/internal/emulate_wait4.c", // migrated to lib/c/internal.zig; exports: __emulate_wait4
     "musl/src/internal/floatscan.c",
     "musl/src/internal/i386/defsysinfo.s",
-    //"musl/src/internal/intscan.c", // migrated to lib/c/internal.zig; exports: __intscan
-    //"musl/src/internal/shgetc.c", // migrated to lib/c/internal.zig; exports: __shlim, __shgetc
+    "musl/src/internal/intscan.c",
+    "musl/src/internal/shgetc.c",
     "musl/src/internal/vdso.c",
     "musl/src/ldso/aarch64/dlsym.s",
     "musl/src/ldso/aarch64/tlsdesc.s",
@@ -530,14 +530,14 @@ const src_files = [_][]const u8{
     //"musl/src/math/__math_xflowf.c", // migrated to lib/c/math.zig
     "musl/src/misc/getauxval.c",
     "musl/src/misc/getdomainname.c",
-    //"musl/src/network/accept4.c", // migrated to lib/c/network.zig
-    //"musl/src/network/accept.c", // migrated to lib/c/network.zig
-    //"musl/src/network/bind.c", // migrated to lib/c/network.zig
-    //"musl/src/network/connect.c", // migrated to lib/c/network.zig
+    "musl/src/network/accept4.c",
+    "musl/src/network/accept.c",
+    "musl/src/network/bind.c",
+    "musl/src/network/connect.c",
     //"musl/src/network/dn_comp.c", // migrated to lib/c/network.zig
-    //"musl/src/network/dn_expand.c", // migrated to lib/c/network.zig; exports: __dn_expand,dn_expand
-    //"musl/src/network/dn_skipname.c", // migrated to lib/c/network.zig
-    //"musl/src/network/dns_parse.c", // migrated to lib/c/network.zig; exports: __dns_parse
+    "musl/src/network/dn_expand.c",
+    "musl/src/network/dn_skipname.c",
+    "musl/src/network/dns_parse.c",
     "musl/src/network/ent.c",
     "musl/src/network/ether.c",
     //"musl/src/network/freeaddrinfo.c", // migrated to lib/c/network.zig
@@ -575,7 +575,7 @@ const src_files = [_][]const u8{
     //"musl/src/network/inet_ntoa.c", // migrated to lib/c/network.zig
     //"musl/src/network/inet_ntop.c", // migrated to lib/c/network.zig
     //"musl/src/network/inet_pton.c", // migrated to lib/c/network.zig
-    //"musl/src/network/listen.c", // migrated to lib/c/network.zig
+    "musl/src/network/listen.c",
     //"musl/src/network/lookup_ipliteral.c", // migrated to lib/c/network.zig; exports: __lookup_ipliteral
     //"musl/src/network/lookup_name.c", // migrated to lib/c/network.zig; exports: __lookup_name
     //"musl/src/network/lookup_serv.c", // migrated to lib/c/network.zig; exports: __lookup_serv
@@ -603,10 +603,10 @@ const src_files = [_][]const u8{
     "musl/src/network/sendto.c",
     "musl/src/network/serv.c",
     "musl/src/network/setsockopt.c",
-    //"musl/src/network/shutdown.c", // migrated to lib/c/network.zig
+    "musl/src/network/shutdown.c",
     "musl/src/network/sockatmark.c",
-    //"musl/src/network/socket.c", // migrated to lib/c/network.zig
-    //"musl/src/network/socketpair.c", // migrated to lib/c/network.zig
+    "musl/src/network/socket.c",
+    "musl/src/network/socketpair.c",
     "musl/src/process/posix_spawn.c",
     "musl/src/process/posix_spawnp.c",
     "musl/src/sched/affinity.c",
@@ -728,7 +728,7 @@ const src_files = [_][]const u8{
     // "musl/src/stdio/vasprintf.c", // migrated to Zig (vasprintf_impl)
     // "musl/src/stdio/vdprintf.c", // migrated to Zig (vdprintf_impl)
     "musl/src/stdio/vfprintf.c",
-    // "musl/src/stdio/vfscanf.c", // migrated to lib/c/stdio.zig
+    "musl/src/stdio/vfscanf.c",
     "musl/src/stdio/vfwprintf.c",
     "musl/src/stdio/vfwscanf.c",
     // "musl/src/stdio/vprintf.c", // migrated to Zig (vprintf_impl), positive test for #243 fix

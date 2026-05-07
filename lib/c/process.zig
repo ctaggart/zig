@@ -66,34 +66,22 @@ const c_sigaction = extern struct {
     flags: c_int,
     restorer: ?*const fn () callconv(.c) void,
 };
-const SIG_DFL: ?*align(1) const fn (c_int) callconv(.c) void = @ptrFromInt(0);
 const SIG_IGN: ?*align(1) const fn (c_int) callconv(.c) void = @ptrFromInt(1);
 extern "c" fn sigaction(sig: c_int, act: ?*const c_sigaction, oact: ?*c_sigaction) callconv(.c) c_int;
 extern "c" fn sigprocmask(how: c_int, set: ?*const musl_sigset_t, oset: ?*musl_sigset_t) callconv(.c) c_int;
 extern "c" fn sigemptyset(set: *musl_sigset_t) callconv(.c) c_int;
 extern "c" fn sigaddset(set: *musl_sigset_t, sig: c_int) callconv(.c) c_int;
 extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) callconv(.c) c_int;
+extern "c" fn posix_spawn(pid: *linux.pid_t, path: [*:0]const u8, fa: ?*anyopaque, attr: ?*const posix_spawnattr_t, argv: [*:null]const ?[*:0]const u8, envp: [*:null]const ?[*:0]const u8) callconv(.c) c_int;
 extern "c" fn waitpid(pid: linux.pid_t, status: ?*c_int, options: c_int) callconv(.c) linux.pid_t;
 extern "c" fn pthread_testcancel() callconv(.c) void;
-extern "c" fn pthread_setcancelstate(state: c_int, oldstate: ?*c_int) callconv(.c) c_int;
-extern "c" fn pthread_sigmask(how: c_int, set: ?*const musl_sigset_t, oldset: ?*musl_sigset_t) callconv(.c) c_int;
-extern "c" fn __get_handler_set(set: *musl_sigset_t) callconv(.c) void;
-extern "c" fn __libc_sigaction(sig: c_int, act: ?*const c_sigaction, oact: ?*c_sigaction) callconv(.c) c_int;
-extern "c" fn __lock(lock: *c_int) callconv(.c) void;
-extern "c" fn __unlock(lock: *c_int) callconv(.c) void;
-extern "c" var __abort_lock: c_int;
-const POSIX_SPAWN_RESETIDS: c_int = 0x1;
-const POSIX_SPAWN_SETPGROUP: c_int = 0x2;
-const POSIX_SPAWN_SETSIGDEF: c_int = 0x4;
-const POSIX_SPAWN_SETSIGMASK: c_int = 0x8;
-const POSIX_SPAWN_SETSID: c_int = 0x80;
-const PTHREAD_CANCEL_DISABLE = 1;
+const POSIX_SPAWN_SETSIGDEF: c_short = 0x4;
+const POSIX_SPAWN_SETSIGMASK: c_short = 0x8;
 const SIGINT = 2;
 const SIGQUIT = 3;
 const SIGCHLD = 17;
 const SIG_BLOCK = 0;
 const SIG_SETMASK = 2;
-const O_CLOEXEC: u32 = 0o2000000;
 
 comptime {
     if (builtin.target.isMuslLibC()) {
@@ -125,8 +113,6 @@ comptime {
         symbol(&posix_spawn_file_actions_addchdir_impl, "posix_spawn_file_actions_addchdir_np");
         symbol(&posix_spawn_file_actions_addfchdir_impl, "posix_spawn_file_actions_addfchdir_np");
         symbol(&posix_spawn_file_actions_destroy_impl, "posix_spawn_file_actions_destroy");
-        symbol(&posix_spawnImpl, "posix_spawn");
-        symbol(&posix_spawnpImpl, "posix_spawnp");
         symbol(&__execvpe, "__execvpe");
         symbol(&execvpImpl, "execvp");
         symbol(&execlImpl, "execl");
@@ -335,229 +321,6 @@ fn posix_spawn_file_actions_destroy_impl(fa: *posix_spawn_file_actions_t) callco
         op = next;
     }
     return 0;
-}
-
-const SpawnArgs = extern struct {
-    p: [2]c_int,
-    oldmask: musl_sigset_t,
-    path: [*:0]const u8,
-    fa: ?*const posix_spawn_file_actions_t,
-    attr: *const posix_spawnattr_t,
-    argv: [*:null]const ?[*:0]const u8,
-    envp: [*:null]const ?[*:0]const u8,
-};
-
-fn syscallResult(r: usize) isize {
-    return @bitCast(r);
-}
-
-fn negErrno(e: linux.E) isize {
-    return -@as(isize, @intFromEnum(e));
-}
-
-fn sigismemberZig(set: *const musl_sigset_t, sig: c_int) bool {
-    const s: usize = @intCast(sig - 1);
-    const bits = @bitSizeOf(c_ulong);
-    return (set[s / bits] & (@as(c_ulong, 1) << @intCast(s % bits))) != 0;
-}
-
-fn fdopPath(op: *const fdop) [*:0]const u8 {
-    return @ptrCast(@as([*]const u8, @ptrCast(op)) + @sizeOf(fdop));
-}
-
-fn openSys(path: [*:0]const u8, flags: c_int, mode: linux.mode_t) isize {
-    var o: linux.O = @bitCast(@as(u32, @bitCast(flags)));
-    o.LARGEFILE = true;
-    return syscallResult(linux.open(path, o, mode));
-}
-
-fn spawnChild(arg: usize) callconv(.c) u8 {
-    const args: *SpawnArgs = @ptrFromInt(arg);
-    var p = args.p[1];
-    const attr = args.attr;
-    var ret: isize = 0;
-
-    _ = linux.close(args.p[0]);
-
-    var sa: c_sigaction = std.mem.zeroes(c_sigaction);
-    var hset: musl_sigset_t = undefined;
-    __get_handler_set(&hset);
-    var i: c_int = 1;
-    while (i < NSIG) : (i += 1) {
-        if ((attr.__flags & POSIX_SPAWN_SETSIGDEF) != 0 and sigismemberZig(&attr.__def, i)) {
-            sa.handler = SIG_DFL;
-        } else if (sigismemberZig(&hset, i)) {
-            if (@as(c_uint, @intCast(i - 32)) < 3) {
-                sa.handler = SIG_IGN;
-            } else {
-                _ = __libc_sigaction(i, null, &sa);
-                if (sa.handler == SIG_IGN) continue;
-                sa.handler = SIG_DFL;
-            }
-        } else {
-            continue;
-        }
-        _ = __libc_sigaction(i, &sa, null);
-    }
-
-    if ((attr.__flags & POSIX_SPAWN_SETSID) != 0) {
-        ret = syscallResult(linux.syscall0(.setsid));
-        if (ret < 0) gotoFail(p, ret);
-    }
-
-    if ((attr.__flags & POSIX_SPAWN_SETPGROUP) != 0) {
-        ret = syscallResult(linux.setpgid(0, attr.__pgrp));
-        if (ret < 0) gotoFail(p, ret);
-    }
-
-    if ((attr.__flags & POSIX_SPAWN_RESETIDS) != 0) {
-        ret = syscallResult(linux.setgid(linux.getgid()));
-        if (ret < 0) gotoFail(p, ret);
-        ret = syscallResult(linux.setuid(linux.getuid()));
-        if (ret < 0) gotoFail(p, ret);
-    }
-
-    if (args.fa) |fa| if (fa.__actions) |actions| {
-        var op: *fdop = @ptrCast(@alignCast(actions));
-        while (op.next) |next| op = next;
-        while (true) {
-            if (op.fd == p) {
-                ret = syscallResult(linux.dup(p));
-                if (ret < 0) gotoFail(p, ret);
-                _ = linux.close(p);
-                p = @intCast(ret);
-            }
-            switch (op.cmd) {
-                FDOP_CLOSE => _ = linux.close(op.fd),
-                FDOP_DUP2 => {
-                    const fd = op.srcfd;
-                    if (fd == p) gotoFail(p, negErrno(.BADF));
-                    if (fd != op.fd) {
-                        ret = syscallResult(linux.dup2(fd, op.fd));
-                        if (ret < 0) gotoFail(p, ret);
-                    } else {
-                        ret = syscallResult(linux.fcntl(fd, linux.F.GETFD, 0));
-                        ret = syscallResult(linux.fcntl(fd, linux.F.SETFD, @as(usize, @intCast(ret)) & ~@as(usize, linux.FD_CLOEXEC)));
-                        if (ret < 0) gotoFail(p, ret);
-                    }
-                },
-                FDOP_OPEN => {
-                    ret = openSys(fdopPath(op), op.oflag, op.mode);
-                    if (ret < 0) gotoFail(p, ret);
-                    const fd: c_int = @intCast(ret);
-                    if (fd != op.fd) {
-                        ret = syscallResult(linux.dup2(fd, op.fd));
-                        if (ret < 0) gotoFail(p, ret);
-                        _ = linux.close(fd);
-                    }
-                },
-                FDOP_CHDIR => {
-                    ret = syscallResult(linux.chdir(fdopPath(op)));
-                    if (ret < 0) gotoFail(p, ret);
-                },
-                FDOP_FCHDIR => {
-                    ret = syscallResult(linux.fchdir(op.fd));
-                    if (ret < 0) gotoFail(p, ret);
-                },
-                else => {},
-            }
-            if (op.prev) |prev| op = prev else break;
-        }
-    };
-
-    _ = linux.fcntl(p, linux.F.SETFD, linux.FD_CLOEXEC);
-
-    _ = pthread_sigmask(SIG_SETMASK, if ((attr.__flags & POSIX_SPAWN_SETSIGMASK) != 0) &attr.__mask else &args.oldmask, null);
-
-    const exec_fn: *const fn ([*:0]const u8, [*:null]const ?[*:0]const u8, [*:null]const ?[*:0]const u8) callconv(.c) c_int = if (attr.__fn) |f| @ptrCast(@alignCast(f)) else execve;
-    _ = exec_fn(args.path, args.argv, args.envp);
-    gotoFail(p, -@as(isize, std.c._errno().*));
-}
-
-fn gotoFail(p: c_int, child_ret: isize) noreturn {
-    var ret: c_int = @intCast(-child_ret);
-    if (ret != 0) {
-        while (true) {
-            const r = syscallResult(linux.write(p, @ptrCast(&ret), @sizeOf(c_int)));
-            if (!(r < 0 and r != negErrno(.PIPE))) break;
-        }
-    }
-    linux.exit(127);
-}
-
-fn posix_spawnImpl(
-    res: ?*linux.pid_t,
-    path: [*:0]const u8,
-    fa: ?*const posix_spawn_file_actions_t,
-    attr_opt: ?*const posix_spawnattr_t,
-    argv: [*:null]const ?[*:0]const u8,
-    envp: [*:null]const ?[*:0]const u8,
-) callconv(.c) c_int {
-    var stack: [1024 + PATH_MAX]u8 align(16) = undefined;
-    var ec: c_int = 0;
-    var cs: c_int = undefined;
-    var zero_attr: posix_spawnattr_t = std.mem.zeroes(posix_spawnattr_t);
-    var args: SpawnArgs = undefined;
-
-    _ = pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cs);
-
-    args.path = path;
-    args.fa = fa;
-    args.attr = attr_opt orelse &zero_attr;
-    args.argv = argv;
-    args.envp = envp;
-    _ = pthread_sigmask(SIG_BLOCK, &@as(musl_sigset_t, @splat(~@as(c_ulong, 0))), &args.oldmask);
-
-    __lock(&__abort_lock);
-    var pipe_flags: linux.O = @bitCast(@as(u32, O_CLOEXEC));
-    if (errno(linux.pipe2(&args.p, pipe_flags)) != 0) {
-        __unlock(&__abort_lock);
-        ec = std.c._errno().*;
-        return spawnFail(&args.oldmask, cs, ec);
-    }
-
-    const flags: u32 = linux.CLONE.VM | linux.CLONE.VFORK | @intFromEnum(linux.SIG.CHLD);
-    const pid_raw = linux.clone(spawnChild, @intFromPtr(&stack) + stack.len, flags, @intFromPtr(&args), null, 0, null);
-    const pid_signed = syscallResult(pid_raw);
-    _ = linux.close(args.p[1]);
-    __unlock(&__abort_lock);
-
-    if (pid_signed > 0) {
-        const n = syscallResult(linux.read(args.p[0], @ptrCast(&ec), @sizeOf(c_int)));
-        if (n != @sizeOf(c_int)) ec = 0 else {
-            var status: c_int = 0;
-            _ = waitpid(@intCast(pid_signed), &status, 0);
-        }
-    } else {
-        ec = @intCast(-pid_signed);
-    }
-
-    _ = linux.close(args.p[0]);
-
-    if (ec == 0) {
-        if (res) |r| r.* = @intCast(pid_signed);
-    }
-
-    return spawnFail(&args.oldmask, cs, ec);
-}
-
-fn spawnFail(oldmask: *const musl_sigset_t, cs: c_int, ec: c_int) c_int {
-    _ = pthread_sigmask(SIG_SETMASK, oldmask, null);
-    _ = pthread_setcancelstate(cs, null);
-    return ec;
-}
-
-fn posix_spawnpImpl(
-    res: ?*linux.pid_t,
-    file: [*:0]const u8,
-    fa: ?*const posix_spawn_file_actions_t,
-    attr_opt: ?*const posix_spawnattr_t,
-    argv: [*:null]const ?[*:0]const u8,
-    envp: [*:null]const ?[*:0]const u8,
-) callconv(.c) c_int {
-    var spawnp_attr: posix_spawnattr_t = if (attr_opt) |a| a.* else std.mem.zeroes(posix_spawnattr_t);
-    spawnp_attr.__fn = @ptrCast(@constCast(&__execvpe));
-    return posix_spawnImpl(res, file, fa, &spawnp_attr, argv, envp);
 }
 
 fn strchrnul(s: [*]const u8, c: u8) [*]const u8 {

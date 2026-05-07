@@ -677,8 +677,8 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/ferror.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fflush.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fgetc.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/fgetwc.c",
-    "musl/src/stdio/fgetws.c",
+    //"musl/src/stdio/fgetwc.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/fgetws.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fileno.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/flockfile.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fmemopen.c", // migrated to lib/c/stdio.zig
@@ -687,8 +687,8 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/fopencookie.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/__fopen_rb_ca.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fputs.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/fputwc.c",
-    "musl/src/stdio/fputws.c",
+    //"musl/src/stdio/fputwc.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/fputws.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fread.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/freopen.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/getline.c", // migrated to lib/c/stdio.zig
@@ -724,7 +724,7 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/tmpfile.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/tmpnam.c", // migrated to lib/c/temp.zig
     //"musl/src/stdio/ungetc.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/ungetwc.c",
+    //"musl/src/stdio/ungetwc.c", // migrated to lib/c/stdio.zig
     // "musl/src/stdio/vasprintf.c", // migrated to Zig (vasprintf_impl)
     // "musl/src/stdio/vdprintf.c", // migrated to Zig (vdprintf_impl)
     "musl/src/stdio/vfprintf.c",
@@ -860,7 +860,7 @@ const src_files = [_][]const u8{
     "musl/src/process/_Fork.c",
     "musl/src/process/fork.c",
     "musl/src/stdio/fputc.c",
-    "musl/src/stdio/fwide.c",
+    //"musl/src/stdio/fwide.c", // migrated to lib/c/stdio.zig
     "musl/src/stdio/getc.c",
     "musl/src/stdio/putc.c",
     "musl/src/stdio/putc_unlocked.c",

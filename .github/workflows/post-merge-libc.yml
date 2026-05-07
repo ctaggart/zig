@@ -1,0 +1,85 @@
+name: post-merge-libc
+
+on:
+  push:
+    branches:
+      - libc/0.16.x
+    paths:
+      - lib/**
+      - src/**
+      - build.zig
+      - build.zig.zon
+      - CMakeLists.txt
+      - cmake/**
+      - .github/workflows/test-libc.yml
+      - .github/workflows/post-merge-libc.yml
+
+permissions:
+  contents: read
+  issues: write
+
+# Coalesce: if many auto-merges land in quick succession, only test the
+# latest revision. Older runs are cancelled to avoid burning CI on stale
+# heads. The eventual HEAD always gets tested.
+concurrency:
+  group: post-merge-libc
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: full test-libc on libc/0.16.x HEAD
+    uses: ./.github/workflows/test-libc.yml
+    with:
+      branch: ${{ github.sha }}
+      test-filter: ""
+      targets: all
+
+  on-failure:
+    name: notify on test failure
+    needs: test
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: libc/0.16.x
+          fetch-depth: 1
+
+      - name: Open failure issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          short_sha="${HEAD_SHA:0:12}"
+          subject="$(git log -1 --pretty=%s "$HEAD_SHA")"
+          author="$(git log -1 --pretty=%an "$HEAD_SHA")"
+          merge_pr="$(printf '%s' "$subject" | sed -nE 's/.*\(#([0-9]+)\)$/\1/p')"
+
+          title="post-merge test-libc failure on libc/0.16.x @ ${short_sha}"
+          body=$(cat <<EOF
+          The full \`test-libc\` matrix failed against \`libc/0.16.x\` after a merge.
+
+          - Commit: [\`${short_sha}\`](${{ github.server_url }}/${{ github.repository }}/commit/${HEAD_SHA})
+          - Subject: \`${subject}\`
+          - Author: ${author}
+          - Workflow run: ${RUN_URL}
+          ${merge_pr:+- Likely-introduced-by PR: #${merge_pr}}
+
+          Manual revert may be required:
+
+          \`\`\`
+          git fetch origin libc/0.16.x
+          git checkout libc/0.16.x
+          git revert -m 1 ${HEAD_SHA}
+          git push origin libc/0.16.x
+          \`\`\`
+
+          (Reopen / triage as needed. The branch was **not** auto-reverted.)
+          EOF
+          )
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "$title" \
+            --body "$body"

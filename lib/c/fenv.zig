@@ -1,11 +1,21 @@
 const builtin = @import("builtin");
+const std = @import("std");
 const symbol = @import("../c.zig").symbol;
 
 /// fexcept_t type matching musl's arch-specific bits/fenv.h definitions.
 const fexcept_t = switch (builtin.cpu.arch) {
     .x86_64, .x86, .mips, .mipsel, .mips64, .mips64el => c_ushort,
-    .aarch64, .aarch64_be, .riscv32, .riscv64, .loongarch64,
-    .m68k, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .s390x,
+    .aarch64,
+    .aarch64_be,
+    .riscv32,
+    .riscv64,
+    .loongarch64,
+    .m68k,
+    .powerpc,
+    .powerpcle,
+    .powerpc64,
+    .powerpc64le,
+    .s390x,
     => c_uint,
     else => c_ulong,
 };
@@ -14,8 +24,14 @@ const FE_TONEAREST: c_int = 0;
 
 const FE_ALL_EXCEPT: c_int = switch (builtin.cpu.arch) {
     .x86_64, .x86, .hexagon => 0x3f,
-    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb,
-    .riscv32, .riscv64,
+    .aarch64,
+    .aarch64_be,
+    .arm,
+    .armeb,
+    .thumb,
+    .thumbeb,
+    .riscv32,
+    .riscv64,
     => 0x1f,
     .loongarch64 => 0x1f0000,
     .m68k => 0xf8,
@@ -28,8 +44,17 @@ const FE_ALL_EXCEPT: c_int = switch (builtin.cpu.arch) {
 const FE_TOWARDZERO: ?c_int = switch (builtin.cpu.arch) {
     .x86_64, .x86 => 0xc00,
     .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => @as(c_int, 0xc00000),
-    .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le, .s390x,
+    .riscv32,
+    .riscv64,
+    .mips,
+    .mipsel,
+    .mips64,
+    .mips64el,
+    .powerpc,
+    .powerpcle,
+    .powerpc64,
+    .powerpc64le,
+    .s390x,
     => 1,
     .hexagon => 0x01,
     .loongarch64 => 0x100,
@@ -41,8 +66,15 @@ const FE_UPWARD: ?c_int = switch (builtin.cpu.arch) {
     .x86_64, .x86 => 0x800,
     .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => 0x400000,
     .riscv32, .riscv64 => 3,
-    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle,
-    .powerpc64, .powerpc64le, .s390x,
+    .mips,
+    .mipsel,
+    .mips64,
+    .mips64el,
+    .powerpc,
+    .powerpcle,
+    .powerpc64,
+    .powerpc64le,
+    .s390x,
     => 2,
     .hexagon => 0x03,
     .loongarch64 => 0x200,
@@ -54,8 +86,15 @@ const FE_DOWNWARD: ?c_int = switch (builtin.cpu.arch) {
     .x86_64, .x86 => 0x400,
     .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => @as(c_int, 0x800000),
     .riscv32, .riscv64 => 2,
-    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle,
-    .powerpc64, .powerpc64le, .s390x,
+    .mips,
+    .mipsel,
+    .mips64,
+    .mips64el,
+    .powerpc,
+    .powerpcle,
+    .powerpc64,
+    .powerpc64le,
+    .s390x,
     => 3,
     .hexagon => 0x02,
     .loongarch64 => 0x300,
@@ -63,17 +102,32 @@ const FE_DOWNWARD: ?c_int = switch (builtin.cpu.arch) {
     else => null,
 };
 
+const arch = builtin.cpu.arch;
+const abi = builtin.abi;
+const is_loongarch64_sf = arch == .loongarch64 and abi == .muslsf;
+const has_zig_fenv = is_loongarch64_sf or arch == .s390x;
+
 comptime {
     if (builtin.link_libc) {
         // Weak generic fallbacks (from fenv.c).
         // Overridden by arch-specific implementations at link time.
-        symbol(&feclearexcept, "feclearexcept");
-        symbol(&feraiseexcept, "feraiseexcept");
-        symbol(&fetestexcept, "fetestexcept");
-        symbol(&fegetround, "fegetround");
-        symbol(&__fesetround, "__fesetround");
-        symbol(&fegetenv, "fegetenv");
-        symbol(&fesetenv, "fesetenv");
+        if (has_zig_fenv) {
+            symbol(&feclearexcept_impl, "feclearexcept");
+            symbol(&feraiseexcept_impl, "feraiseexcept");
+            symbol(&fetestexcept_impl, "fetestexcept");
+            symbol(&fegetround_impl, "fegetround");
+            symbol(&__fesetround_impl, "__fesetround");
+            symbol(&fegetenv_impl, "fegetenv");
+            symbol(&fesetenv_impl, "fesetenv");
+        } else {
+            symbol(&feclearexcept, "feclearexcept");
+            symbol(&feraiseexcept, "feraiseexcept");
+            symbol(&fetestexcept, "fetestexcept");
+            symbol(&fegetround, "fegetround");
+            symbol(&__fesetround, "__fesetround");
+            symbol(&fegetenv, "fegetenv");
+            symbol(&fesetenv, "fesetenv");
+        }
 
         // Generic callers (no arch-specific overrides for these).
         symbol(&__flt_rounds, "__flt_rounds");
@@ -90,37 +144,110 @@ comptime {
 // strong definitions that override these at link time.
 
 fn feclearexcept(mask: c_int) callconv(.c) c_int {
-    _ = mask;
-    return 0;
+    return feclearexcept_impl(mask);
 }
 
 fn feraiseexcept(mask: c_int) callconv(.c) c_int {
-    _ = mask;
-    return 0;
+    return feraiseexcept_impl(mask);
 }
 
 fn fetestexcept(mask: c_int) callconv(.c) c_int {
-    _ = mask;
-    return 0;
+    return fetestexcept_impl(mask);
 }
 
 fn fegetround() callconv(.c) c_int {
-    return FE_TONEAREST;
+    return fegetround_impl();
 }
 
 fn __fesetround(r: c_int) callconv(.c) c_int {
-    _ = r;
-    return 0;
+    return __fesetround_impl(r);
 }
 
 fn fegetenv(envp: *anyopaque) callconv(.c) c_int {
-    _ = envp;
-    return 0;
+    return fegetenv_impl(envp);
 }
 
 fn fesetenv(envp: *const anyopaque) callconv(.c) c_int {
-    _ = envp;
+    return fesetenv_impl(envp);
+}
+
+fn feclearexcept_impl(mask_arg: c_int) callconv(.c) c_int {
+    return switch (arch) {
+        .s390x => {
+            const mask: c_uint = @bitCast(mask_arg & FE_ALL_EXCEPT);
+            set_fpc(get_fpc() & ~mask);
+            return 0;
+        },
+        else => 0,
+    };
+}
+
+fn feraiseexcept_impl(mask_arg: c_int) callconv(.c) c_int {
+    return switch (arch) {
+        .s390x => {
+            const mask: c_uint = @bitCast(mask_arg & FE_ALL_EXCEPT);
+            set_fpc(get_fpc() | mask);
+            return 0;
+        },
+        else => 0,
+    };
+}
+
+fn fetestexcept_impl(mask_arg: c_int) callconv(.c) c_int {
+    return switch (arch) {
+        .s390x => return @bitCast(get_fpc() & @as(c_uint, @bitCast(mask_arg)) & @as(c_uint, @bitCast(FE_ALL_EXCEPT))),
+        else => 0,
+    };
+}
+
+fn fegetround_impl() callconv(.c) c_int {
+    return switch (arch) {
+        .s390x => @intCast(get_fpc() & 3),
+        else => FE_TONEAREST,
+    };
+}
+
+fn __fesetround_impl(r_arg: c_int) callconv(.c) c_int {
+    return switch (arch) {
+        .s390x => {
+            const r: c_uint = @bitCast(r_arg);
+            set_fpc((get_fpc() & ~@as(c_uint, 3)) | r);
+            return 0;
+        },
+        else => 0,
+    };
+}
+
+fn fegetenv_impl(envp: *anyopaque) callconv(.c) c_int {
+    switch (arch) {
+        .s390x => @as(*c_uint, @ptrCast(@alignCast(envp))).* = get_fpc(),
+        else => {},
+    }
     return 0;
+}
+
+fn fesetenv_impl(envp: *const anyopaque) callconv(.c) c_int {
+    switch (arch) {
+        .s390x => {
+            const env: usize = @intFromPtr(envp);
+            set_fpc(if (env != std.math.maxInt(usize)) @as(*const c_uint, @ptrCast(@alignCast(envp))).* else 0);
+        },
+        else => {},
+    }
+    return 0;
+}
+
+fn get_fpc() c_uint {
+    return asm ("efpc %[fpc]"
+        : [fpc] "=r" (-> c_uint),
+    );
+}
+
+fn set_fpc(fpc: c_uint) void {
+    asm volatile ("sfpc %[fpc]"
+        :
+        : [fpc] "r" (fpc),
+    );
 }
 
 // Generic callers: these call the fenv functions above (or their

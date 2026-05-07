@@ -563,10 +563,10 @@ const src_files = [_][]const u8{
     "musl/src/network/hstrerror.c",
     //"musl/src/network/htonl.c", // migrated to lib/c/network.zig
     //"musl/src/network/htons.c", // migrated to lib/c/network.zig
-    "musl/src/network/if_freenameindex.c",
-    "musl/src/network/if_indextoname.c",
+    //"musl/src/network/if_freenameindex.c", // migrated to lib/c/network.zig
+    //"musl/src/network/if_indextoname.c", // migrated to lib/c/network.zig
     //"musl/src/network/if_nameindex.c", // migrated to lib/c/network.zig
-    "musl/src/network/if_nametoindex.c",
+    //"musl/src/network/if_nametoindex.c", // migrated to lib/c/network.zig
     //"musl/src/network/in6addr_any.c", // migrated to lib/c/network.zig
     //"musl/src/network/in6addr_loopback.c", // migrated to lib/c/network.zig
     //"musl/src/network/inet_addr.c", // migrated to lib/c/network.zig

@@ -589,14 +589,14 @@ const src_files = [_][]const u8{
     "musl/src/network/recvfrom.c",
     "musl/src/network/recvmmsg.c",
     "musl/src/network/recvmsg.c",
-    "musl/src/network/res_init.c",
+    //"musl/src/network/res_init.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_mkquery.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_msend.c", // migrated to lib/c/network.zig; exports: __res_msend,__res_msend_rc
     //"musl/src/network/resolvconf.c", // migrated to lib/c/network.zig; exports: __get_resolv_conf
     //"musl/src/network/res_query.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_querydomain.c", // migrated to lib/c/network.zig
     //"musl/src/network/res_send.c", // migrated to lib/c/network.zig
-    "musl/src/network/res_state.c",
+    //"musl/src/network/res_state.c", // migrated to lib/c/network.zig; exports: __res_state
     "musl/src/network/send.c",
     "musl/src/network/sendmmsg.c",
     "musl/src/network/sendmsg.c",

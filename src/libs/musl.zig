@@ -530,10 +530,10 @@ const src_files = [_][]const u8{
     //"musl/src/math/__math_xflowf.c", // migrated to lib/c/math.zig
     "musl/src/misc/getauxval.c",
     "musl/src/misc/getdomainname.c",
-    //"musl/src/network/accept4.c", // migrated to lib/c/network.zig
-    //"musl/src/network/accept.c", // migrated to lib/c/network.zig
-    //"musl/src/network/bind.c", // migrated to lib/c/network.zig
-    //"musl/src/network/connect.c", // migrated to lib/c/network.zig
+    "musl/src/network/accept4.c",
+    "musl/src/network/accept.c",
+    "musl/src/network/bind.c",
+    "musl/src/network/connect.c",
     //"musl/src/network/dn_comp.c", // migrated to lib/c/network.zig
     //"musl/src/network/dn_expand.c", // migrated to lib/c/network.zig; exports: __dn_expand,dn_expand
     //"musl/src/network/dn_skipname.c", // migrated to lib/c/network.zig
@@ -575,7 +575,7 @@ const src_files = [_][]const u8{
     //"musl/src/network/inet_ntoa.c", // migrated to lib/c/network.zig
     //"musl/src/network/inet_ntop.c", // migrated to lib/c/network.zig
     //"musl/src/network/inet_pton.c", // migrated to lib/c/network.zig
-    //"musl/src/network/listen.c", // migrated to lib/c/network.zig
+    "musl/src/network/listen.c",
     //"musl/src/network/lookup_ipliteral.c", // migrated to lib/c/network.zig; exports: __lookup_ipliteral
     //"musl/src/network/lookup_name.c", // migrated to lib/c/network.zig; exports: __lookup_name
     //"musl/src/network/lookup_serv.c", // migrated to lib/c/network.zig; exports: __lookup_serv
@@ -603,10 +603,10 @@ const src_files = [_][]const u8{
     "musl/src/network/sendto.c",
     "musl/src/network/serv.c",
     "musl/src/network/setsockopt.c",
-    //"musl/src/network/shutdown.c", // migrated to lib/c/network.zig
+    "musl/src/network/shutdown.c",
     "musl/src/network/sockatmark.c",
-    //"musl/src/network/socket.c", // migrated to lib/c/network.zig
-    //"musl/src/network/socketpair.c", // migrated to lib/c/network.zig
+    "musl/src/network/socket.c",
+    "musl/src/network/socketpair.c",
     "musl/src/process/posix_spawn.c",
     "musl/src/process/posix_spawnp.c",
     "musl/src/sched/affinity.c",

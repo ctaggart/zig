@@ -95,7 +95,6 @@ const stderr_ext = @extern(*const ?*FILE, .{ .name = "stderr" });
 const strerror_fn = @extern(*const fn (c_int) callconv(.c) [*:0]const u8, .{ .name = "strerror" });
 const vfprintf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfprintf" });
 const vfwprintf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwprintf" });
-const vfscanf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfscanf" });
 const vfwscanf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwscanf" });
 const memchr_fn = @extern(*const fn (?[*]const u8, c_int, usize) callconv(.c) ?[*]u8, .{ .name = "memchr" });
 const lseek_fn = @extern(*const fn (c_int, i64, c_int) callconv(.c) i64, .{ .name = "__lseek" });
@@ -104,6 +103,12 @@ const realloc_fn = @extern(*const fn (?*anyopaque, usize) callconv(.c) ?*anyopaq
 const aio_close_fn = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__aio_close" });
 const mbtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize) callconv(.c) c_int, .{ .name = "mbtowc" });
 const wcsrtombs_fn = @extern(*const fn (?[*]u8, *?[*:0]const wchar_t, usize, ?*anyopaque) callconv(.c) usize, .{ .name = "wcsrtombs" });
+const shlim_fn = @extern(*const fn (*FILE, i64) callconv(.c) void, .{ .name = "__shlim" });
+const shgetc_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__shgetc" });
+const intscan_fn = @extern(*const fn (*FILE, c_uint, c_int, c_ulonglong) callconv(.c) c_ulonglong, .{ .name = "__intscan" });
+const floatscan_fn = @extern(*const fn (*FILE, c_int, c_int) callconv(.c) c_longdouble, .{ .name = "__floatscan" });
+const mbrtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize, ?*mbstate_t) callconv(.c) usize, .{ .name = "mbrtowc" });
+const mbsinit_fn = @extern(*const fn (?*const mbstate_t) callconv(.c) c_int, .{ .name = "mbsinit" });
 
 comptime {
     if (builtin.link_libc and builtin.target.isMuslLibC()) {
@@ -175,6 +180,8 @@ comptime {
         symbol(&perror_impl, "perror");
         // #243 fix enables by-value VaList; all v-prefix stdio wrappers now migrated.
         symbol(&vprintf_impl, "vprintf");
+        symbol(&vfscanf_impl, "vfscanf");
+        symbol(&vfscanf_impl, "__isoc99_vfscanf");
         symbol(&vscanf_impl, "vscanf");
         symbol(&vsprintf_impl, "vsprintf");
         symbol(&vwprintf_impl, "vwprintf");
@@ -1293,6 +1300,368 @@ fn string_read(f: *FILE, buf: [*]u8, len: usize) callconv(.c) usize {
     return actual;
 }
 
+const SIZE_hh: c_int = -2;
+const SIZE_h: c_int = -1;
+const SIZE_def: c_int = 0;
+const SIZE_l: c_int = 1;
+const SIZE_L: c_int = 2;
+const SIZE_ll: c_int = 3;
+
+inline fn is_space(c: c_int) bool {
+    return switch (c) {
+        ' ', '\t', '\n', '\r', 11, 12 => true,
+        else => false,
+    };
+}
+
+inline fn is_digit(c: c_int) bool {
+    return c >= '0' and c <= '9';
+}
+
+inline fn shcnt(f: *FILE) i64 {
+    return f.shcnt + @as(i64, @intCast(@intFromPtr(f.rpos.?) - @intFromPtr(f.buf.?)));
+}
+
+inline fn shlim(f: *FILE, lim: i64) void {
+    shlim_fn(f, lim);
+}
+
+inline fn shgetc(f: *FILE) c_int {
+    if (f.rpos != f.shend) {
+        const c = f.rpos.?[0];
+        f.rpos = f.rpos.? + 1;
+        return c;
+    }
+    return shgetc_fn(f);
+}
+
+inline fn shunget(f: *FILE) void {
+    if (f.shlim >= 0) f.rpos = f.rpos.? - 1;
+}
+
+fn store_int(dest: ?*anyopaque, size: c_int, i: c_ulonglong) void {
+    const p = dest orelse return;
+    switch (size) {
+        SIZE_hh => @as(*u8, @ptrCast(@alignCast(p))).* = @truncate(i),
+        SIZE_h => @as(*c_short, @ptrCast(@alignCast(p))).* = @bitCast(@as(c_ushort, @truncate(i))),
+        SIZE_def => @as(*c_int, @ptrCast(@alignCast(p))).* = @bitCast(@as(c_uint, @truncate(i))),
+        SIZE_l => @as(*c_long, @ptrCast(@alignCast(p))).* = @bitCast(@as(c_ulong, @truncate(i))),
+        SIZE_ll => @as(*c_longlong, @ptrCast(@alignCast(p))).* = @bitCast(@as(c_ulonglong, i)),
+        else => {},
+    }
+}
+
+fn arg_n(ap: VaList, n: c_uint) ?*anyopaque {
+    var ap_src = ap;
+    var ap2 = @cVaCopy(&ap_src);
+    defer @cVaEnd(&ap2);
+    var n_remaining = n;
+    while (n_remaining > 1) : (n_remaining -= 1) _ = @cVaArg(&ap2, ?*anyopaque);
+    return @cVaArg(&ap2, ?*anyopaque);
+}
+
+fn fail_with_alloc(result: c_int, alloc: bool, s: ?[*]u8, wcs: ?[*]wchar_t) c_int {
+    if (alloc) {
+        free_fn(s);
+        free_fn(wcs);
+    }
+    return result;
+}
+
+fn input_fail_result(matches: c_int) c_int {
+    return if (matches == 0) -1 else matches;
+}
+
+/// vfscanf.c: int vfscanf(FILE *restrict f, const char *restrict fmt, va_list ap)
+fn vfscanf_impl(f_arg: ?*FILE, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
+    const f = f_arg.?;
+    var ap_src = ap;
+    var width: c_int = undefined;
+    var size: c_int = undefined;
+    var alloc: bool = false;
+    var base: c_uint = undefined;
+    var p: [*]const u8 = fmt;
+    var c: c_int = undefined;
+    var t: c_int = undefined;
+    var s: ?[*]u8 = null;
+    var wcs: ?[*]wchar_t = null;
+    var st: mbstate_t = undefined;
+    var dest: ?*anyopaque = null;
+    var invert: c_int = 0;
+    var matches: c_int = 0;
+    var x: c_ulonglong = undefined;
+    var y: c_longdouble = undefined;
+    var pos: i64 = 0;
+    var scanset: [257]u8 = undefined;
+    var i: usize = undefined;
+    var k: usize = undefined;
+    var wc: wchar_t = undefined;
+
+    const need_unlock = flock(f);
+    defer funlock(f, need_unlock);
+
+    if (f.rpos == null) _ = toread_fn(f);
+    if (f.rpos == null) return input_fail_result(matches);
+
+    while (p[0] != 0) : (p += 1) {
+        alloc = false;
+
+        if (is_space(p[0])) {
+            while (is_space(p[1])) p += 1;
+            shlim(f, 0);
+            while (true) {
+                c = shgetc(f);
+                if (!is_space(c)) break;
+            }
+            shunget(f);
+            pos += shcnt(f);
+            continue;
+        }
+
+        if (p[0] != '%' or p[1] == '%') {
+            shlim(f, 0);
+            if (p[0] == '%') {
+                p += 1;
+                while (true) {
+                    c = shgetc(f);
+                    if (!is_space(c)) break;
+                }
+            } else {
+                c = shgetc(f);
+            }
+            if (c != p[0]) {
+                shunget(f);
+                if (c < 0) return input_fail_result(matches);
+                return matches;
+            }
+            pos += shcnt(f);
+            continue;
+        }
+
+        p += 1;
+        if (p[0] == '*') {
+            dest = null;
+            p += 1;
+        } else if (is_digit(p[0]) and p[1] == '$') {
+            dest = arg_n(ap_src, p[0] - '0');
+            p += 2;
+        } else {
+            dest = @cVaArg(&ap_src, ?*anyopaque);
+        }
+
+        width = 0;
+        while (is_digit(p[0])) : (p += 1) {
+            width = 10 * width + @as(c_int, p[0]) - '0';
+        }
+
+        if (p[0] == 'm') {
+            wcs = null;
+            s = null;
+            alloc = dest != null;
+            p += 1;
+        } else {
+            alloc = false;
+        }
+
+        size = SIZE_def;
+        const size_ch = p[0];
+        p += 1;
+        switch (size_ch) {
+            'h' => if (p[0] == 'h') {
+                p += 1;
+                size = SIZE_hh;
+            } else size = SIZE_h,
+            'l' => if (p[0] == 'l') {
+                p += 1;
+                size = SIZE_ll;
+            } else size = SIZE_l,
+            'j' => size = SIZE_ll,
+            'z', 't' => size = SIZE_l,
+            'L' => size = SIZE_L,
+            'd', 'i', 'o', 'u', 'x', 'a', 'e', 'f', 'g', 'A', 'E', 'F', 'G', 'X', 's', 'c', '[', 'S', 'C', 'p', 'n' => p -= 1,
+            else => return fail_with_alloc(matches, alloc, s, wcs),
+        }
+
+        t = p[0];
+
+        if ((t & 0x2f) == 3) {
+            t |= 32;
+            size = SIZE_l;
+        }
+
+        switch (t) {
+            'c' => if (width < 1) width = 1,
+            '[' => {},
+            'n' => {
+                store_int(dest, size, @intCast(pos));
+                continue;
+            },
+            else => {
+                shlim(f, 0);
+                while (true) {
+                    c = shgetc(f);
+                    if (!is_space(c)) break;
+                }
+                shunget(f);
+                pos += shcnt(f);
+            },
+        }
+
+        shlim(f, width);
+        if (shgetc(f) < 0) return fail_with_alloc(input_fail_result(matches), alloc, s, wcs);
+        shunget(f);
+
+        switch (t) {
+            's', 'c', '[' => {
+                if (t == 'c' or t == 's') {
+                    @memset(&scanset, 0xff);
+                    scanset[0] = 0;
+                    if (t == 's') {
+                        scanset[1 + '\t'] = 0;
+                        scanset[1 + '\n'] = 0;
+                        scanset[1 + 11] = 0;
+                        scanset[1 + 12] = 0;
+                        scanset[1 + '\r'] = 0;
+                        scanset[1 + ' '] = 0;
+                    }
+                } else {
+                    p += 1;
+                    if (p[0] == '^') {
+                        p += 1;
+                        invert = 1;
+                    } else invert = 0;
+                    @memset(&scanset, @as(u8, @intCast(invert)));
+                    scanset[0] = 0;
+                    if (p[0] == '-') {
+                        p += 1;
+                        scanset[1 + '-'] = @intCast(1 - invert);
+                    } else if (p[0] == ']') {
+                        p += 1;
+                        scanset[1 + ']'] = @intCast(1 - invert);
+                    }
+                    while (p[0] != ']') : (p += 1) {
+                        if (p[0] == 0) return fail_with_alloc(matches, alloc, s, wcs);
+                        if (p[0] == '-' and p[1] != 0 and p[1] != ']') {
+                            const start = p[-1];
+                            p += 1;
+                            var rc: c_int = start;
+                            while (rc < p[0]) : (rc += 1) scanset[@as(usize, @intCast(1 + rc))] = @intCast(1 - invert);
+                        }
+                        scanset[1 + p[0]] = @intCast(1 - invert);
+                    }
+                }
+
+                wcs = null;
+                s = null;
+                i = 0;
+                k = if (t == 'c') @as(usize, @intCast(width)) + 1 else 31;
+                if (size == SIZE_l) {
+                    if (alloc) {
+                        wcs = @ptrCast(@alignCast(malloc_fn(k * @sizeOf(wchar_t)) orelse return fail_with_alloc(input_fail_result(matches), alloc, s, wcs)));
+                    } else if (dest) |d| {
+                        wcs = @ptrCast(@alignCast(d));
+                    }
+                    st = std.mem.zeroes(mbstate_t);
+                    while (true) {
+                        c = shgetc(f);
+                        if (scanset[@as(usize, @intCast(c + 1))] == 0) break;
+                        var ch: u8 = @truncate(@as(c_uint, @bitCast(c)));
+                        switch (mbrtowc_fn(&wc, @ptrCast(&ch), 1, &st)) {
+                            @as(usize, @bitCast(@as(isize, -1))) => return fail_with_alloc(input_fail_result(matches), alloc, s, wcs),
+                            @as(usize, @bitCast(@as(isize, -2))) => continue,
+                            else => {},
+                        }
+                        if (wcs) |buf| buf[i] = wc;
+                        i += 1;
+                        if (alloc and i == k) {
+                            k += k + 1;
+                            wcs = @ptrCast(@alignCast(realloc_fn(wcs, k * @sizeOf(wchar_t)) orelse return fail_with_alloc(input_fail_result(matches), alloc, s, wcs)));
+                        }
+                    }
+                    if (mbsinit_fn(&st) == 0) return fail_with_alloc(input_fail_result(matches), alloc, s, wcs);
+                } else if (alloc) {
+                    s = @ptrCast(@alignCast(malloc_fn(k) orelse return fail_with_alloc(input_fail_result(matches), alloc, s, wcs)));
+                    while (true) {
+                        c = shgetc(f);
+                        if (scanset[@as(usize, @intCast(c + 1))] == 0) break;
+                        s.?[i] = @truncate(@as(c_uint, @bitCast(c)));
+                        i += 1;
+                        if (i == k) {
+                            k += k + 1;
+                            s = @ptrCast(@alignCast(realloc_fn(s, k) orelse return fail_with_alloc(input_fail_result(matches), alloc, s, wcs)));
+                        }
+                    }
+                } else if (dest) |d| {
+                    s = @ptrCast(@alignCast(d));
+                    while (true) {
+                        c = shgetc(f);
+                        if (scanset[@as(usize, @intCast(c + 1))] == 0) break;
+                        s.?[i] = @truncate(@as(c_uint, @bitCast(c)));
+                        i += 1;
+                    }
+                } else {
+                    while (true) {
+                        c = shgetc(f);
+                        if (scanset[@as(usize, @intCast(c + 1))] == 0) break;
+                    }
+                }
+                shunget(f);
+                const cnt = shcnt(f);
+                if (cnt == 0) return fail_with_alloc(matches, alloc, s, wcs);
+                if (t == 'c' and cnt != width) return fail_with_alloc(matches, alloc, s, wcs);
+                if (alloc) {
+                    if (size == SIZE_l) @as(*?[*]wchar_t, @ptrCast(@alignCast(dest.?))).* = wcs else @as(*?[*]u8, @ptrCast(@alignCast(dest.?))).* = s;
+                }
+                if (t != 'c') {
+                    if (wcs) |buf| buf[i] = 0;
+                    if (s) |buf| buf[i] = 0;
+                }
+            },
+            'p', 'X', 'x' => {
+                base = 16;
+                x = intscan_fn(f, base, 0, std.math.maxInt(c_ulonglong));
+                if (shcnt(f) == 0) return matches;
+                if (t == 'p') {
+                    if (dest) |d| @as(*?*anyopaque, @ptrCast(@alignCast(d))).* = @ptrFromInt(@as(usize, @intCast(x)));
+                } else store_int(dest, size, x);
+            },
+            'o' => {
+                base = 8;
+                x = intscan_fn(f, base, 0, std.math.maxInt(c_ulonglong));
+                if (shcnt(f) == 0) return matches;
+                store_int(dest, size, x);
+            },
+            'd', 'u' => {
+                base = 10;
+                x = intscan_fn(f, base, 0, std.math.maxInt(c_ulonglong));
+                if (shcnt(f) == 0) return matches;
+                store_int(dest, size, x);
+            },
+            'i' => {
+                base = 0;
+                x = intscan_fn(f, base, 0, std.math.maxInt(c_ulonglong));
+                if (shcnt(f) == 0) return matches;
+                store_int(dest, size, x);
+            },
+            'a', 'A', 'e', 'E', 'f', 'F', 'g', 'G' => {
+                y = floatscan_fn(f, size, 0);
+                if (shcnt(f) == 0) return matches;
+                if (dest) |d| switch (size) {
+                    SIZE_def => @as(*f32, @ptrCast(@alignCast(d))).* = @floatCast(y),
+                    SIZE_l => @as(*f64, @ptrCast(@alignCast(d))).* = @floatCast(y),
+                    SIZE_L => @as(*c_longdouble, @ptrCast(@alignCast(d))).* = y,
+                    else => {},
+                };
+            },
+            else => return fail_with_alloc(matches, alloc, s, wcs),
+        }
+
+        pos += shcnt(f);
+        if (dest != null) matches += 1;
+    }
+    return matches;
+}
+
 /// vsscanf.c: int vsscanf(const char *restrict s, const char *restrict fmt, va_list ap)
 fn vsscanf_impl(s: [*:0]const u8, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
     var f = std.mem.zeroes(FILE);
@@ -1300,7 +1669,7 @@ fn vsscanf_impl(s: [*:0]const u8, fmt: [*:0]const u8, ap: VaList) callconv(.c) c
     f.cookie = @ptrCast(@constCast(s));
     f.read_fn = &string_read;
     f.lock = -1;
-    return vfscanf_fn(@ptrCast(&f), fmt, ap);
+    return vfscanf_impl(@ptrCast(&f), fmt, ap);
 }
 
 fn sw_write(f: *FILE, s: [*]const u8, l: usize) callconv(.c) usize {
@@ -1417,7 +1786,7 @@ fn vprintf_impl(fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
 
 /// vscanf.c: int vscanf(const char *restrict fmt, va_list ap)
 fn vscanf_impl(fmt: [*:0]const u8, ap: VaList) callconv(.c) c_int {
-    return vfscanf_fn(stdin_ext.*, fmt, ap);
+    return vfscanf_impl(stdin_ext.*, fmt, ap);
 }
 
 // --- Variadic entry points (#243 fix enables forwarding VaList by value to C) ---
@@ -1489,14 +1858,14 @@ fn swprintf_impl(s: [*]wchar_t, n: usize, fmt: [*:0]const wchar_t, ...) callconv
 fn scanf_impl(fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfscanf_fn(stdin_ext.*, fmt, ap);
+    return vfscanf_impl(stdin_ext.*, fmt, ap);
 }
 
 /// fscanf.c (also aliased as __isoc99_fscanf)
 fn fscanf_impl(f: ?*FILE, fmt: [*:0]const u8, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfscanf_fn(f, fmt, ap);
+    return vfscanf_impl(f, fmt, ap);
 }
 
 /// sscanf.c (also aliased as __isoc99_sscanf)

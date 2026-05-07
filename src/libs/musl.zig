@@ -535,9 +535,9 @@ const src_files = [_][]const u8{
     "musl/src/network/bind.c",
     "musl/src/network/connect.c",
     //"musl/src/network/dn_comp.c", // migrated to lib/c/network.zig
-    //"musl/src/network/dn_expand.c", // migrated to lib/c/network.zig; exports: __dn_expand,dn_expand
-    //"musl/src/network/dn_skipname.c", // migrated to lib/c/network.zig
-    //"musl/src/network/dns_parse.c", // migrated to lib/c/network.zig; exports: __dns_parse
+    "musl/src/network/dn_expand.c",
+    "musl/src/network/dn_skipname.c",
+    "musl/src/network/dns_parse.c",
     "musl/src/network/ent.c",
     "musl/src/network/ether.c",
     //"musl/src/network/freeaddrinfo.c", // migrated to lib/c/network.zig

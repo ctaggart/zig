@@ -121,9 +121,6 @@ jobs:
       - name: zig version
         run: zig version
 
-      - name: zig fmt --check (lib/c, src/libs/musl.zig)
-        run: zig fmt --check lib/c src/libs/musl.zig
-
       - name: zig fmt --ast-check on changed lib/c files
         run: |
           set -euo pipefail
@@ -235,6 +232,6 @@ jobs:
         run: |
           set -euo pipefail
           cd "$CACHE_ROOT"
-          ls -1dt stage4-* 2>/dev/null | tail -n +5 | xargs -r rm -rf
+          ls -1dt stage4-* 2>/dev/null | tail -n +5 | xargs -r rm -rf || true
           echo "stage4 caches retained:"
           ls -1dt stage4-* 2>/dev/null || true

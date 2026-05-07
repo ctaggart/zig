@@ -108,6 +108,43 @@ const in6_addr = extern struct {
     },
 };
 
+const res_state = extern struct {
+    retrans: c_int,
+    retry: c_int,
+    options: c_ulong,
+    nscount: c_int,
+    nsaddr_list: [MAXNS]linux.sockaddr.in,
+    id: c_ushort,
+    dnsrch: [MAXDNSRCH + 1]?[*:0]u8,
+    defdname: [256]u8,
+    pfcode: c_ulong,
+    bitfield: c_uint,
+    sort_list: [MAXRESOLVSORT]extern struct {
+        addr: in_addr,
+        mask: u32,
+    },
+    qhook: ?*anyopaque,
+    rhook: ?*anyopaque,
+    res_h_errno: c_int,
+    _vcsock: c_int,
+    _flags: c_uint,
+    _u: extern union {
+        pad: [52]u8,
+        _ext: extern struct {
+            nscount: u16,
+            nsmap: [MAXNS]u16,
+            nssocks: [MAXNS]c_int,
+            nscount6: u16,
+            nsinit: u16,
+            nsaddrs: [MAXNS]?*linux.sockaddr.in6,
+            _initstamp: [2]c_uint,
+        },
+    },
+};
+
+const MAXDNSRCH = 6;
+const MAXRESOLVSORT = 10;
+
 // ns_parse structs (from arpa/nameser.h)
 const NS_MAXDNAME = 1025;
 const NS_INT16SZ = 2;
@@ -233,6 +270,10 @@ comptime {
         // inet_ntop.c / inet_pton.c
         symbol(&inet_ntop_impl, "inet_ntop");
         symbol(&inet_pton_impl, "inet_pton");
+
+        // res_init.c / res_state.c
+        symbol(&res_init_impl, "res_init");
+        symbol(&res_state_impl, "__res_state");
     }
 
     // Subdirectory modules with real implementations
@@ -265,6 +306,16 @@ fn ntohl_impl(n: u32) callconv(.c) u32 {
 
 fn ntohs_impl(n: u16) callconv(.c) u16 {
     return networkEndian(u16, n);
+}
+
+fn res_init_impl() callconv(.c) c_int {
+    return 0;
+}
+
+var res_state_storage: res_state = std.mem.zeroes(res_state);
+
+fn res_state_impl() callconv(.c) *res_state {
+    return &res_state_storage;
 }
 
 fn asciiIsDigit(ch: u8) bool {

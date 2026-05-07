@@ -663,7 +663,7 @@ const src_files = [_][]const u8{
     "musl/src/signal/riscv64/sigsetjmp.s",
     "musl/src/signal/s390x/restore.s",
     "musl/src/signal/s390x/sigsetjmp.s",
-    "musl/src/signal/sigaction.c",
+    //"musl/src/signal/sigaction.c", // migrated to lib/c/signal.zig
     "musl/src/signal/x32/restore.s",
     "musl/src/signal/x32/sigsetjmp.s",
     "musl/src/signal/x86_64/restore.s",

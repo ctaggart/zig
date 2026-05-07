@@ -7,6 +7,36 @@ const sigset_t = linux.sigset_t;
 const SigsetElement = @typeInfo(sigset_t).array.child;
 const bits_per_elem = @bitSizeOf(SigsetElement);
 const errno = @import("../c.zig").errno;
+const musl_sigset_t = [128 / @sizeOf(c_ulong)]c_ulong;
+const k_sigset_t = linux.sigset_t;
+const k_sigaction = linux.k_sigaction;
+const handler_set_len = NSIG / (8 * @sizeOf(c_ulong));
+
+var unmask_done: c_int = 0;
+var handler_set: [handler_set_len]c_ulong = @splat(0);
+var __eintr_valid_flag: c_int = 0;
+
+const LibC = extern struct {
+    can_do_threads: u8,
+    threaded: u8,
+    secure: u8,
+    need_locks: i8,
+    threads_minus_1: c_int,
+    auxv: ?[*]usize,
+    tls_head: ?*anyopaque,
+    tls_size: usize,
+    tls_align: usize,
+    tls_cnt: usize,
+    page_size: usize,
+    global_locale: [6]?*anyopaque,
+};
+
+extern var __libc: LibC;
+extern var __abort_lock: c_int;
+extern "c" fn __lock(lock: *c_int) callconv(.c) void;
+extern "c" fn __unlock(lock: *c_int) callconv(.c) void;
+extern "c" fn __restore() callconv(.c) void;
+extern "c" fn __restore_rt() callconv(.c) void;
 const all_mask = blk: {
     var mask: sigset_t = undefined;
     for (&mask) |*elem| elem.* = ~@as(SigsetElement, 0);
@@ -23,13 +53,10 @@ const app_mask = blk: {
 // Musl's struct sigaction (different from kernel's k_sigaction)
 const c_sigaction = extern struct {
     handler: ?*align(1) const fn (c_int) callconv(.c) void,
-    mask: [128 / @sizeOf(c_ulong)]c_ulong,
+    mask: musl_sigset_t,
     flags: c_int,
     restorer: ?*const fn () callconv(.c) void,
 };
-// Functions provided by the C library (sigaction.c remains as C)
-extern "c" fn sigaction(sig: c_int, act: ?*const c_sigaction, oact: ?*c_sigaction) callconv(.c) c_int;
-extern "c" fn __sigaction(sig: c_int, act: ?*const c_sigaction, oact: ?*c_sigaction) callconv(.c) c_int;
 const SA_RESTART = 0x10000000;
 extern "c" fn psignal(sig: c_int, msg: ?[*:0]const u8) callconv(.c) void;
 const FILE = extern struct {
@@ -93,6 +120,11 @@ comptime {
         symbol(&sigaltstackLinux, "sigaltstack");
         symbol(&sigprocmaskLinux, "sigprocmask");
         symbol(&sigsuspendLinux, "sigsuspend");
+        symbol(&__get_handler_set, "__get_handler_set");
+        symbol(&__libc_sigaction, "__libc_sigaction");
+        symbol(&__sigaction, "__sigaction");
+        symbol(&__sigaction, "sigaction");
+        @export(&__eintr_valid_flag, .{ .name = "__eintr_valid_flag", .linkage = .weak, .visibility = .hidden });
         symbol(&__block_all_sigs, "__block_all_sigs");
         symbol(&__block_app_sigs, "__block_app_sigs");
         symbol(&__restore_sigs, "__restore_sigs");
@@ -109,6 +141,108 @@ comptime {
         symbol(&sigsetImpl, "sigset");
         symbol(&sigqueueImpl, "sigqueue");
     }
+}
+
+fn sigsetSizeBytes(comptime T: type) usize {
+    return if (@bitSizeOf(@typeInfo(T).array.child) == 8) @sizeOf(T) else NSIG / 8;
+}
+
+fn copyToKernelSigset(dst: *k_sigset_t, src: *const musl_sigset_t) void {
+    @memset(std.mem.asBytes(dst), 0);
+    @memcpy(std.mem.asBytes(dst)[0..sigsetSizeBytes(k_sigset_t)], std.mem.sliceAsBytes(src)[0..sigsetSizeBytes(k_sigset_t)]);
+}
+
+fn copyFromKernelSigset(dst: *musl_sigset_t, src: *const k_sigset_t) void {
+    @memset(std.mem.sliceAsBytes(dst), 0);
+    @memcpy(std.mem.sliceAsBytes(dst)[0..sigsetSizeBytes(k_sigset_t)], std.mem.asBytes(src)[0..sigsetSizeBytes(k_sigset_t)]);
+}
+
+fn sigactionSigValid(sig: c_int) bool {
+    return @as(u32, @bitCast(sig -% 32)) >= 3 and @as(u32, @bitCast(sig -% 1)) < NSIG - 1;
+}
+
+fn __get_handler_set(set: *sigset_t) callconv(.c) void {
+    @memcpy(std.mem.asBytes(set)[0..@sizeOf(@TypeOf(handler_set))], std.mem.asBytes(&handler_set));
+}
+
+fn __libc_sigaction(sig: c_int, noalias sa: ?*const c_sigaction, noalias old: ?*c_sigaction) callconv(.c) c_int {
+    var ksa: k_sigaction = undefined;
+    var ksa_old: k_sigaction = undefined;
+
+    if (sa) |act| {
+        if (@intFromPtr(act.handler) > 1) {
+            const s: u32 = @bitCast(sig -% 1);
+            _ = @atomicRmw(c_ulong, &handler_set[s / (8 * @sizeOf(c_ulong))], .Or, @as(c_ulong, 1) << @intCast(s % (8 * @sizeOf(c_ulong))), .seq_cst);
+
+            // If pthread_create has not yet been called, implementation-internal
+            // signals might not yet have been unblocked. They must be unblocked
+            // before any signal handler is installed, so that the ucontext_t
+            // passed to a signal handler cannot contain an illegal sigset_t.
+            if (__libc.threaded == 0 and unmask_done == 0) {
+                _ = linux.syscall4(.rt_sigprocmask, linux.SIG.UNBLOCK, @intFromPtr(&app_mask), 0, NSIG / 8);
+                unmask_done = 1;
+            }
+
+            if (act.flags & linux.SA.RESTART == 0) {
+                @atomicStore(c_int, &__eintr_valid_flag, 1, .seq_cst);
+            }
+        }
+
+        if (comptime @hasField(k_sigaction, "restorer")) {
+            ksa = .{
+                .handler = @ptrCast(act.handler),
+                .flags = @as(c_ulong, @intCast(act.flags)) | linux.SA.RESTORER,
+                .restorer = if (act.flags & linux.SA.SIGINFO != 0) &__restore_rt else &__restore,
+                .mask = undefined,
+            };
+        } else if (comptime @typeInfo(k_sigaction).@"struct".fields[0].name[0] == 'f') {
+            ksa = .{
+                .flags = @intCast(act.flags),
+                .handler = @ptrCast(act.handler),
+                .mask = undefined,
+            };
+        } else {
+            ksa = .{
+                .handler = @ptrCast(act.handler),
+                .flags = @intCast(act.flags),
+                .mask = undefined,
+            };
+        }
+        copyToKernelSigset(&ksa.mask, &act.mask);
+    }
+
+    const rc = if (builtin.cpu.arch == .sparc or builtin.cpu.arch == .sparc64)
+        linux.syscall5(.rt_sigaction, @as(usize, @bitCast(@as(isize, sig))), if (sa != null) @intFromPtr(&ksa) else 0, if (old != null) @intFromPtr(&ksa_old) else 0, if (sa != null and @hasField(k_sigaction, "restorer")) @intFromPtr(ksa.restorer) else 0, NSIG / 8)
+    else
+        linux.syscall4(.rt_sigaction, @as(usize, @bitCast(@as(isize, sig))), if (sa != null) @intFromPtr(&ksa) else 0, if (old != null) @intFromPtr(&ksa_old) else 0, NSIG / 8);
+
+    if (old) |oldact| {
+        if (rc == 0) {
+            oldact.handler = @ptrCast(ksa_old.handler);
+            oldact.flags = @intCast(ksa_old.flags);
+            copyFromKernelSigset(&oldact.mask, &ksa_old.mask);
+        }
+    }
+    return errno(rc);
+}
+
+fn __sigaction(sig: c_int, noalias sa: ?*const c_sigaction, noalias old: ?*c_sigaction) callconv(.c) c_int {
+    if (!sigactionSigValid(sig)) {
+        std.c._errno().* = @intFromEnum(linux.E.INVAL);
+        return -1;
+    }
+
+    if (sig == @intFromEnum(linux.SIG.ABRT)) {
+        var set: sigset_t = undefined;
+        __block_all_sigs(&set);
+        __lock(&__abort_lock);
+        const rc = __libc_sigaction(sig, sa, old);
+        __unlock(&__abort_lock);
+        __restore_sigs(&set);
+        return rc;
+    }
+
+    return __libc_sigaction(sig, sa, old);
 }
 
 fn sigaddsetLinux(set: *sigset_t, sig: c_int) callconv(.c) c_int {
@@ -367,10 +501,7 @@ fn sigqueueImpl(pid: linux.pid_t, sig: c_int, value: usize) callconv(.c) c_int {
 
     var set: sigset_t = undefined;
     _ = linux.sigprocmask(linux.SIG.BLOCK, &app_mask, &set);
-    const ret = errno(linux.syscall3(.rt_sigqueueinfo,
-        @as(usize, @bitCast(@as(isize, pid))),
-        @as(usize, @bitCast(@as(isize, sig))),
-        @intFromPtr(&si)));
+    const ret = errno(linux.syscall3(.rt_sigqueueinfo, @as(usize, @bitCast(@as(isize, pid))), @as(usize, @bitCast(@as(isize, sig))), @intFromPtr(&si)));
     _ = linux.sigprocmask(linux.SIG.SETMASK, &set, null);
     return ret;
 }

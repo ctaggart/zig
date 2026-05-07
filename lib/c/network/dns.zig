@@ -1,6 +1,7 @@
 // DNS resolver functions — faithful Zig translations of musl libc C sources.
 // Covers: freeaddrinfo, res_send, res_querydomain, res_query, res_mkquery,
-//         lookup_ipliteral, dn_comp, ns_parse (multiple), netlink.
+//         lookup_ipliteral, dn_comp, dn_expand, dn_skipname, dns_parse,
+//         ns_parse (multiple), netlink.
 const builtin = @import("builtin");
 const std = @import("std");
 const linux = std.os.linux;
@@ -134,8 +135,6 @@ const c = if (builtin.link_libc) struct {
     const socket_fn = @extern(*const fn (c_int, c_int, c_int) callconv(.c) c_int, .{ .name = "socket" });
     const send_fn = @extern(*const fn (c_int, *const anyopaque, usize, c_int) callconv(.c) isize, .{ .name = "send" });
     const recv_fn = @extern(*const fn (c_int, *anyopaque, usize, c_int) callconv(.c) isize, .{ .name = "recv" });
-    const dn_expand_fn = @extern(*const fn ([*]const u8, [*]const u8, [*]const u8, [*]u8, c_int) callconv(.c) c_int, .{ .name = "__dn_expand" });
-    const dn_skipname_fn = @extern(*const fn ([*]const u8, [*]const u8) callconv(.c) c_int, .{ .name = "dn_skipname" });
     const __res_msend = @extern(*const fn (c_int, [*]const [*]const u8, [*]const c_int, [*]const [*]u8, [*]c_int, c_int) callconv(.c) c_int, .{ .name = "__res_msend" });
     const __lock = @extern(*const fn ([*]c_int) callconv(.c) void, .{ .name = "__lock" });
     const __unlock = @extern(*const fn ([*]c_int) callconv(.c) void, .{ .name = "__unlock" });
@@ -166,6 +165,11 @@ comptime {
             symbol(&lookup_ipliteral_impl, "__lookup_ipliteral");
             // dn_comp.c
             symbol(&dn_comp_impl, "dn_comp");
+            // dn_expand.c / dn_skipname.c / dns_parse.c
+            symbol(&dn_expand_impl, "__dn_expand");
+            symbol(&dn_expand_impl, "dn_expand");
+            symbol(&dn_skipname_impl, "dn_skipname");
+            symbol(&dns_parse_impl, "__dns_parse");
             // ns_parse.c
             symbol(&ns_get16_impl, "ns_get16");
             symbol(&ns_get32_impl, "ns_get32");
@@ -578,6 +582,95 @@ fn dn_comp_impl(
 }
 
 // ============================================================
+// dn_expand.c / dn_skipname.c / dns_parse.c
+// ============================================================
+
+fn dn_expand_impl(base: [*]const u8, end: [*]const u8, src: [*]const u8, dest_arg: [*]u8, space: c_int) callconv(.c) c_int {
+    var p = src;
+    var dest = dest_arg;
+    const dbegin = dest_arg;
+    var len: c_int = -1;
+    if (p == end or space <= 0) return -1;
+    const dend = dest_arg + @min(@as(usize, @intCast(space)), 254);
+
+    // Detect reference loops using an iteration counter.
+    var i: usize = 0;
+    while (i < ptrDiff(end, base)) : (i += 2) {
+        // Loop invariants from musl: p < end, dest < dend.
+        if ((p[0] & 0xc0) != 0) {
+            if (p + 1 == end) return -1;
+            const j: usize = (@as(usize, p[0] & 0x3f) << 8) | p[1];
+            if (len < 0) len = @intCast(@intFromPtr(p + 2) - @intFromPtr(src));
+            if (j >= ptrDiff(end, base)) return -1;
+            p = base + j;
+        } else if (p[0] != 0) {
+            if (dest != dbegin) {
+                dest[0] = '.';
+                dest += 1;
+            }
+            const j: usize = p[0];
+            p += 1;
+            if (j >= ptrDiff(end, p) or j >= ptrDiff(dend, dest)) return -1;
+            var remaining = j;
+            while (remaining > 0) : (remaining -= 1) {
+                dest[0] = p[0];
+                dest += 1;
+                p += 1;
+            }
+        } else {
+            dest[0] = 0;
+            if (len < 0) len = @intCast(@intFromPtr(p + 1) - @intFromPtr(src));
+            return len;
+        }
+    }
+    return -1;
+}
+
+fn dn_skipname_impl(s: [*]const u8, end: [*]const u8) callconv(.c) c_int {
+    var p = s;
+    while (@intFromPtr(p) < @intFromPtr(end)) {
+        if (p[0] == 0) return @intCast(@intFromPtr(p) - @intFromPtr(s) + 1);
+        if (p[0] >= 192) {
+            if (@intFromPtr(p + 1) < @intFromPtr(end)) return @intCast(@intFromPtr(p) - @intFromPtr(s) + 2);
+            break;
+        }
+        if (ptrDiff(end, p) < @as(usize, p[0]) + 1) break;
+        p += @as(usize, p[0]) + 1;
+    }
+    return -1;
+}
+
+const DnsParseCallback = *const fn (?*anyopaque, c_int, *const anyopaque, c_int, *const anyopaque, c_int) callconv(.c) c_int;
+
+fn dns_parse_impl(r: [*]const u8, rlen: c_int, callback: DnsParseCallback, ctx: ?*anyopaque) callconv(.c) c_int {
+    if (rlen < 12) return -1;
+    if ((r[3] & 15) != 0) return 0;
+
+    const rlen_u: usize = @intCast(rlen);
+    const rend = r + rlen_u;
+    var p = r + 12;
+    var qdcount: c_int = @as(c_int, r[4]) * 256 + r[5];
+    var ancount: c_int = @as(c_int, r[6]) * 256 + r[7];
+
+    while (qdcount > 0) : (qdcount -= 1) {
+        while (@intFromPtr(p) - @intFromPtr(r) < rlen_u and @as(c_uint, p[0]) -% 1 < 127) p += 1;
+        if (@intFromPtr(p) > @intFromPtr(rend - 6)) return -1;
+        p += 5 + @intFromBool(p[0] != 0);
+    }
+
+    while (ancount > 0) : (ancount -= 1) {
+        while (@intFromPtr(p) - @intFromPtr(r) < rlen_u and @as(c_uint, p[0]) -% 1 < 127) p += 1;
+        if (@intFromPtr(p) > @intFromPtr(rend - 12)) return -1;
+        p += 1 + @intFromBool(p[0] != 0);
+        const len: c_int = @as(c_int, p[8]) * 256 + p[9];
+        if (len + 10 > @as(c_int, @intCast(ptrDiff(rend, p)))) return -1;
+        if (callback(ctx, p[1], p + 10, len, r, rlen) < 0) return -1;
+        p += @as(usize, @intCast(len + 10));
+    }
+    return 0;
+}
+
+// ============================================================
 // ns_parse.c
 // ============================================================
 
@@ -643,7 +736,7 @@ fn ns_skiprr_impl(ptr: [*]const u8, eom: [*]const u8, section: c_int, count_arg:
     var count: c_uint = @intCast(count_arg);
     while (count > 0) {
         count -= 1;
-        const r = c.dn_skipname_fn(p, eom);
+        const r = dn_skipname_impl(p, eom);
         if (r < 0) return setEMSGSIZE();
         const r_u: usize = @intCast(r);
         if (r_u + 2 * NS_INT16SZ > ptrDiff(eom, p)) return setEMSGSIZE();
@@ -722,7 +815,7 @@ fn ns_parserr_impl(handle: *NsMsg, section: c_int, rrnum_arg: c_int, rr: *NsRr) 
 }
 
 fn ns_name_uncompress_impl(msg: [*]const u8, eom: [*]const u8, src: [*]const u8, dst: [*]u8, dstsiz: usize) callconv(.c) c_int {
-    const r = c.dn_expand_fn(msg, eom, src, dst, @intCast(dstsiz));
+    const r = dn_expand_impl(msg, eom, src, dst, @intCast(dstsiz));
     if (r < 0) std.c._errno().* = @intFromEnum(std.c.E.MSGSIZE);
     return r;
 }

@@ -1,0 +1,237 @@
+name: pr-build
+
+# PR gate for libzigc migration PRs. Runs aarch64-native build + libc-test
+# on the self-hosted Azure VM runner so feedback is fast (~5-15 min vs
+# ~30-90 min for the full GitHub-hosted QEMU matrix). The full multi-target
+# matrix runs post-merge on libc/0.16.x via post-merge-libc.yml.
+#
+# Trust model: this workflow runs PR-controlled code on a persistent
+# self-hosted runner. The `if:` guard on the build job restricts execution
+# to PRs whose head is the canonical repo or the trusted cataggar fork
+# (the libzigc bot fork). Untrusted forks fall through to a no-op job that
+# still reports a successful pr-build check, keeping the auto-merge path
+# unblocked for legitimate same-owner PRs while not exposing the runner.
+on:
+  pull_request:
+    branches:
+      - libc/0.16.x
+      - libc/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZIG_VERSION: "0.16.0-dev.3061+9b1eaad13"
+  LLVM_VERSION: "21.1.8"
+  TARGET: aarch64-linux-musl
+  MCPU: baseline
+  CACHE_ROOT: /runner/_cache/pr-build
+
+jobs:
+  trust-check:
+    name: pr-build trust check
+    runs-on: ubuntu-latest
+    outputs:
+      trusted: ${{ steps.gate.outputs.trusted }}
+    steps:
+      - id: gate
+        env:
+          HEAD: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "head: $HEAD"
+          echo "base: $BASE"
+          case "$HEAD" in
+              ctaggart/zig|cataggar/zig)
+                  echo "trusted=true" >> "$GITHUB_OUTPUT"
+                  ;;
+              *)
+                  if [ "$HEAD" = "$BASE" ]; then
+                      echo "trusted=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "trusted=false" >> "$GITHUB_OUTPUT"
+                      echo "::warning::Untrusted PR head '$HEAD'; skipping aarch64-native build."
+                  fi
+                  ;;
+          esac
+
+  build:
+    name: pr-build
+    needs: trust-check
+    if: needs.trust-check.outputs.trusted == 'true'
+    runs-on: [self-hosted, Linux, ARM64, nvme]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare cache root
+        run: mkdir -p "$CACHE_ROOT"
+
+      - name: Setup release Zig (aarch64) + LLVM prefix (cached, atomic)
+        run: |
+          set -euo pipefail
+          zig_marker="$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}/.complete"
+          llvm_marker="$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux/.complete"
+
+          fetch_extract() {
+              local url="$1" final="$2" marker="$3"
+              if [ -f "$marker" ]; then
+                  return 0
+              fi
+              local staging
+              staging="$(mktemp -d -p "$CACHE_ROOT" .stage-XXXXXX)"
+              echo "Fetching $url"
+              curl --fail --show-error --location --silent \
+                  --retry 5 --retry-delay 5 --retry-connrefused --retry-all-errors \
+                  "$url" | xz -d | tar x -C "$staging"
+              # Tarball top-level dir name = basename of $final
+              local top
+              top="$(basename "$final")"
+              if [ ! -d "$staging/$top" ]; then
+                  echo "ERROR: tarball did not contain expected top-level dir '$top'" >&2
+                  ls -la "$staging" >&2
+                  rm -rf "$staging"
+                  exit 1
+              fi
+              # Atomic publish: rm any stale partial, then mv staging into place.
+              rm -rf "$final"
+              mv "$staging/$top" "$final"
+              rm -rf "$staging"
+              touch "$marker"
+          }
+
+          fetch_extract \
+              "https://github.com/ctaggart/zig/releases/download/v${ZIG_VERSION}/zig-aarch64-linux-${ZIG_VERSION}.tar.xz" \
+              "$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}" \
+              "$zig_marker"
+          fetch_extract \
+              "https://github.com/ctaggart/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/llvm-zig-${LLVM_VERSION}-aarch64-linux.tar.xz" \
+              "$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux" \
+              "$llvm_marker"
+
+          echo "$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          echo "LLVM_PREFIX=$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux" >> "$GITHUB_ENV"
+
+      - name: zig version
+        run: zig version
+
+      - name: zig fmt --ast-check on changed lib/c files
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only --diff-filter=AM \
+              "origin/${{ github.base_ref }}...HEAD" -- 'lib/c/**.zig' || true)
+          if [ -z "$changed" ]; then
+              echo "No changed lib/c/**.zig files; skipping ast-check."
+              exit 0
+          fi
+          echo "Running zig fmt --ast-check on:"
+          printf '  %s\n' $changed
+          zig fmt --ast-check $changed
+
+      - name: check_musl_migration.py
+        run: |
+          set -euo pipefail
+          if [ -f scripts/check_musl_migration.py ]; then
+              python3 scripts/check_musl_migration.py
+          else
+              echo "scripts/check_musl_migration.py not present; skipping."
+          fi
+
+      - name: Compute stage4 cache key
+        id: stage4key
+        run: |
+          set -euo pipefail
+          # Hash everything that affects the stage4 build:
+          #   - compiler sources (src/)
+          #   - build script + manifest (build.zig, build.zig.zon)
+          #   - CMake driver + helpers (CMakeLists.txt, cmake/**)
+          # Plus runner/arch + tool versions + target/mcpu in the key prefix
+          # so changes to any of those bust the cache.
+          src_hash=$(find src build.zig build.zig.zon CMakeLists.txt cmake \
+                  -type f -print0 2>/dev/null | sort -z \
+                  | xargs -0 sha256sum 2>/dev/null \
+                  | sha256sum | cut -d' ' -f1 | head -c 16)
+          key="${{ runner.os }}-${{ runner.arch }}-zig${ZIG_VERSION}-llvm${LLVM_VERSION}-${TARGET}-${MCPU}-${src_hash}"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "stage4 cache key: $key"
+
+      - name: Build stage4 zig (key=${{ steps.stage4key.outputs.key }})
+        run: |
+          set -euo pipefail
+          STAGE4="$CACHE_ROOT/stage4-${{ steps.stage4key.outputs.key }}"
+          marker="$STAGE4/.complete"
+          if [ -f "$marker" ] && [ -x "$STAGE4/bin/zig" ] && \
+             "$STAGE4/bin/zig" version >/dev/null 2>&1; then
+              echo "stage4 cache hit: $STAGE4"
+          else
+              echo "stage4 cache miss; building..."
+              # Build into a staging dir and atomically move on success so
+              # cancelled builds never leave a half-installed cache entry.
+              staging="$(mktemp -d -p "$CACHE_ROOT" .stage4-XXXXXX)"
+              export CC="zig cc -target ${TARGET} -mcpu=${MCPU}"
+              export CXX="zig c++ -target ${TARGET} -mcpu=${MCPU}"
+              cmake -S . -B build -G Ninja \
+                  -DCMAKE_INSTALL_PREFIX="$staging" \
+                  -DCMAKE_PREFIX_PATH="$LLVM_PREFIX" \
+                  -DCMAKE_BUILD_TYPE=Release \
+                  -DZIG_TARGET_TRIPLE="${TARGET}" \
+                  -DZIG_TARGET_MCPU="${MCPU}" \
+                  -DZIG_STATIC=ON \
+                  -DZIG_NO_LIB=ON \
+                  -DCMAKE_C_LINKER_DEPFILE_SUPPORTED=FALSE \
+                  -DCMAKE_CXX_LINKER_DEPFILE_SUPPORTED=FALSE
+              unset CC CXX
+              ninja -C build install
+              "$staging/bin/zig" version
+              rm -rf build
+              # Publish atomically.
+              rm -rf "$STAGE4"
+              mv "$staging" "$STAGE4"
+              touch "$marker"
+              echo "stage4 published to $STAGE4"
+          fi
+          echo "STAGE4=$STAGE4" >> "$GITHUB_ENV"
+
+      - name: Update libc-test checkout (log SHA for forensics)
+        run: |
+          set -euo pipefail
+          if [ ! -d "$CACHE_ROOT/libc-test/.git" ]; then
+              git clone --depth 1 https://github.com/ctaggart/libc-test.git \
+                  "$CACHE_ROOT/libc-test"
+          else
+              git -C "$CACHE_ROOT/libc-test" fetch --quiet --depth 1 origin master
+              git -C "$CACHE_ROOT/libc-test" reset --hard --quiet origin/master
+          fi
+          libc_test_sha=$(git -C "$CACHE_ROOT/libc-test" rev-parse HEAD)
+          echo "libc-test commit: $libc_test_sha"
+          echo "LIBC_TEST_SHA=$libc_test_sha" >> "$GITHUB_ENV"
+
+      - name: Run libc-test (aarch64-linux-musl, native)
+        run: |
+          set -euo pipefail
+          ulimit -u 65535 || true
+          ulimit -n 65535 || true
+          echo "stage4: $STAGE4"
+          echo "libc-test SHA: $LIBC_TEST_SHA"
+          "$STAGE4/bin/zig" build test-libc \
+              --zig-lib-dir lib \
+              -Dlibc-test-path="$CACHE_ROOT/libc-test" \
+              -Dtest-target-filter="${TARGET}" \
+              -Dtest-filter="" \
+              -j2 \
+              --summary failures
+
+      - name: Prune old stage4 caches (keep 4 most recent)
+        if: always()
+        run: |
+          set -euo pipefail
+          cd "$CACHE_ROOT"
+          ls -1dt stage4-* 2>/dev/null | tail -n +5 | xargs -r rm -rf || true
+          echo "stage4 caches retained:"
+          ls -1dt stage4-* 2>/dev/null || true

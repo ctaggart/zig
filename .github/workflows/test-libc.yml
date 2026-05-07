@@ -16,6 +16,22 @@ on:
         required: false
         default: 'all'
         type: string
+  workflow_call:
+    inputs:
+      branch:
+        description: 'Branch to test'
+        required: true
+        type: string
+      test-filter:
+        description: 'Test filter (empty for all tests)'
+        required: false
+        default: ''
+        type: string
+      targets:
+        description: 'Target groups to test (comma-separated, or "all")'
+        required: false
+        default: 'all'
+        type: string
 
 permissions:
   contents: read

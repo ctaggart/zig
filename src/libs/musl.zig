@@ -810,12 +810,12 @@ const src_files = [_][]const u8{
     //"musl/src/thread/sem_getvalue.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/sem_init.c", // migrated to lib/c/thread.zig
     "musl/src/thread/sem_open.c",
-    "musl/src/thread/__timedwait.c",
+    //"musl/src/thread/__timedwait.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/tls.c", // empty file
     "musl/src/thread/__tls_get_addr.c",
     //"musl/src/thread/tss_create.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/tss_delete.c", // migrated to lib/c/thread.zig
-    "musl/src/thread/__unmapself.c",
+    //"musl/src/thread/__unmapself.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/vmlock.c", // migrated to lib/c/thread.zig; exports: __vm_wait,__vm_lock,__vm_unlock
     //"musl/src/thread/__wait.c", // migrated to lib/c/thread.zig
     "musl/src/thread/x32/clone.s",

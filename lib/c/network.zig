@@ -96,6 +96,37 @@ const if_nameindex_t = extern struct {
     if_name: ?[*:0]u8,
 };
 
+const IF_NAMESIZE = 16;
+const SIOCGIFNAME = 0x8910;
+const SIOCGIFINDEX = 0x8933;
+
+const ifmap = extern struct {
+    mem_start: c_ulong,
+    mem_end: c_ulong,
+    base_addr: c_ushort,
+    irq: u8,
+    dma: u8,
+    port: u8,
+};
+
+const ifreq = extern struct {
+    ifr_name: [IF_NAMESIZE]u8,
+    ifr_ifru: extern union {
+        addr: linux.sockaddr,
+        dstaddr: linux.sockaddr,
+        broadaddr: linux.sockaddr,
+        netmask: linux.sockaddr,
+        hwaddr: linux.sockaddr,
+        flags: c_short,
+        ivalue: c_int,
+        mtu: c_int,
+        map: ifmap,
+        slave: [IF_NAMESIZE]u8,
+        newname: [IF_NAMESIZE]u8,
+        data: ?*anyopaque,
+    },
+};
+
 const in_addr = extern struct {
     s_addr: in_addr_t,
 };
@@ -233,6 +264,11 @@ comptime {
         // inet_ntop.c / inet_pton.c
         symbol(&inet_ntop_impl, "inet_ntop");
         symbol(&inet_pton_impl, "inet_pton");
+
+        // if_freenameindex.c / if_indextoname.c / if_nametoindex.c
+        symbol(&if_freenameindex_impl, "if_freenameindex");
+        symbol(&if_indextoname_impl, "if_indextoname");
+        symbol(&if_nametoindex_impl, "if_nametoindex");
     }
 
     // Subdirectory modules with real implementations
@@ -265,6 +301,39 @@ fn ntohl_impl(n: u32) callconv(.c) u32 {
 
 fn ntohs_impl(n: u16) callconv(.c) u16 {
     return networkEndian(u16, n);
+}
+
+fn if_freenameindex_impl(idx: ?*if_nameindex_t) callconv(.c) void {
+    c.free(idx);
+}
+
+fn if_indextoname_impl(index: c_uint, name: [*]u8) callconv(.c) ?[*]u8 {
+    const fd = errno(linux.socket(linux.AF.UNIX, linux.SOCK.DGRAM | linux.SOCK.CLOEXEC, 0));
+    if (fd < 0) return null;
+
+    var ifr: ifreq = undefined;
+    ifr.ifr_ifru.ivalue = @bitCast(index);
+    const r = errno(linux.ioctl(fd, SIOCGIFNAME, @intFromPtr(&ifr)));
+    _ = linux.close(fd);
+    if (r < 0) {
+        if (std.c._errno().* == @intFromEnum(linux.E.NODEV)) {
+            std.c._errno().* = @intFromEnum(linux.E.NXIO);
+        }
+        return null;
+    }
+    return c.strncpy(name, @ptrCast(&ifr.ifr_name), IF_NAMESIZE);
+}
+
+fn if_nametoindex_impl(name: [*:0]const u8) callconv(.c) c_uint {
+    const fd = errno(linux.socket(linux.AF.UNIX, linux.SOCK.DGRAM | linux.SOCK.CLOEXEC, 0));
+    if (fd < 0) return 0;
+
+    var ifr: ifreq = undefined;
+    _ = c.strncpy(&ifr.ifr_name, name, IF_NAMESIZE);
+    const r = errno(linux.ioctl(fd, SIOCGIFINDEX, @intFromPtr(&ifr)));
+    _ = linux.close(fd);
+    if (r < 0) return 0;
+    return @intCast(ifr.ifr_ifru.ivalue);
 }
 
 fn asciiIsDigit(ch: u8) bool {

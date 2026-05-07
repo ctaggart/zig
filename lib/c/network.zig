@@ -94,6 +94,14 @@ const if_nameindex_t = extern struct {
     if_name: ?[*:0]u8,
 };
 
+const in6_addr = extern struct {
+    __in6_union: extern union {
+        __s6_addr: [16]u8,
+        __s6_addr16: [8]u16,
+        __s6_addr32: [4]u32,
+    },
+};
+
 // ns_parse structs (from arpa/nameser.h)
 const NS_MAXDNAME = 1025;
 const NS_INT16SZ = 2;
@@ -204,6 +212,10 @@ comptime {
         symbol(&htons_impl, "htons");
         symbol(&ntohl_impl, "ntohl");
         symbol(&ntohs_impl, "ntohs");
+
+        // in6addr_any.c / in6addr_loopback.c
+        symbol(&in6addr_any, "in6addr_any");
+        symbol(&in6addr_loopback, "in6addr_loopback");
     }
 
     // Subdirectory modules with real implementations
@@ -217,6 +229,10 @@ fn networkEndian(comptime T: type, n: T) T {
         .big => n,
     };
 }
+
+const in6addr_any = in6_addr{ .__in6_union = .{ .__s6_addr = .{0} ** 16 } };
+
+const in6addr_loopback = in6_addr{ .__in6_union = .{ .__s6_addr = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 } } };
 
 fn htonl_impl(n: u32) callconv(.c) u32 {
     return networkEndian(u32, n);

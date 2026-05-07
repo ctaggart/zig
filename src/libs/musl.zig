@@ -567,8 +567,8 @@ const src_files = [_][]const u8{
     "musl/src/network/if_indextoname.c",
     //"musl/src/network/if_nameindex.c", // migrated to lib/c/network.zig
     "musl/src/network/if_nametoindex.c",
-    "musl/src/network/in6addr_any.c",
-    "musl/src/network/in6addr_loopback.c",
+    //"musl/src/network/in6addr_any.c", // migrated to lib/c/network.zig
+    //"musl/src/network/in6addr_loopback.c", // migrated to lib/c/network.zig
     "musl/src/network/inet_addr.c",
     "musl/src/network/inet_aton.c",
     "musl/src/network/inet_legacy.c",

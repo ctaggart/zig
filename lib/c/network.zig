@@ -75,6 +75,13 @@ const servent = extern struct {
     s_proto: ?[*:0]u8,
 };
 
+const netent = extern struct {
+    n_name: ?[*:0]u8,
+    n_aliases: ?[*]?[*:0]u8,
+    n_addrtype: c_int,
+    n_net: u32,
+};
+
 const nlmsghdr = extern struct {
     nlmsg_len: u32,
     nlmsg_type: u16,
@@ -185,6 +192,10 @@ const c = if (builtin.link_libc) struct {
     const pthread_setcancelstate = @extern(*const fn (c_int, ?*c_int) callconv(.c) c_int, .{ .name = "pthread_setcancelstate" });
     const qsort_fn = @extern(*const fn (*anyopaque, usize, usize, *const fn (*const anyopaque, *const anyopaque) callconv(.c) c_int) callconv(.c) void, .{ .name = "qsort" });
     const h_errno_ptr = @extern(*c_int, .{ .name = "h_errno" });
+    const gethostbyname2_r_fn = @extern(*const fn ([*:0]const u8, c_int, *hostent, [*]u8, usize, *?*hostent, *c_int) callconv(.c) c_int, .{ .name = "gethostbyname2_r" });
+    const gethostbyaddr_r_fn = @extern(*const fn (*const anyopaque, linux.socklen_t, c_int, *hostent, [*]u8, usize, *?*hostent, *c_int) callconv(.c) c_int, .{ .name = "gethostbyaddr_r" });
+    const getservbyname_r_fn = @extern(*const fn ([*:0]const u8, ?[*:0]const u8, *servent, [*]u8, usize, *?*servent) callconv(.c) c_int, .{ .name = "getservbyname_r" });
+    const getservbyport_r_fn = @extern(*const fn (c_int, ?[*:0]const u8, *servent, [*]u8, usize, *?*servent) callconv(.c) c_int, .{ .name = "getservbyport_r" });
     // Internal musl functions
     const lookup_name_fn = @extern(*const fn ([*]address, [*]u8, [*:0]const u8, c_int, c_int) callconv(.c) c_int, .{ .name = "__lookup_name" });
     const lookup_serv_fn = @extern(*const fn ([*]service, [*:0]const u8, c_int, c_int, c_int) callconv(.c) c_int, .{ .name = "__lookup_serv" });
@@ -233,6 +244,21 @@ comptime {
         // inet_ntop.c / inet_pton.c
         symbol(&inet_ntop_impl, "inet_ntop");
         symbol(&inet_pton_impl, "inet_pton");
+
+        // gethostbyname.c / gethostbyname2.c / gethostbyname_r.c / gethostbyaddr.c
+        symbol(&gethostbyname_impl, "gethostbyname");
+        symbol(&gethostbyname2_impl, "gethostbyname2");
+        symbol(&gethostbyname_r_impl, "gethostbyname_r");
+        symbol(&gethostbyaddr_impl, "gethostbyaddr");
+
+        // getservbyname.c / getservbyport.c / netname.c / serv.c
+        symbol(&getservbyname_impl, "getservbyname");
+        symbol(&getservbyport_impl, "getservbyport");
+        symbol(&getnetbyaddr_impl, "getnetbyaddr");
+        symbol(&getnetbyname_impl, "getnetbyname");
+        symbol(&endservent_impl, "endservent");
+        symbol(&setservent_impl, "setservent");
+        symbol(&getservent_impl, "getservent");
     }
 
     // Subdirectory modules with real implementations
@@ -586,5 +612,116 @@ fn inet_ntop_impl(af: c_int, a0: *const anyopaque, s: [*]u8, l: linux.socklen_t)
     }
 
     std.c._errno().* = @intFromEnum(linux.E.NOSPC);
+    return null;
+}
+
+fn gethostbyname_impl(name: [*:0]const u8) callconv(.c) ?*hostent {
+    return gethostbyname2_impl(name, linux.AF.INET);
+}
+
+fn gethostbyname2_impl(name: [*:0]const u8, af: c_int) callconv(.c) ?*hostent {
+    const NO_RECOVERY: c_int = 3;
+    const ERANGE: c_int = 34;
+
+    const state = struct {
+        var h: ?[*]u8 = null;
+    };
+
+    var size: usize = 63;
+    var res: ?*hostent = undefined;
+    var err: c_int = undefined;
+    while (true) {
+        c.free(state.h);
+        size = size + size + 1;
+        state.h = c.malloc(size);
+        const h_mem = state.h orelse {
+            c.h_errno_ptr.* = NO_RECOVERY;
+            return null;
+        };
+        const h: *hostent = @ptrCast(@alignCast(h_mem));
+        const buf: [*]u8 = @ptrCast(h + 1);
+        const rc = c.gethostbyname2_r_fn(name, af, h, buf, size - @sizeOf(hostent), &res, &err);
+        c.h_errno_ptr.* = err;
+        if (rc != ERANGE) break;
+    }
+    return res;
+}
+
+fn gethostbyname_r_impl(name: [*:0]const u8, h: *hostent, buf: [*]u8, buflen: usize, res: *?*hostent, err: *c_int) callconv(.c) c_int {
+    return c.gethostbyname2_r_fn(name, linux.AF.INET, h, buf, buflen, res, err);
+}
+
+fn gethostbyaddr_impl(a: *const anyopaque, l: linux.socklen_t, af: c_int) callconv(.c) ?*hostent {
+    const NO_RECOVERY: c_int = 3;
+    const ERANGE: c_int = 34;
+
+    const state = struct {
+        var h: ?[*]u8 = null;
+    };
+
+    var size: usize = 63;
+    var res: ?*hostent = undefined;
+    var err: c_int = undefined;
+    while (true) {
+        c.free(state.h);
+        size = size + size + 1;
+        state.h = c.malloc(size);
+        const h_mem = state.h orelse {
+            c.h_errno_ptr.* = NO_RECOVERY;
+            return null;
+        };
+        const h: *hostent = @ptrCast(@alignCast(h_mem));
+        const buf: [*]u8 = @ptrCast(h + 1);
+        const rc = c.gethostbyaddr_r_fn(a, l, af, h, buf, size - @sizeOf(hostent), &res, &err);
+        c.h_errno_ptr.* = err;
+        if (rc != ERANGE) break;
+    }
+    return res;
+}
+
+fn getservbyname_impl(name: [*:0]const u8, prots: ?[*:0]const u8) callconv(.c) ?*servent {
+    const state = struct {
+        var se: servent = undefined;
+        var buf: [2]?[*:0]u8 = undefined;
+    };
+
+    var res: ?*servent = undefined;
+    if (c.getservbyname_r_fn(name, prots, &state.se, @ptrCast(&state.buf), @sizeOf(@TypeOf(state.buf)), &res) != 0) {
+        return null;
+    }
+    return &state.se;
+}
+
+fn getservbyport_impl(port: c_int, prots: ?[*:0]const u8) callconv(.c) ?*servent {
+    const state = struct {
+        var se: servent = undefined;
+        var buf: [32 / @sizeOf(c_long)]c_long = undefined;
+    };
+
+    var res: ?*servent = undefined;
+    if (c.getservbyport_r_fn(port, prots, &state.se, @ptrCast(&state.buf), @sizeOf(@TypeOf(state.buf)), &res) != 0) {
+        return null;
+    }
+    return &state.se;
+}
+
+fn getnetbyaddr_impl(net: u32, type_: c_int) callconv(.c) ?*netent {
+    _ = net;
+    _ = type_;
+    return null;
+}
+
+fn getnetbyname_impl(name: [*:0]const u8) callconv(.c) ?*netent {
+    _ = name;
+    return null;
+}
+
+fn endservent_impl() callconv(.c) void {}
+
+fn setservent_impl(stayopen: c_int) callconv(.c) void {
+    _ = stayopen;
+}
+
+fn getservent_impl() callconv(.c) ?*servent {
     return null;
 }

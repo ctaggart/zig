@@ -274,6 +274,12 @@ comptime {
         // res_init.c / res_state.c
         symbol(&res_init_impl, "res_init");
         symbol(&res_state_impl, "__res_state");
+
+        // dn_expand.c / dn_skipname.c / dns_parse.c
+        symbol(&dn_expand_impl, "__dn_expand");
+        symbol(&dn_expand_impl, "dn_expand");
+        symbol(&dn_skipname_impl, "dn_skipname");
+        symbol(&dns_parse_impl, "__dns_parse");
     }
 
     // Subdirectory modules with real implementations
@@ -306,6 +312,99 @@ fn ntohl_impl(n: u32) callconv(.c) u32 {
 
 fn ntohs_impl(n: u16) callconv(.c) u16 {
     return networkEndian(u16, n);
+}
+
+fn ptrDiff(a: [*]const u8, b: [*]const u8) usize {
+    const aa = @intFromPtr(a);
+    const bb = @intFromPtr(b);
+    return if (aa >= bb) aa - bb else 0;
+}
+
+fn dn_expand_impl(base: [*]const u8, end: [*]const u8, src: [*]const u8, dest_arg: [*]u8, space: c_int) callconv(.c) c_int {
+    var p = src;
+    var dest = dest_arg;
+    const dbegin = dest_arg;
+    var len: c_int = -1;
+
+    if (@intFromPtr(p) == @intFromPtr(end) or space <= 0) return -1;
+
+    const space_u: usize = @intCast(space);
+    const dend = dest_arg + @min(space_u, 254);
+
+    // Detect reference loops using the same iteration counter as musl.
+    var i: usize = 0;
+    const msg_len = ptrDiff(end, base);
+    while (i < msg_len) : (i += 2) {
+        if ((p[0] & 0xc0) != 0) {
+            if (@intFromPtr(p + 1) == @intFromPtr(end)) return -1;
+            const j: usize = (@as(usize, p[0] & 0x3f) << 8) | p[1];
+            if (len < 0) len = @intCast(@intFromPtr(p + 2) - @intFromPtr(src));
+            if (j >= msg_len) return -1;
+            p = base + j;
+        } else if (p[0] != 0) {
+            if (@intFromPtr(dest) != @intFromPtr(dbegin)) {
+                dest[0] = '.';
+                dest += 1;
+            }
+            var j: usize = p[0];
+            p += 1;
+            if (j >= ptrDiff(end, p) or j >= ptrDiff(dend, dest)) return -1;
+            while (j > 0) : (j -= 1) {
+                dest[0] = p[0];
+                dest += 1;
+                p += 1;
+            }
+        } else {
+            dest[0] = 0;
+            if (len < 0) len = @intCast(@intFromPtr(p + 1) - @intFromPtr(src));
+            return len;
+        }
+    }
+    return -1;
+}
+
+fn dn_skipname_impl(s: [*]const u8, end: [*]const u8) callconv(.c) c_int {
+    var p = s;
+    while (@intFromPtr(p) < @intFromPtr(end)) {
+        if (p[0] == 0) return @intCast(@intFromPtr(p) - @intFromPtr(s) + 1);
+        if (p[0] >= 192) {
+            if (@intFromPtr(p + 1) < @intFromPtr(end)) return @intCast(@intFromPtr(p) - @intFromPtr(s) + 2);
+            break;
+        }
+        const step: usize = @as(usize, p[0]) + 1;
+        if (ptrDiff(end, p) < step) break;
+        p += step;
+    }
+    return -1;
+}
+
+const DnsParseCallback = *const fn (?*anyopaque, c_int, *const anyopaque, c_int, *const anyopaque, c_int) callconv(.c) c_int;
+
+fn dns_parse_impl(r: [*]const u8, rlen: c_int, callback: DnsParseCallback, ctx: ?*anyopaque) callconv(.c) c_int {
+    if (rlen < 12) return -1;
+    if ((r[3] & 15) != 0) return 0;
+
+    const rlen_u: usize = @intCast(rlen);
+    const rend = r + rlen_u;
+    var p = r + 12;
+    var qdcount: c_int = @as(c_int, r[4]) * 256 + r[5];
+    var ancount: c_int = @as(c_int, r[6]) * 256 + r[7];
+
+    while (qdcount > 0) : (qdcount -= 1) {
+        while (@intFromPtr(p) - @intFromPtr(r) < rlen_u and p[0] > 0 and p[0] < 128) p += 1;
+        if (@intFromPtr(p) > @intFromPtr(rend) - 6) return -1;
+        p += 5 + @as(usize, @intFromBool(p[0] != 0));
+    }
+    while (ancount > 0) : (ancount -= 1) {
+        while (@intFromPtr(p) - @intFromPtr(r) < rlen_u and p[0] > 0 and p[0] < 128) p += 1;
+        if (@intFromPtr(p) > @intFromPtr(rend) - 12) return -1;
+        p += 1 + @as(usize, @intFromBool(p[0] != 0));
+        const len: c_int = @as(c_int, p[8]) * 256 + p[9];
+        if (@as(usize, @intCast(len)) + 10 > ptrDiff(rend, p)) return -1;
+        if (callback(ctx, p[1], p + 10, len, r, rlen) < 0) return -1;
+        p += 10 + @as(usize, @intCast(len));
+    }
+    return 0;
 }
 
 fn res_init_impl() callconv(.c) c_int {

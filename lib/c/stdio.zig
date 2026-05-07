@@ -96,7 +96,6 @@ const strerror_fn = @extern(*const fn (c_int) callconv(.c) [*:0]const u8, .{ .na
 const vfprintf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfprintf" });
 const vfwprintf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwprintf" });
 const vfscanf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfscanf" });
-const vfwscanf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwscanf" });
 const memchr_fn = @extern(*const fn (?[*]const u8, c_int, usize) callconv(.c) ?[*]u8, .{ .name = "memchr" });
 const lseek_fn = @extern(*const fn (c_int, i64, c_int) callconv(.c) i64, .{ .name = "__lseek" });
 const malloc_fn = @extern(*const fn (usize) callconv(.c) ?*anyopaque, .{ .name = "malloc" });
@@ -104,6 +103,7 @@ const realloc_fn = @extern(*const fn (?*anyopaque, usize) callconv(.c) ?*anyopaq
 const aio_close_fn = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__aio_close" });
 const mbtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize) callconv(.c) c_int, .{ .name = "mbtowc" });
 const wcsrtombs_fn = @extern(*const fn (?[*]u8, *?[*:0]const wchar_t, usize, ?*anyopaque) callconv(.c) usize, .{ .name = "wcsrtombs" });
+const wctomb_fn = @extern(*const fn (?[*]u8, wchar_t) callconv(.c) c_int, .{ .name = "wctomb" });
 
 comptime {
     if (builtin.link_libc and builtin.target.isMuslLibC()) {
@@ -185,6 +185,8 @@ comptime {
         symbol(&vsscanf_impl, "vsscanf");
         symbol(&vswprintf_impl, "vswprintf");
         symbol(&vswscanf_impl, "vswscanf");
+        symbol(&vfwscanf_impl, "vfwscanf");
+        symbol(&vfwscanf_impl, "__isoc99_vfwscanf");
         // Internal helpers (__fmodeflags.c, __fclose_ca.c, __fopen_rb_ca.c)
         symbol(&fmodeflags_impl, "__fmodeflags");
         symbol(&fclose_ca_impl, "__fclose_ca");
@@ -863,23 +865,14 @@ fn overflow_impl(f: *FILE, _c: c_int) callconv(.c) c_int {
 }
 
 /// fprintf.c: int fprintf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// printf.c: int printf(const char *restrict fmt, ...)
-
 /// snprintf.c: int snprintf(char *restrict s, size_t n, const char *restrict fmt, ...)
-
 /// sprintf.c: int sprintf(char *restrict s, const char *restrict fmt, ...)
-
 /// asprintf.c: int asprintf(char **s, const char *fmt, ...)
-
 /// dprintf.c: int dprintf(int fd, const char *restrict fmt, ...)
-
 /// scanf.c: int scanf(const char *restrict fmt, ...)
-
 /// fscanf.c: int fscanf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// sscanf.c: int sscanf(const char *restrict s, const char *restrict fmt, ...)
-
 /// perror.c: void perror(const char *msg)
 fn perror_impl(msg: ?[*:0]const u8) callconv(.c) void {
     const f: *FILE = @ptrCast(stderr_ext.*);
@@ -1385,21 +1378,399 @@ fn vswscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ap: VaList) cal
     f.cookie = @ptrCast(@constCast(s));
     f.read_fn = &wstring_read;
     f.lock = -1;
-    return vfwscanf_fn(@ptrCast(&f), fmt, ap);
+    return vfwscanf_impl(@ptrCast(&f), fmt, ap);
+}
+
+const VfwscanfSize = enum(i32) {
+    hh = -2,
+    h = -1,
+    def = 0,
+    l = 1,
+    L = 2,
+    ll = 3,
+};
+
+inline fn wcharAsU32(c: wchar_t) u32 {
+    return @as(u32, @bitCast(c));
+}
+
+inline fn wintAsU32(c: wint_t) u32 {
+    return @as(u32, @bitCast(c));
+}
+
+inline fn iswspace_local(c: wint_t) bool {
+    const wc = wintAsU32(c);
+    const spaces = [_]u32{
+        ' ',    '\t',   '\n',   '\r',   11,     12,     0x0085,
+        0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006,
+        0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x205f, 0x3000,
+    };
+    if (wc == 0) return false;
+    for (spaces) |space| {
+        if (wc == space) return true;
+    }
+    return false;
+}
+
+inline fn iswdigit_local(c: wchar_t) bool {
+    const wc = wcharAsU32(c);
+    return wc >= '0' and wc <= '9';
+}
+
+inline fn vfwscanfGetwc(f: *FILE) wint_t {
+    if (f.rpos != f.rend and f.rpos.?[0] < 128) {
+        const c = f.rpos.?[0];
+        f.rpos = f.rpos.? + 1;
+        return c;
+    }
+    return fgetwc_fn(f);
+}
+
+inline fn vfwscanfUngetwc(c: wint_t, f: *FILE) void {
+    if (f.rend != null and wintAsU32(c) < 128) {
+        f.rpos = f.rpos.? - 1;
+        f.rpos.?[0] = @intCast(wintAsU32(c));
+    } else {
+        _ = ungetwc_fn(c, f);
+    }
+}
+
+fn vfwscanfStoreInt(dest: ?*anyopaque, size: VfwscanfSize, i: c_ulonglong) void {
+    const d = dest orelse return;
+    switch (size) {
+        .hh => @as(*c_char, @ptrCast(@alignCast(d))).* = @bitCast(@as(u8, @truncate(i))),
+        .h => @as(*c_short, @ptrCast(@alignCast(d))).* = @bitCast(@as(c_ushort, @truncate(i))),
+        .def => @as(*c_int, @ptrCast(@alignCast(d))).* = @bitCast(@as(c_uint, @truncate(i))),
+        .l => @as(*c_long, @ptrCast(@alignCast(d))).* = @bitCast(@as(c_ulong, @truncate(i))),
+        .ll => @as(*c_longlong, @ptrCast(@alignCast(d))).* = @bitCast(i),
+        .L => {},
+    }
+}
+
+fn vfwscanfArgN(ap: VaList, n: c_uint) ?*anyopaque {
+    var ap_src = ap;
+    var ap2 = @cVaCopy(&ap_src);
+    defer @cVaEnd(&ap2);
+    var i = n;
+    while (i > 1) : (i -= 1) {
+        _ = @cVaArg(&ap2, ?*anyopaque);
+    }
+    return @cVaArg(&ap2, ?*anyopaque);
+}
+
+fn vfwscanfInSet(set: [*:0]const wchar_t, c: wint_t) bool {
+    var p = set;
+    const wc = wintAsU32(c);
+    if (wcharAsU32(p[0]) == '-') {
+        if (wc == '-') return true;
+        p += 1;
+    } else if (wcharAsU32(p[0]) == ']') {
+        if (wc == ']') return true;
+        p += 1;
+    }
+    while (p[0] != 0 and wcharAsU32(p[0]) != ']') : (p += 1) {
+        if (wcharAsU32(p[0]) == '-' and p[1] != 0 and wcharAsU32(p[1]) != ']') {
+            const start = wcharAsU32((p - 1)[0]);
+            p += 1;
+            var j = start;
+            while (j < wcharAsU32(p[0])) : (j += 1) {
+                if (wc == j) return true;
+            }
+        }
+        if (wc == wcharAsU32(p[0])) return true;
+    }
+    return false;
+}
+
+const vfwscanf_spaces = [_:0]wchar_t{
+    ' ',    '\t',   '\n',   '\r',   11,     12,     0x0085,
+    0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006,
+    0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x205f, 0x3000,
+};
+
+fn vfwscanfFail(f: *FILE, need_unlock: c_int, matches_in: c_int, alloc: bool, s: ?[*]u8, wcs: ?[*]wchar_t, input_failure: bool) c_int {
+    var matches = matches_in;
+    if (input_failure and matches == 0) matches -= 1;
+    if (alloc) {
+        free_fn(@ptrCast(s));
+        free_fn(@ptrCast(wcs));
+    }
+    funlock(f, need_unlock);
+    return matches;
+}
+
+/// vfwscanf.c: int vfwscanf(FILE *restrict f, const wchar_t *restrict fmt, va_list ap)
+fn vfwscanf_impl(f_raw: ?*FILE, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
+    const f = f_raw orelse return -1;
+    var p = fmt;
+    var dest: ?*anyopaque = null;
+    var matches: c_int = 0;
+    var pos: i64 = 0;
+    const size_pfx = [_][]const u8{ "hh", "h", "", "l", "L", "ll" };
+    var tmp: [3 * @sizeOf(c_int) + 10:0]u8 = undefined;
+
+    const need_unlock = flock(f);
+    _ = fwide_fn(f, 1);
+
+    while (p[0] != 0) : (p += 1) {
+        var alloc = false;
+
+        if (iswspace_local(p[0])) {
+            while (iswspace_local(p[1])) p += 1;
+            while (true) {
+                const c = vfwscanfGetwc(f);
+                if (!iswspace_local(c)) {
+                    vfwscanfUngetwc(c, f);
+                    break;
+                }
+                pos += 1;
+            }
+            continue;
+        }
+        if (wcharAsU32(p[0]) != '%' or wcharAsU32(p[1]) == '%') {
+            var c: wint_t = undefined;
+            if (wcharAsU32(p[0]) == '%') {
+                p += 1;
+                while (true) {
+                    c = vfwscanfGetwc(f);
+                    if (!iswspace_local(c)) break;
+                    pos += 1;
+                }
+            } else {
+                c = vfwscanfGetwc(f);
+            }
+            if (wintAsU32(c) != wcharAsU32(p[0])) {
+                vfwscanfUngetwc(c, f);
+                if (c < 0) return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true);
+                return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, false);
+            }
+            pos += 1;
+            continue;
+        }
+
+        p += 1;
+        var ap_mut = ap;
+        if (wcharAsU32(p[0]) == '*') {
+            dest = null;
+            p += 1;
+        } else if (iswdigit_local(p[0]) and wcharAsU32(p[1]) == '$') {
+            dest = vfwscanfArgN(ap, wcharAsU32(p[0]) - '0');
+            p += 2;
+        } else {
+            dest = @cVaArg(&ap_mut, ?*anyopaque);
+        }
+
+        var width: c_int = 0;
+        while (iswdigit_local(p[0])) : (p += 1) {
+            width = 10 * width + @as(c_int, @intCast(wcharAsU32(p[0]) - '0'));
+        }
+
+        var s: ?[*]u8 = null;
+        var wcs: ?[*]wchar_t = null;
+        if (wcharAsU32(p[0]) == 'm') {
+            alloc = dest != null;
+            p += 1;
+        }
+
+        var size: VfwscanfSize = .def;
+        const size_ch = wcharAsU32(p[0]);
+        p += 1;
+        switch (size_ch) {
+            'h' => if (wcharAsU32(p[0]) == 'h') {
+                p += 1;
+                size = .hh;
+            } else {
+                size = .h;
+            },
+            'l' => if (wcharAsU32(p[0]) == 'l') {
+                p += 1;
+                size = .ll;
+            } else {
+                size = .l;
+            },
+            'j' => size = .ll,
+            'z', 't' => size = .l,
+            'L' => size = .L,
+            'd',
+            'i',
+            'o',
+            'u',
+            'x',
+            'a',
+            'e',
+            'f',
+            'g',
+            'A',
+            'E',
+            'F',
+            'G',
+            'X',
+            's',
+            'c',
+            '[',
+            'S',
+            'C',
+            'p',
+            'n',
+            => p -= 1,
+            else => return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true),
+        }
+
+        var t = wcharAsU32(p[0]);
+        if ((t & 0x2f) == 3) {
+            size = .l;
+            t |= 32;
+        }
+
+        if (t != 'n') {
+            var c: wint_t = undefined;
+            if (t != '[' and (t | 32) != 'c') {
+                while (true) {
+                    c = vfwscanfGetwc(f);
+                    if (!iswspace_local(c)) break;
+                    pos += 1;
+                }
+            } else {
+                c = vfwscanfGetwc(f);
+            }
+            if (c < 0) return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true);
+            vfwscanfUngetwc(c, f);
+        }
+
+        switch (t) {
+            'n' => {
+                vfwscanfStoreInt(dest, size, @intCast(pos));
+                continue;
+            },
+            's', 'c', '[' => {
+                var invert: c_int = undefined;
+                var set: [*:0]const wchar_t = undefined;
+                if (t == 'c') {
+                    if (width < 1) width = 1;
+                    invert = 1;
+                    set = @ptrCast(&[_:0]wchar_t{});
+                } else if (t == 's') {
+                    invert = 1;
+                    set = @ptrCast(&vfwscanf_spaces);
+                } else {
+                    p += 1;
+                    if (wcharAsU32(p[0]) == '^') {
+                        p += 1;
+                        invert = 1;
+                    } else {
+                        invert = 0;
+                    }
+                    set = p;
+                    if (wcharAsU32(p[0]) == ']') p += 1;
+                    while (wcharAsU32(p[0]) != ']') : (p += 1) {
+                        if (p[0] == 0) return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true);
+                    }
+                }
+
+                if (size == .def) s = @ptrCast(dest);
+                if (size == .l) wcs = @ptrCast(@alignCast(dest));
+                var gotmatch = false;
+                if (width < 1) width = -1;
+                var i: usize = 0;
+                var k: usize = undefined;
+                if (alloc) {
+                    k = if (t == 'c') @as(usize, @intCast(width)) + 1 else 31;
+                    if (size == .l) {
+                        wcs = @ptrCast(@alignCast(malloc_fn(k * @sizeOf(wchar_t)) orelse return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true)));
+                    } else {
+                        s = @ptrCast(malloc_fn(k) orelse return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true));
+                    }
+                }
+                while (width != 0) {
+                    const c = vfwscanfGetwc(f);
+                    if (c < 0) break;
+                    if (@intFromBool(vfwscanfInSet(set, c)) == invert) {
+                        vfwscanfUngetwc(c, f);
+                        if (t == 'c' or !gotmatch) return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, false);
+                        break;
+                    }
+                    if (wcs) |wcs_ptr| {
+                        wcs_ptr[i] = @bitCast(wintAsU32(c));
+                        i += 1;
+                        if (alloc and i == k) {
+                            k += k + 1;
+                            wcs = @ptrCast(@alignCast(realloc_fn(@ptrCast(wcs_ptr), k * @sizeOf(wchar_t)) orelse return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true)));
+                        }
+                    } else if (size != .l) {
+                        const out = if (s) |s_ptr| s_ptr + i else @as([*]u8, @ptrCast(&tmp));
+                        const l = wctomb_fn(out, @bitCast(wintAsU32(c)));
+                        if (l < 0) return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true);
+                        i += @intCast(l);
+                        if (alloc and i > k - 4) {
+                            k += k + 1;
+                            s = @ptrCast(realloc_fn(@ptrCast(s.?), k) orelse return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true));
+                        }
+                    }
+                    pos += 1;
+                    width -= @intFromBool(width > 0);
+                    gotmatch = true;
+                }
+
+                if (alloc) {
+                    if (size == .l) {
+                        @as(*?[*]wchar_t, @ptrCast(@alignCast(dest.?))).* = wcs;
+                    } else {
+                        @as(*?[*]u8, @ptrCast(@alignCast(dest.?))).* = s;
+                    }
+                }
+                if (t != 'c') {
+                    if (wcs) |wcs_ptr| wcs_ptr[i] = 0;
+                    if (s) |s_ptr| s_ptr[i] = 0;
+                }
+            },
+            'd',
+            'i',
+            'o',
+            'u',
+            'x',
+            'a',
+            'e',
+            'f',
+            'g',
+            'A',
+            'E',
+            'F',
+            'G',
+            'X',
+            'p',
+            => {
+                if (width < 1) width = 0;
+                const prefix = size_pfx[@intCast(@intFromEnum(size) + 2)];
+                const written = std.fmt.bufPrintZ(&tmp, "{s}{d}{s}{c}%lln", .{
+                    if (dest == null) "%*" else "%",
+                    width,
+                    prefix,
+                    @as(u8, @intCast(t)),
+                }) catch return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true);
+                var cnt: c_longlong = 0;
+                const scan_result = if (dest) |d|
+                    fscanf_impl(f, written, d, &cnt)
+                else
+                    fscanf_impl(f, written, &cnt, &cnt);
+                if (scan_result == -1) return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true);
+                if (cnt == 0) return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, false);
+                pos += cnt;
+            },
+            else => return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true),
+        }
+
+        if (dest != null) matches += 1;
+    }
+    funlock(f, need_unlock);
+    return matches;
 }
 
 /// wprintf.c: int wprintf(const wchar_t *restrict fmt, ...)
-
 /// fwprintf.c: int fwprintf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swprintf.c: int swprintf(wchar_t *restrict s, size_t n, const wchar_t *restrict fmt, ...)
-
 /// wscanf.c: int wscanf(const wchar_t *restrict fmt, ...)
-
 /// fwscanf.c: int fwscanf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swscanf.c: int swscanf(const wchar_t *restrict s, const wchar_t *restrict fmt, ...)
-
 /// vwprintf.c: int vwprintf(const wchar_t *restrict fmt, va_list ap)
 fn vwprintf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
     return vfwprintf_fn(stdout_ext.*, fmt, ap);
@@ -1407,7 +1778,7 @@ fn vwprintf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
 
 /// vwscanf.c: int vwscanf(const wchar_t *restrict fmt, va_list ap)
 fn vwscanf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
-    return vfwscanf_fn(stdin_ext.*, fmt, ap);
+    return vfwscanf_impl(stdin_ext.*, fmt, ap);
 }
 
 /// vprintf.c: int vprintf(const char *restrict fmt, va_list ap)
@@ -1510,14 +1881,14 @@ fn sscanf_impl(s: [*:0]const u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
 fn wscanf_impl(fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfwscanf_fn(stdin_ext.*, fmt, ap);
+    return vfwscanf_impl(stdin_ext.*, fmt, ap);
 }
 
 /// fwscanf.c (also aliased as __isoc99_fwscanf)
 fn fwscanf_impl(f: ?*FILE, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfwscanf_fn(f, fmt, ap);
+    return vfwscanf_impl(f, fmt, ap);
 }
 
 /// swscanf.c (also aliased as __isoc99_swscanf)
@@ -1544,13 +1915,24 @@ const PThread = extern struct {
 
     /// Architectures where musl defines TLS_ABOVE_TP.
     const tls_above_tp: bool = switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be,
-        .arm, .armeb, .thumb, .thumbeb,
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
         .loongarch64,
         .m68k,
-        .mips, .mipsel, .mips64, .mips64el,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-        .riscv32, .riscv64,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .riscv32,
+        .riscv64,
         => true,
         else => false,
     };

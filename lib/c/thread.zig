@@ -79,17 +79,12 @@ const sem_impl = extern struct {
 };
 const arch = builtin.target.cpu.arch;
 const tls_above_tp = switch (arch) {
-    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb,
-    .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-    .loongarch64, .m68k => true,
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .loongarch64, .m68k => true,
     else => false,
 };
 /// TP_OFFSET from musl per-arch pthread_arch.h (defaults to 0).
 const tp_offset: usize = switch (arch) {
-    .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-    .m68k => 0x7000,
+    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .m68k => 0x7000,
     else => 0,
 };
 const ptr_size = @sizeOf(usize);
@@ -135,6 +130,7 @@ const rwlock_int_count: usize = if (@sizeOf(c_long) == 8) 14 else 8;
 var ptc_lock: [rwlock_int_count]c_int = [_]c_int{0} ** rwlock_int_count;
 const FUTEX_WAIT: usize = 0;
 const FUTEX_WAKE: usize = 1;
+const FUTEX_REQUEUE: usize = 3;
 const FUTEX_PRIVATE: usize = 128;
 var vmlock: [2]c_int = .{ 0, 0 };
 var __default_stacksize: c_uint = 131072; // DEFAULT_STACK_SIZE
@@ -345,6 +341,9 @@ comptime {
             symbol(&cond_signal_fn, "pthread_cond_signal");
             symbol(&cond_broadcast_fn, "pthread_cond_broadcast");
             symbol(&cond_wait_fn, "pthread_cond_wait");
+            symbol(&cond_timedwait_fn, "__pthread_cond_timedwait");
+            symbol(&cond_timedwait_fn, "pthread_cond_timedwait");
+            symbol(&private_cond_signal_fn, "__private_cond_signal");
             symbol(&mutex_lock_fn, "__pthread_mutex_lock");
             symbol(&mutex_lock_fn, "pthread_mutex_lock");
             symbol(&mutex_consistent_fn, "pthread_mutex_consistent");
@@ -1940,8 +1939,220 @@ fn cond_broadcast_fn(c: *anyopaque) callconv(.c) c_int {
 
 // --- pthread_cond_wait.c ---
 fn cond_wait_fn(c: *anyopaque, m: *anyopaque) callconv(.c) c_int {
-    const __pthread_cond_timedwait_ext = @extern(*const fn (*anyopaque, *anyopaque, ?*const anyopaque) callconv(.c) c_int, .{ .name = "pthread_cond_timedwait" });
-    return __pthread_cond_timedwait_ext(c, m, null);
+    return cond_timedwait_fn(c, m, null);
+}
+
+const CondWaiterState = enum(c_int) {
+    waiting = 0,
+    signaled = 1,
+    leaving = 2,
+};
+
+const CondWaiter = extern struct {
+    prev: ?*CondWaiter = null,
+    next: ?*CondWaiter = null,
+    state: c_int = 0,
+    barrier: c_int = 0,
+    notify: ?*c_int = null,
+};
+
+fn condLock(l: *c_int) void {
+    if (@cmpxchgStrong(c_int, l, 0, 1, .seq_cst, .seq_cst) != null) {
+        _ = @cmpxchgStrong(c_int, l, 1, 2, .seq_cst, .seq_cst);
+        while (true) {
+            const wait_ext = @extern(*const fn (*anyopaque, ?*anyopaque, c_int, c_int) callconv(.c) void, .{ .name = "__wait" });
+            wait_ext(@ptrCast(l), null, 2, 1);
+            if (@cmpxchgStrong(c_int, l, 0, 2, .seq_cst, .seq_cst) == null) break;
+        }
+    }
+}
+
+fn condUnlock(l: *c_int) void {
+    if (@atomicRmw(c_int, l, .Xchg, 0, .seq_cst) == 2)
+        wake(@ptrCast(l), 1, 1);
+}
+
+fn condUnlockRequeue(l: *c_int, r: *c_int, w: c_int) void {
+    @atomicStore(c_int, l, 0, .seq_cst);
+    if (w != 0) {
+        wake(@ptrCast(l), 1, 1);
+    } else {
+        const rc1: isize = @bitCast(linux.syscall5(.futex, @intFromPtr(l), FUTEX_REQUEUE | FUTEX_PRIVATE, 0, 1, @intFromPtr(r)));
+        if (rc1 == -@as(isize, @intCast(eint(.NOSYS)))) {
+            _ = linux.syscall5(.futex, @intFromPtr(l), FUTEX_REQUEUE, 0, 1, @intFromPtr(r));
+        }
+    }
+}
+
+fn cond_timedwait_fn(c: *anyopaque, m: *anyopaque, ts: ?*const linux.timespec) callconv(.c) c_int {
+    const c_i: [*]c_int = @ptrCast(@alignCast(c));
+    const c_p: [*]usize = @ptrCast(@alignCast(c));
+    const m_i: [*]c_int = @ptrCast(@alignCast(m));
+
+    if ((m_i[0] & 15) != 0 and (m_i[1] & std.math.maxInt(c_int)) != selfTid())
+        return eint(.PERM);
+
+    if (ts) |t| {
+        if (t.nsec >= 1000000000) return eint(.INVAL);
+    }
+
+    const pthread_testcancel_ext = @extern(*const fn () callconv(.c) void, .{ .name = "__pthread_testcancel" });
+    const pthread_setcancelstate_ext = @extern(*const fn (c_int, ?*c_int) callconv(.c) c_int, .{ .name = "__pthread_setcancelstate" });
+    const pthread_mutex_unlock_ext = @extern(*const fn (*anyopaque) callconv(.c) c_int, .{ .name = "__pthread_mutex_unlock" });
+    const pthread_mutex_lock_ext = @extern(*const fn (*anyopaque) callconv(.c) c_int, .{ .name = "pthread_mutex_lock" });
+    const __timedwait_cp = @extern(*const fn (*c_int, c_int, c_int, ?*const linux.timespec, c_int) callconv(.c) c_int, .{ .name = "__timedwait_cp" });
+
+    pthread_testcancel_ext();
+
+    var node: CondWaiter = .{};
+    var seq: c_int = undefined;
+    const clock = c_i[4];
+    var shared: c_int = 0;
+    var fut: *c_int = undefined;
+
+    if (c_p[0] != 0) {
+        shared = 1;
+        fut = &c_i[2];
+        seq = @atomicLoad(c_int, &c_i[2], .monotonic);
+        _ = @atomicRmw(c_int, &c_i[3], .Add, 1, .seq_cst);
+    } else {
+        condLock(&c_i[8]);
+
+        seq = 2;
+        node.barrier = 2;
+        fut = &node.barrier;
+        node.state = @intFromEnum(CondWaiterState.waiting);
+        node.next = @ptrFromInt(c_p[1]);
+        c_p[1] = @intFromPtr(&node);
+        if (c_p[5] == 0) {
+            c_p[5] = @intFromPtr(&node);
+        } else if (node.next) |next| {
+            next.prev = &node;
+        }
+
+        condUnlock(&c_i[8]);
+    }
+
+    _ = pthread_mutex_unlock_ext(m);
+
+    var cs: c_int = undefined;
+    _ = pthread_setcancelstate_ext(2, &cs); // PTHREAD_CANCEL_MASKED
+    if (cs == 1) _ = pthread_setcancelstate_ext(cs, null); // PTHREAD_CANCEL_DISABLE
+
+    var e: c_int = undefined;
+    while (true) {
+        e = __timedwait_cp(fut, seq, clock, ts, @intFromBool(shared == 0));
+        if (@atomicLoad(c_int, fut, .monotonic) != seq or (e != 0 and e != eint(.INTR))) break;
+    }
+    if (e == eint(.INTR)) e = 0;
+
+    var oldstate: c_int = undefined;
+    if (shared != 0) {
+        // Suppress cancellation if a signal may have been consumed; this is a
+        // legitimate spurious wake even if not.
+        if (e == eint(.CANCELED) and @atomicLoad(c_int, &c_i[2], .monotonic) != seq) e = 0;
+        if (@atomicRmw(c_int, &c_i[3], .Add, -1, .seq_cst) == -0x7fffffff)
+            wake(@ptrCast(&c_i[3]), 1, 0);
+        oldstate = @intFromEnum(CondWaiterState.waiting);
+    } else {
+        oldstate = @cmpxchgStrong(c_int, &node.state, @intFromEnum(CondWaiterState.waiting), @intFromEnum(CondWaiterState.leaving), .seq_cst, .seq_cst) orelse @intFromEnum(CondWaiterState.waiting);
+
+        if (oldstate == @intFromEnum(CondWaiterState.waiting)) {
+            condLock(&c_i[8]);
+
+            if (c_p[1] == @intFromPtr(&node)) c_p[1] = if (node.next) |next| @intFromPtr(next) else 0 else if (node.prev) |prev| prev.next = node.next;
+            if (c_p[5] == @intFromPtr(&node)) c_p[5] = if (node.prev) |prev| @intFromPtr(prev) else 0 else if (node.next) |next| next.prev = node.prev;
+
+            condUnlock(&c_i[8]);
+
+            if (node.notify) |notify| {
+                if (@atomicRmw(c_int, notify, .Add, -1, .seq_cst) == 1)
+                    wake(@ptrCast(notify), 1, 1);
+            }
+        } else {
+            // Lock barrier first to control wake order.
+            condLock(&node.barrier);
+        }
+    }
+
+    // Errors locking the mutex override any existing error or cancellation,
+    // since the caller must see them to know the state of the mutex.
+    const tmp = pthread_mutex_lock_ext(m);
+    if (tmp != 0) e = tmp;
+
+    if (oldstate != @intFromEnum(CondWaiterState.waiting)) {
+        if (node.next == null and (m_i[0] & 8) == 0)
+            _ = @atomicRmw(c_int, &m_i[2], .Add, 1, .seq_cst);
+
+        // Unlock the barrier that's holding back the next waiter, and either
+        // wake it or requeue it to the mutex.
+        if (node.prev) |prev| {
+            const val = @atomicLoad(c_int, &m_i[1], .monotonic);
+            if (val > 0) _ = @cmpxchgStrong(c_int, &m_i[1], val, val | @as(c_int, @bitCast(@as(c_uint, 0x80000000))), .seq_cst, .seq_cst);
+            condUnlockRequeue(&prev.barrier, &m_i[1], m_i[0] & (8 | 128));
+        } else if ((m_i[0] & 8) == 0) {
+            _ = @atomicRmw(c_int, &m_i[2], .Sub, 1, .seq_cst);
+        }
+
+        // Since a signal was consumed, cancellation is not permitted.
+        if (e == eint(.CANCELED)) e = 0;
+    }
+
+    _ = pthread_setcancelstate_ext(cs, null);
+
+    if (e == eint(.CANCELED)) {
+        pthread_testcancel_ext();
+        _ = pthread_setcancelstate_ext(1, null); // PTHREAD_CANCEL_DISABLE
+    }
+
+    return e;
+}
+
+fn private_cond_signal_fn(c: *anyopaque, n_arg: c_int) callconv(.c) c_int {
+    const c_i: [*]c_int = @ptrCast(@alignCast(c));
+    const c_p: [*]usize = @ptrCast(@alignCast(c));
+    var n = n_arg;
+    var p: ?*CondWaiter = undefined;
+    var first: ?*CondWaiter = null;
+    var ref: c_int = 0;
+
+    condLock(&c_i[8]);
+    p = @ptrFromInt(c_p[5]);
+    while (n != 0) {
+        const cur = p orelse break;
+        if ((@cmpxchgStrong(c_int, &cur.state, @intFromEnum(CondWaiterState.waiting), @intFromEnum(CondWaiterState.signaled), .seq_cst, .seq_cst) orelse @intFromEnum(CondWaiterState.waiting)) != @intFromEnum(CondWaiterState.waiting)) {
+            ref += 1;
+            cur.notify = &ref;
+        } else {
+            n -= 1;
+            if (first == null) first = cur;
+        }
+        p = cur.prev;
+    }
+
+    // Split the list, leaving any remainder on the cv.
+    if (p) |rem| {
+        if (rem.next) |next| next.prev = null;
+        rem.next = null;
+    } else {
+        c_p[1] = 0;
+    }
+    c_p[5] = if (p) |rem| @intFromPtr(rem) else 0;
+    condUnlock(&c_i[8]);
+
+    // Wait for LEAVING waiters to remove themselves from the list before
+    // returning or allowing signaled threads to proceed.
+    const wait_ext = @extern(*const fn (*anyopaque, ?*anyopaque, c_int, c_int) callconv(.c) void, .{ .name = "__wait" });
+    while (true) {
+        const cur = @atomicLoad(c_int, &ref, .monotonic);
+        if (cur == 0) break;
+        wait_ext(@ptrCast(&ref), null, cur, 1);
+    }
+
+    // Allow first signaled waiter, if any, to proceed.
+    if (first) |w| condUnlock(&w.barrier);
+
+    return 0;
 }
 
 // --- pthread_mutex_lock.c ---

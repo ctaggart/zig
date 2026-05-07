@@ -702,9 +702,9 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/open_memstream.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/open_wmemstream.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/__overflow.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/pclose.c",
+    //"musl/src/stdio/pclose.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/perror.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/popen.c",
+    //"musl/src/stdio/popen.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/puts.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/putw.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/putwc.c", // migrated to lib/c/stdio.zig

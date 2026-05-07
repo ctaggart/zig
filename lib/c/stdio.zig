@@ -104,6 +104,21 @@ const realloc_fn = @extern(*const fn (?*anyopaque, usize) callconv(.c) ?*anyopaq
 const aio_close_fn = @extern(*const fn (c_int) callconv(.c) c_int, .{ .name = "__aio_close" });
 const mbtowc_fn = @extern(*const fn (?*wchar_t, ?[*]const u8, usize) callconv(.c) c_int, .{ .name = "mbtowc" });
 const wcsrtombs_fn = @extern(*const fn (?[*]u8, *?[*:0]const wchar_t, usize, ?*anyopaque) callconv(.c) usize, .{ .name = "wcsrtombs" });
+const fdopen_fn = @extern(*const fn (c_int, [*:0]const u8) callconv(.c) ?*FILE, .{ .name = "fdopen" });
+const fclose_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "fclose" });
+const posix_spawn_file_actions_t = extern struct {
+    __pad0: [2]c_int,
+    __actions: ?*anyopaque,
+    __pad: [16]c_int,
+};
+const posix_spawn_file_actions_init_fn = @extern(*const fn (*posix_spawn_file_actions_t) callconv(.c) c_int, .{ .name = "posix_spawn_file_actions_init" });
+const posix_spawn_file_actions_addclose_fn = @extern(*const fn (*posix_spawn_file_actions_t, c_int) callconv(.c) c_int, .{ .name = "posix_spawn_file_actions_addclose" });
+const posix_spawn_file_actions_adddup2_fn = @extern(*const fn (*posix_spawn_file_actions_t, c_int, c_int) callconv(.c) c_int, .{ .name = "posix_spawn_file_actions_adddup2" });
+const posix_spawn_file_actions_destroy_fn = @extern(*const fn (*posix_spawn_file_actions_t) callconv(.c) c_int, .{ .name = "posix_spawn_file_actions_destroy" });
+const posix_spawn_fn = @extern(*const fn (*linux.pid_t, [*:0]const u8, ?*const posix_spawn_file_actions_t, ?*const anyopaque, [*:null]const ?[*:0]u8, [*:null]const ?[*:0]u8) callconv(.c) c_int, .{ .name = "posix_spawn" });
+const ofl_lock_fn = @extern(*const fn () callconv(.c) *?*FILE, .{ .name = "__ofl_lock" });
+const ofl_unlock_fn = @extern(*const fn () callconv(.c) void, .{ .name = "__ofl_unlock" });
+extern "c" var __environ: [*:null]?[*:0]u8;
 
 comptime {
     if (builtin.link_libc and builtin.target.isMuslLibC()) {
@@ -235,6 +250,10 @@ comptime {
         symbol(&open_memstream_impl, "open_memstream");
         symbol(&open_wmemstream_impl, "open_wmemstream");
         symbol(&fopencookie_impl, "fopencookie");
+
+        // Pipe/process stdio (popen.c, pclose.c)
+        symbol(&popen_impl, "popen");
+        symbol(&pclose_impl, "pclose");
     }
 }
 
@@ -863,23 +882,14 @@ fn overflow_impl(f: *FILE, _c: c_int) callconv(.c) c_int {
 }
 
 /// fprintf.c: int fprintf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// printf.c: int printf(const char *restrict fmt, ...)
-
 /// snprintf.c: int snprintf(char *restrict s, size_t n, const char *restrict fmt, ...)
-
 /// sprintf.c: int sprintf(char *restrict s, const char *restrict fmt, ...)
-
 /// asprintf.c: int asprintf(char **s, const char *fmt, ...)
-
 /// dprintf.c: int dprintf(int fd, const char *restrict fmt, ...)
-
 /// scanf.c: int scanf(const char *restrict fmt, ...)
-
 /// fscanf.c: int fscanf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// sscanf.c: int sscanf(const char *restrict s, const char *restrict fmt, ...)
-
 /// perror.c: void perror(const char *msg)
 fn perror_impl(msg: ?[*:0]const u8) callconv(.c) void {
     const f: *FILE = @ptrCast(stderr_ext.*);
@@ -1389,17 +1399,11 @@ fn vswscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ap: VaList) cal
 }
 
 /// wprintf.c: int wprintf(const wchar_t *restrict fmt, ...)
-
 /// fwprintf.c: int fwprintf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swprintf.c: int swprintf(wchar_t *restrict s, size_t n, const wchar_t *restrict fmt, ...)
-
 /// wscanf.c: int wscanf(const wchar_t *restrict fmt, ...)
-
 /// fwscanf.c: int fwscanf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swscanf.c: int swscanf(const wchar_t *restrict s, const wchar_t *restrict fmt, ...)
-
 /// vwprintf.c: int vwprintf(const wchar_t *restrict fmt, va_list ap)
 fn vwprintf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
     return vfwprintf_fn(stdout_ext.*, fmt, ap);
@@ -1544,13 +1548,24 @@ const PThread = extern struct {
 
     /// Architectures where musl defines TLS_ABOVE_TP.
     const tls_above_tp: bool = switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be,
-        .arm, .armeb, .thumb, .thumbeb,
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
         .loongarch64,
         .m68k,
-        .mips, .mipsel, .mips64, .mips64el,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-        .riscv32, .riscv64,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .riscv32,
+        .riscv64,
         => true,
         else => false,
     };
@@ -2201,6 +2216,92 @@ fn fopencookie_impl(cookie: ?*anyopaque, mode: [*:0]const u8, iofuncs: CookieIoF
     cf.f.close_fn = &cookieclose_impl;
 
     return ofl_add_fn(&cf.f);
+}
+
+/// popen.c: FILE *popen(const char *cmd, const char *mode)
+fn popen_impl(cmd: [*:0]const u8, mode: [*:0]const u8) callconv(.c) ?*FILE {
+    const op: usize = switch (mode[0]) {
+        'r' => 0,
+        'w' => 1,
+        else => {
+            setErrno(.INVAL);
+            return null;
+        },
+    };
+
+    var p: [2]c_int = undefined;
+    var pipe_flags = linux.O{};
+    pipe_flags.CLOEXEC = true;
+    if (c_errno(linux.pipe2(&p, pipe_flags)) != 0) return null;
+
+    const f = fdopen_fn(p[op], mode) orelse {
+        _ = linux.close(p[0]);
+        _ = linux.close(p[1]);
+        return null;
+    };
+
+    var e: c_int = @intFromEnum(linux.E.NOMEM);
+    var fa: posix_spawn_file_actions_t = undefined;
+    if (posix_spawn_file_actions_init_fn(&fa) == 0) {
+        var fail = false;
+        const head = ofl_lock_fn();
+        var l = head.*;
+        while (l) |file| : (l = file.next) {
+            if (file.pipe_pid != 0 and posix_spawn_file_actions_addclose_fn(&fa, file.fd) != 0) {
+                fail = true;
+                break;
+            }
+        }
+
+        if (!fail and posix_spawn_file_actions_adddup2_fn(&fa, p[1 - op], @intCast(1 - op)) == 0) {
+            var pid: linux.pid_t = undefined;
+            var argv = [_:null]?[*:0]u8{
+                @constCast("sh"),
+                @constCast("-c"),
+                @constCast(cmd),
+            };
+            e = posix_spawn_fn(&pid, "/bin/sh", &fa, null, @ptrCast(&argv), @ptrCast(&__environ));
+            if (e == 0) {
+                _ = posix_spawn_file_actions_destroy_fn(&fa);
+                f.pipe_pid = pid;
+                if (!hasModeFlag(mode, 'e'))
+                    _ = linux.fcntl(p[op], linux.F.SETFD, 0);
+                _ = linux.close(p[1 - op]);
+                ofl_unlock_fn();
+                return f;
+            }
+        }
+
+        ofl_unlock_fn();
+        _ = posix_spawn_file_actions_destroy_fn(&fa);
+    }
+
+    _ = fclose_fn(f);
+    _ = linux.close(p[1 - op]);
+    std.c._errno().* = e;
+    return null;
+}
+
+/// pclose.c: int pclose(FILE *f)
+fn pclose_impl(f: *FILE) callconv(.c) c_int {
+    var status: c_int = undefined;
+    const pid = f.pipe_pid;
+    _ = fclose_fn(f);
+    while (true) {
+        const r_raw = linux.wait4(pid, @ptrCast(&status), 0, null);
+        const r: isize = @bitCast(r_raw);
+        if (r == -@as(isize, @intFromEnum(linux.E.INTR))) continue;
+        if (r < 0) return c_errno(r_raw);
+        return status;
+    }
+}
+
+fn hasModeFlag(mode: [*:0]const u8, flag: u8) bool {
+    var p = mode;
+    while (p[0] != 0) : (p += 1) {
+        if (p[0] == flag) return true;
+    }
+    return false;
 }
 
 // Extern references to musl C functions that are still compiled from C sources.

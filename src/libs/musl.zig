@@ -510,12 +510,12 @@ const src_files = [_][]const u8{
     "musl/src/ldso/x32/dlsym.s",
     "musl/src/ldso/x86_64/dlsym.s",
     "musl/src/ldso/x86_64/tlsdesc.s",
-    "musl/src/math/erfl.c",
+    //"musl/src/math/erfl.c", // migrated to lib/c/math.zig
     "musl/src/math/exp10l.c",
     "musl/src/math/expm1.c",
     "musl/src/math/llround.c",
     "musl/src/math/log1p.c",
-    "musl/src/math/log1pl.c",
+    //"musl/src/math/log1pl.c", // migrated to lib/c/math.zig
     "musl/src/math/lround.c",
     //"musl/src/math/__math_divzero.c", // migrated to lib/c/math.zig
     //"musl/src/math/__math_divzerof.c", // migrated to lib/c/math.zig

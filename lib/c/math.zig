@@ -370,6 +370,133 @@ const erff_sb4: f32 = 3.1998581543e+03;
 const erff_sb5: f32 = 2.5530502930e+03;
 const erff_sb6: f32 = 4.7452853394e+02;
 const erff_sb7: f32 = -2.2440952301e+01;
+
+// Constants for 80-bit long double erf/erfc implementation.
+const erfl_erx: f80 = 0.845062911510467529296875;
+const erfl_efx8: f80 = 1.0270333367641005911692712249723613735048e0;
+const erfl_pp = [_]f80{
+    1.122751350964552113068262337278335028553e6,
+    -2.808533301997696164408397079650699163276e6,
+    -3.314325479115357458197119660818768924100e5,
+    -6.848684465326256109712135497895525446398e4,
+    -2.657817695110739185591505062971929859314e3,
+    -1.655310302737837556654146291646499062882e2,
+};
+const erfl_qq = [_]f80{
+    8.745588372054466262548908189000448124232e6,
+    3.746038264792471129367533128637019611485e6,
+    7.066358783162407559861156173539693900031e5,
+    7.448928604824620999413120955705448117056e4,
+    4.511583986730994111992253980546131408924e3,
+    1.368902937933296323345610240009071254014e2,
+};
+const erfl_pa = [_]f80{
+    -1.076952146179812072156734957705102256059e0,
+    1.884814957770385593365179835059971587220e2,
+    -5.339153975012804282890066622962070115606e1,
+    4.435910679869176625928504532109635632618e1,
+    1.683219516032328828278557309642929135179e1,
+    -2.360236618396952560064259585299045804293e0,
+    1.852230047861891953244413872297940938041e0,
+    9.394994446747752308256773044667843200719e-2,
+};
+const erfl_qa = [_]f80{
+    4.559263722294508998149925774781887811255e2,
+    3.289248982200800575749795055149780689738e2,
+    2.846070965875643009598627918383314457912e2,
+    1.398715859064535039433275722017479994465e2,
+    6.060190733759793706299079050985358190726e1,
+    2.078695677795422351040502569964299664233e1,
+    4.641271134150895940966798357442234498546e0,
+};
+const erfl_ra = [_]f80{
+    1.363566591833846324191000679620738857234e-1,
+    1.018203167219873573808450274314658434507e1,
+    1.862359362334248675526472871224778045594e2,
+    1.411622588180721285284945138667933330348e3,
+    5.088538459741511988784440103218342840478e3,
+    8.928251553922176506858267311750789273656e3,
+    7.264436000148052545243018622742770549982e3,
+    2.387492459664548651671894725748959751119e3,
+    2.220916652813908085449221282808458466556e2,
+};
+const erfl_sa = [_]f80{
+    -1.382234625202480685182526402169222331847e1,
+    -3.315638835627950255832519203687435946482e2,
+    -2.949124863912936259747237164260785326692e3,
+    -1.246622099070875940506391433635999693661e4,
+    -2.673079795851665428695842853070996219632e4,
+    -2.880269786660559337358397106518918220991e4,
+    -1.450600228493968044773354186390390823713e4,
+    -2.874539731125893533960680525192064277816e3,
+    -1.402241261419067750237395034116942296027e2,
+};
+const erfl_rb = [_]f80{
+    -4.869587348270494309550558460786501252369e-5,
+    -4.030199390527997378549161722412466959403e-3,
+    -9.434425866377037610206443566288917589122e-2,
+    -9.319032754357658601200655161585539404155e-1,
+    -4.273788174307459947350256581445442062291e0,
+    -8.842289940696150508373541814064198259278e0,
+    -7.069215249419887403187988144752613025255e0,
+    -1.401228723639514787920274427443330704764e0,
+};
+const erfl_sb = [_]f80{
+    4.936254964107175160157544545879293019085e-3,
+    1.583457624037795744377163924895349412015e-1,
+    1.850647991850328356622940552450636420484e0,
+    9.927611557279019463768050710008450625415e0,
+    2.531667257649436709617165336779212114570e1,
+    2.869752886406743386458304052862814690045e1,
+    1.182059497870819562441683560749192539345e1,
+};
+const erfl_rc = [_]f80{
+    -8.299617545269701963973537248996670806850e-5,
+    -6.243845685115818513578933902532056244108e-3,
+    -1.141667210620380223113693474478394397230e-1,
+    -7.521343797212024245375240432734425789409e-1,
+    -1.765321928311155824664963633786967602934e0,
+    -1.029403473103215800456761180695263439188e0,
+};
+const erfl_sc = [_]f80{
+    8.413244363014929493035952542677768808601e-3,
+    2.065114333816877479753334599639158060979e-1,
+    1.639064941530797583766364412782135680148e0,
+    4.936788463787115555582319302981666347450e0,
+    5.005177727208955487404729933261347679090e0,
+};
+
+const log1pl_p = [_]f80{
+    4.5270000862445199635215e-5,
+    4.9854102823193375972212e-1,
+    6.5787325942061044846969e0,
+    2.9911919328553073277375e1,
+    6.0949667980987787057556e1,
+    5.7112963590585538103336e1,
+    2.0039553499201281259648e1,
+};
+const log1pl_q = [_]f80{
+    1.5062909083469192043167e1,
+    8.3047565967967209469434e1,
+    2.2176239823732856465394e2,
+    3.0909872225312059774938e2,
+    2.1642788614495947685003e2,
+    6.0118660497603843919306e1,
+};
+const log1pl_r = [_]f80{
+    1.9757429581415468984296e-3,
+    -7.1990767473014147232598e-1,
+    1.0777257190312272158094e1,
+    -3.5717684488096787370998e1,
+};
+const log1pl_s = [_]f80{
+    -2.6201045551331104417768e1,
+    1.9361891836232102174846e2,
+    -4.2861221385716144629696e2,
+};
+const log1pl_c1: f80 = 6.9314575195312500000000e-1;
+const log1pl_c2: f80 = 1.4286068203094172321215e-6;
+
 const mem = std.mem;
 // lgamma_r f64 polynomial coefficients
 const lg_pi: f64 = 3.14159265358979311600e+00; // 0x400921FB, 0x54442D18
@@ -967,6 +1094,8 @@ comptime {
         symbol(&erfc_, "erfc");
         symbol(&erff_, "erff");
         symbol(&erfcf_, "erfcf");
+        symbol(&erfl, "erfl");
+        symbol(&erfcl, "erfcl");
         symbol(&atan2, "atan2");
         symbol(&atan2f, "atan2f");
         symbol(&fma, "fma");
@@ -977,6 +1106,7 @@ comptime {
         symbol(&lgamma_r, "__lgamma_r");
         symbol(&lgammaf_r, "__lgammaf_r");
         symbol(&powl, "powl");
+        symbol(&log1pl, "log1pl");
     }
     if (builtin.target.isMuslLibC()) {
         symbol(&__math_divzero, "__math_divzero");
@@ -2485,6 +2615,176 @@ fn erfcf_(x: f32) callconv(.c) f32 {
     }
 
     return if (sign != 0) 2 - 0x1p-120 else 0x1p-120 * 0x1p-120;
+}
+
+fn polevll(x: f80, coeffs: []const f80) f80 {
+    var y = coeffs[0];
+    for (coeffs[1..]) |c| y = y * x + c;
+    return y;
+}
+
+fn p1evll(x: f80, coeffs: []const f80) f80 {
+    var y = x + coeffs[0];
+    for (coeffs[1..]) |c| y = y * x + c;
+    return y;
+}
+
+fn erflIx(x: f80) u32 {
+    const u: u80 = @bitCast(x);
+    const se: u32 = @truncate(u >> 64);
+    const m: u64 = @truncate(u);
+    return ((se & 0x7fff) << 16) | @as(u32, @truncate(m >> 48));
+}
+
+fn erflErfc1(x: f80) f80 {
+    const s = @abs(x) - 1;
+    const P = erfl_pa[0] + s * (erfl_pa[1] + s * (erfl_pa[2] +
+        s * (erfl_pa[3] + s * (erfl_pa[4] + s * (erfl_pa[5] + s * (erfl_pa[6] + s * erfl_pa[7]))))));
+    const Q = erfl_qa[0] + s * (erfl_qa[1] + s * (erfl_qa[2] +
+        s * (erfl_qa[3] + s * (erfl_qa[4] + s * (erfl_qa[5] + s * (erfl_qa[6] + s))))));
+    return 1 - erfl_erx - P / Q;
+}
+
+fn erflErfc2(ix: u32, x_: f80) f80 {
+    if (ix < 0x3fffa000) return erflErfc1(x_);
+
+    const x = @abs(x_);
+    const s = 1 / (x * x);
+    var R: f80 = undefined;
+    var S: f80 = undefined;
+
+    if (ix < 0x4000b6db) {
+        R = erfl_ra[0] + s * (erfl_ra[1] + s * (erfl_ra[2] + s * (erfl_ra[3] + s * (erfl_ra[4] +
+            s * (erfl_ra[5] + s * (erfl_ra[6] + s * (erfl_ra[7] + s * erfl_ra[8])))))));
+        S = erfl_sa[0] + s * (erfl_sa[1] + s * (erfl_sa[2] + s * (erfl_sa[3] + s * (erfl_sa[4] +
+            s * (erfl_sa[5] + s * (erfl_sa[6] + s * (erfl_sa[7] + s * (erfl_sa[8] + s))))))));
+    } else if (ix < 0x4001d555) {
+        R = erfl_rb[0] + s * (erfl_rb[1] + s * (erfl_rb[2] + s * (erfl_rb[3] + s * (erfl_rb[4] +
+            s * (erfl_rb[5] + s * (erfl_rb[6] + s * erfl_rb[7]))))));
+        S = erfl_sb[0] + s * (erfl_sb[1] + s * (erfl_sb[2] + s * (erfl_sb[3] + s * (erfl_sb[4] +
+            s * (erfl_sb[5] + s * (erfl_sb[6] + s))))));
+    } else {
+        R = erfl_rc[0] + s * (erfl_rc[1] + s * (erfl_rc[2] + s * (erfl_rc[3] +
+            s * (erfl_rc[4] + s * erfl_rc[5]))));
+        S = erfl_sc[0] + s * (erfl_sc[1] + s * (erfl_sc[2] + s * (erfl_sc[3] +
+            s * (erfl_sc[4] + s))));
+    }
+
+    const z: f80 = @bitCast(@as(u80, @bitCast(x)) & (~@as(u80, 0) << 40));
+    return @exp(-z * z - 0.5625) * @exp((z - x) * (z + x) + R / S) / x;
+}
+
+fn erfl80(x: f80) f80 {
+    const ix = erflIx(x);
+    const sign = @as(u32, @truncate(@as(u80, @bitCast(x)) >> 79));
+
+    if (ix >= 0x7fff0000) return @as(f80, @floatFromInt(1 - 2 * @as(i32, @intCast(sign)))) + 1 / x;
+    if (ix < 0x3ffed800) {
+        if (ix < 0x3fde8000) return 0.125 * (8 * x + erfl_efx8 * x);
+        const z = x * x;
+        const r = erfl_pp[0] + z * (erfl_pp[1] + z * (erfl_pp[2] + z * (erfl_pp[3] + z * (erfl_pp[4] + z * erfl_pp[5]))));
+        const s = erfl_qq[0] + z * (erfl_qq[1] + z * (erfl_qq[2] + z * (erfl_qq[3] + z * (erfl_qq[4] + z * (erfl_qq[5] + z)))));
+        const y = r / s;
+        return x + x * y;
+    }
+    const y = if (ix < 0x4001d555) 1 - erflErfc2(ix, x) else 1 - @as(f80, 0x1p-16382);
+    return if (sign != 0) -y else y;
+}
+
+fn erfcl80(x: f80) f80 {
+    const ix = erflIx(x);
+    const sign = @as(u32, @truncate(@as(u80, @bitCast(x)) >> 79));
+
+    if (ix >= 0x7fff0000) return @as(f80, @floatFromInt(2 * @as(i32, @intCast(sign)))) + 1 / x;
+    if (ix < 0x3ffed800) {
+        if (ix < 0x3fbe0000) return 1.0 - x;
+        const z = x * x;
+        const r = erfl_pp[0] + z * (erfl_pp[1] + z * (erfl_pp[2] + z * (erfl_pp[3] + z * (erfl_pp[4] + z * erfl_pp[5]))));
+        const s = erfl_qq[0] + z * (erfl_qq[1] + z * (erfl_qq[2] + z * (erfl_qq[3] + z * (erfl_qq[4] + z * (erfl_qq[5] + z)))));
+        const y = r / s;
+        if (ix < 0x3ffd8000) return 1.0 - (x + x * y);
+        return 0.5 - (x - 0.5 + x * y);
+    }
+    if (ix < 0x4005d600) return if (sign != 0) 2 - erflErfc2(ix, x) else erflErfc2(ix, x);
+    const y: f80 = 0x1p-16382;
+    return if (sign != 0) 2 - y else y * y;
+}
+
+fn erfl(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => @floatCast(erf_(@floatCast(x))),
+        80 => @floatCast(erfl80(@floatCast(x))),
+        128 => @floatCast(erf_(@floatCast(x))),
+        else => math.erf(x),
+    };
+}
+
+fn erfcl(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => @floatCast(erfc_(@floatCast(x))),
+        80 => @floatCast(erfcl80(@floatCast(x))),
+        128 => @floatCast(erfc_(@floatCast(x))),
+        else => math.erfc(x),
+    };
+}
+
+fn log1pl80(xm1: f80) f80 {
+    if (math.isNan(xm1)) return xm1;
+    if (xm1 == math.inf(f80)) return xm1;
+    if (xm1 == 0.0) return xm1;
+
+    var x = xm1 + 1.0;
+    if (x <= 0.0) {
+        if (x == 0.0) return -1 / (x * x);
+        return 0 / @as(f80, 0.0);
+    }
+
+    var e: c_int = undefined;
+    x = frexpl(@floatCast(x), &e);
+
+    if (e > 2 or e < -2) {
+        var z: f80 = undefined;
+        var y: f80 = undefined;
+        if (x < 0.70710678118654752440) {
+            e -= 1;
+            z = x - 0.5;
+            y = 0.5 * z + 0.5;
+        } else {
+            z = x - 0.5;
+            z -= 0.5;
+            y = 0.5 * x + 0.5;
+        }
+        x = z / y;
+        z = x * x;
+        z = x * (z * polevll(z, &log1pl_r) / p1evll(z, &log1pl_s));
+        z = z + @as(f80, @floatFromInt(e)) * log1pl_c2;
+        z = z + x;
+        z = z + @as(f80, @floatFromInt(e)) * log1pl_c1;
+        return z;
+    }
+
+    if (x < 0.70710678118654752440) {
+        e -= 1;
+        if (e != 0) x = 2.0 * x - 1.0 else x = xm1;
+    } else {
+        if (e != 0) x = x - 1.0 else x = xm1;
+    }
+    const z = x * x;
+    var y = x * (z * polevll(x, &log1pl_p) / p1evll(x, &log1pl_q));
+    y = y + @as(f80, @floatFromInt(e)) * log1pl_c2;
+    var r = y - 0.5 * z;
+    r = r + x;
+    r = r + @as(f80, @floatFromInt(e)) * log1pl_c1;
+    return r;
+}
+
+fn log1pl(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => @floatCast(math.log1p(@as(f64, @floatCast(x)))),
+        80 => @floatCast(log1pl80(@floatCast(x))),
+        128 => @floatCast(math.log1p(@as(f64, @floatCast(x)))),
+        else => math.log1p(x),
+    };
 }
 
 fn atan2(y: f64, x: f64) callconv(.c) f64 {

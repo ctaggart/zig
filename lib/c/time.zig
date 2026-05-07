@@ -75,6 +75,13 @@ comptime {
         symbol(&timer_deleteLinux, "timer_delete");
         symbol(&timer_getoverrunLinux, "timer_getoverrun");
         symbol(&timer_gettimeLinux, "timer_gettime");
+        symbol(&strftimeFmt1, "__strftime_fmt_1");
+        symbol(&__strftime_l, "__strftime_l");
+        symbol(&strftimeImpl, "strftime");
+        symbol(&__strftime_l, "strftime_l");
+        symbol(&__wcsftime_l, "__wcsftime_l");
+        symbol(&wcsftimeImpl, "wcsftime");
+        symbol(&__wcsftime_l, "wcsftime_l");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&difftimeImpl, "difftime");
@@ -508,6 +515,425 @@ fn getdateImpl(s: [*:0]const u8) callconv(.c) ?*tm {
     return ret;
 }
 
+const locale_t = *opaque {};
+const nl_item = c_int;
+const wchar_t = std.c.wchar_t;
+
+const ABDAY_1: nl_item = 0x20000;
+const DAY_1: nl_item = 0x20007;
+const ABMON_1: nl_item = 0x2000E;
+const MON_1: nl_item = 0x2001A;
+const AM_STR: nl_item = 0x20026;
+const PM_STR: nl_item = 0x20027;
+const D_T_FMT: nl_item = 0x20028;
+const D_FMT: nl_item = 0x20029;
+const T_FMT: nl_item = 0x2002A;
+const T_FMT_AMPM: nl_item = 0x2002B;
+
+extern "c" fn __nl_langinfo_l(item: nl_item, loc: locale_t) callconv(.c) [*:0]const u8;
+extern "c" fn __tm_to_tzname(t: *const tm) callconv(.c) [*:0]const u8;
+extern "c" fn pthread_self() callconv(.c) *pthread;
+extern "c" fn mbstowcs(dest: ?[*]wchar_t, src: [*:0]const u8, n: usize) callconv(.c) usize;
+
+const locale_struct = extern struct { cat: [6]?*const anyopaque };
+const pthread = extern struct {
+    self: *pthread,
+    dtv: if (tls_above_tp) void else *usize,
+    prev: *pthread,
+    next: *pthread,
+    sysinfo: usize,
+    canary_pad: if (comptime builtin.cpu.arch == .mips64 or builtin.cpu.arch == .mips64el) usize else void,
+    canary: if (tls_above_tp) void else usize,
+    tid: c_int,
+    errno_val: c_int,
+    detach_state: c_int,
+    cancel: c_int,
+    canceldisable: u8,
+    cancelasync: u8,
+    tsd_used_dlerror_flag: u8,
+    map_base: *u8,
+    map_size: usize,
+    stack: *anyopaque,
+    stack_size: usize,
+    guard_size: usize,
+    result: *anyopaque,
+    cancelbuf: *anyopaque,
+    tsd: *?*anyopaque,
+    robust_list: extern struct { head: *volatile anyopaque, off: c_long, pending: *volatile anyopaque },
+    h_errno_val: c_int,
+    timer_id: c_int,
+    locale: *locale_struct,
+};
+
+fn currentLocale() locale_t {
+    return @ptrCast(pthread_self().locale);
+}
+
+fn isLeap(y_arg: c_int) c_int {
+    var y = y_arg;
+    if (y > std.math.maxInt(c_int) - 1900) y -= 2000;
+    y += 1900;
+    return @intFromBool(@rem(y, 4) == 0 and (@rem(y, 100) != 0 or @rem(y, 400) == 0));
+}
+
+fn weekNum(t: *const tm) c_int {
+    var val: c_int = @intCast((@as(c_uint, @bitCast(t.tm_yday)) + 7 - ((@as(c_uint, @bitCast(t.tm_wday)) + 6) % 7)) / 7);
+    if ((@as(c_uint, @bitCast(t.tm_wday)) + 371 - @as(c_uint, @bitCast(t.tm_yday)) - 2) % 7 <= 2) val += 1;
+    if (val == 0) {
+        val = 52;
+        const dec31 = (@as(c_uint, @bitCast(t.tm_wday)) + 7 - @as(c_uint, @bitCast(t.tm_yday)) - 1) % 7;
+        if (dec31 == 4 or (dec31 == 5 and isLeap(@rem(t.tm_year, 400) - 1) != 0)) val += 1;
+    } else if (val == 53) {
+        const jan1 = (@as(c_uint, @bitCast(t.tm_wday)) + 371 - @as(c_uint, @bitCast(t.tm_yday))) % 7;
+        if (jan1 != 4 and (jan1 != 3 or isLeap(t.tm_year) == 0)) val = 1;
+    }
+    return val;
+}
+
+fn cstrLen(s: [*:0]const u8) usize {
+    var i: usize = 0;
+    while (s[i] != 0) : (i += 1) {}
+    return i;
+}
+
+fn fmtSigned(buf: *[100]u8, val: c_longlong, width: usize, pad: u8) usize {
+    var tmp: [64]u8 = undefined;
+    const neg = val < 0;
+    var u: u64 = if (neg) @intCast(-(val + 1)) else @intCast(val);
+    if (neg) u += 1;
+    var pos: usize = tmp.len;
+    while (true) {
+        pos -= 1;
+        tmp[pos] = '0' + @as(u8, @intCast(u % 10));
+        u /= 10;
+        if (u == 0) break;
+    }
+    const digits_len = tmp.len - pos;
+    var out: usize = 0;
+    if (pad == '0') {
+        if (neg) {
+            buf[out] = '-';
+            out += 1;
+        }
+        var pad_count = if (width > digits_len + @intFromBool(neg)) width - digits_len - @intFromBool(neg) else 0;
+        while (pad_count != 0) : (pad_count -= 1) {
+            buf[out] = '0';
+            out += 1;
+        }
+    } else {
+        var pad_count = if (width > digits_len + @intFromBool(neg)) width - digits_len - @intFromBool(neg) else 0;
+        if (pad == '_') while (pad_count != 0) : (pad_count -= 1) {
+            buf[out] = ' ';
+            out += 1;
+        };
+        if (neg) {
+            buf[out] = '-';
+            out += 1;
+        }
+    }
+    @memcpy(buf[out .. out + digits_len], tmp[pos..]);
+    out += digits_len;
+    buf[out] = 0;
+    return out;
+}
+
+fn fmtZone(buf: *[100]u8, val: c_long) usize {
+    const neg = val < 0;
+    var u: c_long = if (neg) -val else val;
+    buf[0] = if (neg) '-' else '+';
+    var i: usize = 5;
+    while (i > 1) {
+        i -= 1;
+        buf[i] = '0' + @as(u8, @intCast(@rem(u, 10)));
+        u = @divTrunc(u, 10);
+    }
+    buf[5] = 0;
+    return 5;
+}
+fn stringResult(s: [*:0]const u8, len: *usize) [*:0]const u8 {
+    len.* = cstrLen(s);
+    return s;
+}
+fn nlStrcat(item: nl_item, loc: locale_t, len: *usize) [*:0]const u8 {
+    return stringResult(__nl_langinfo_l(item, loc), len);
+}
+fn nlStrftime(buf: *[100]u8, len: *usize, item: nl_item, t: *const tm, loc: locale_t) ?[*:0]const u8 {
+    return recuStrftime(buf, len, __nl_langinfo_l(item, loc), t, loc);
+}
+fn recuStrftime(buf: *[100]u8, len: *usize, fmt: [*:0]const u8, t: *const tm, loc: locale_t) ?[*:0]const u8 {
+    len.* = __strftime_l(@ptrCast(buf), buf.len, fmt, t, loc);
+    if (len.* == 0) return null;
+    return @ptrCast(buf);
+}
+
+fn strftimeFmt1(buf: *[100]u8, len: *usize, f: c_int, t: *const tm, loc: locale_t, pad_arg: c_int) callconv(.c) ?[*:0]const u8 {
+    var val: c_longlong = undefined;
+    var width: usize = 2;
+    var def_pad: u8 = '0';
+    switch (f) {
+        'a' => return if (@as(c_uint, @bitCast(t.tm_wday)) > 6) stringResult("-", len) else nlStrcat(ABDAY_1 + t.tm_wday, loc, len),
+        'A' => return if (@as(c_uint, @bitCast(t.tm_wday)) > 6) stringResult("-", len) else nlStrcat(DAY_1 + t.tm_wday, loc, len),
+        'h', 'b' => return if (@as(c_uint, @bitCast(t.tm_mon)) > 11) stringResult("-", len) else nlStrcat(ABMON_1 + t.tm_mon, loc, len),
+        'B' => return if (@as(c_uint, @bitCast(t.tm_mon)) > 11) stringResult("-", len) else nlStrcat(MON_1 + t.tm_mon, loc, len),
+        'c' => return nlStrftime(buf, len, D_T_FMT, t, loc),
+        'C' => val = @divTrunc(@as(c_longlong, 1900) + t.tm_year, 100),
+        'e' => {
+            def_pad = '_';
+            val = t.tm_mday;
+        },
+        'd' => val = t.tm_mday,
+        'D' => return recuStrftime(buf, len, "%m/%d/%y", t, loc),
+        'F' => return recuStrftime(buf, len, "%Y-%m-%d", t, loc),
+        'g', 'G' => {
+            val = @as(c_longlong, t.tm_year) + 1900;
+            if (t.tm_yday < 3 and weekNum(t) != 1) val -= 1 else if (t.tm_yday > 360 and weekNum(t) == 1) val += 1;
+            if (f == 'g') val = @rem(val, 100) else width = 4;
+        },
+        'H' => val = t.tm_hour,
+        'I' => {
+            val = t.tm_hour;
+            if (val == 0) val = 12 else if (val > 12) val -= 12;
+        },
+        'j' => {
+            val = t.tm_yday + 1;
+            width = 3;
+        },
+        'm' => val = t.tm_mon + 1,
+        'M' => val = t.tm_min,
+        'n' => {
+            len.* = 1;
+            return "\n";
+        },
+        'p' => return nlStrcat(if (t.tm_hour >= 12) PM_STR else AM_STR, loc, len),
+        'r' => return nlStrftime(buf, len, T_FMT_AMPM, t, loc),
+        'R' => return recuStrftime(buf, len, "%H:%M", t, loc),
+        's' => {
+            val = __tm_to_secs(t) - t.__tm_gmtoff;
+            width = 1;
+        },
+        'S' => val = t.tm_sec,
+        't' => {
+            len.* = 1;
+            return "\t";
+        },
+        'T' => return recuStrftime(buf, len, "%H:%M:%S", t, loc),
+        'u' => {
+            val = if (t.tm_wday != 0) t.tm_wday else 7;
+            width = 1;
+        },
+        'U' => val = @intCast((@as(c_uint, @bitCast(t.tm_yday)) + 7 - @as(c_uint, @bitCast(t.tm_wday))) / 7),
+        'W' => val = @intCast((@as(c_uint, @bitCast(t.tm_yday)) + 7 - ((@as(c_uint, @bitCast(t.tm_wday)) + 6) % 7)) / 7),
+        'V' => val = weekNum(t),
+        'w' => {
+            val = t.tm_wday;
+            width = 1;
+        },
+        'x' => return nlStrftime(buf, len, D_FMT, t, loc),
+        'X' => return nlStrftime(buf, len, T_FMT, t, loc),
+        'y' => {
+            val = @rem(@as(c_longlong, t.tm_year) + 1900, 100);
+            if (val < 0) val = -val;
+        },
+        'Y' => {
+            val = @as(c_longlong, t.tm_year) + 1900;
+            if (val >= 10000) {
+                len.* = fmtSigned(buf, val, 1, '-');
+                if (buf[0] != '-') {
+                    std.mem.copyBackwards(u8, buf[1 .. len.* + 1], buf[0..len.*]);
+                    buf[0] = '+';
+                    len.* += 1;
+                    buf[len.*] = 0;
+                }
+                return @ptrCast(buf);
+            }
+            width = 4;
+        },
+        'z' => {
+            if (t.tm_isdst < 0) {
+                len.* = 0;
+                return "";
+            }
+            len.* = fmtZone(buf, @divTrunc(t.__tm_gmtoff, 3600) * 100 + @divTrunc(@rem(t.__tm_gmtoff, 3600), 60));
+            return @ptrCast(buf);
+        },
+        'Z' => {
+            if (t.tm_isdst < 0) {
+                len.* = 0;
+                return "";
+            }
+            return stringResult(__tm_to_tzname(t), len);
+        },
+        '%' => {
+            len.* = 1;
+            return "%";
+        },
+        else => return null,
+    }
+    const pad: u8 = if (pad_arg != 0) @intCast(pad_arg) else def_pad;
+    len.* = switch (pad) {
+        '-' => fmtSigned(buf, val, 1, '-'),
+        '_' => fmtSigned(buf, val, width, '_'),
+        else => fmtSigned(buf, val, width, '0'),
+    };
+    return @ptrCast(buf);
+}
+
+fn parseAsciiWidth(f: [*:0]const u8, end: *[*:0]const u8) c_ulong {
+    var p = f;
+    var width: c_ulong = 0;
+    while (p[0] >= '0' and p[0] <= '9') : (p += 1) width = width * 10 + (p[0] - '0');
+    end.* = p;
+    return width;
+}
+
+fn __strftime_l(s: [*]u8, n: usize, f_arg: [*:0]const u8, t: *const tm, loc: locale_t) callconv(.c) usize {
+    var l: usize = 0;
+    var f = f_arg;
+    while (l < n) : (f += 1) {
+        if (f[0] == 0) {
+            s[l] = 0;
+            return l;
+        }
+        if (f[0] != '%') {
+            s[l] = f[0];
+            l += 1;
+            continue;
+        }
+        f += 1;
+        var pad: c_int = 0;
+        if (f[0] == '-' or f[0] == '_' or f[0] == '0') {
+            pad = f[0];
+            f += 1;
+        }
+        const plus = f[0] == '+';
+        if (plus) f += 1;
+        var p: [*:0]const u8 = undefined;
+        var width = parseAsciiWidth(f, &p);
+        if (p[0] == 'C' or p[0] == 'F' or p[0] == 'G' or p[0] == 'Y') {
+            if (width == 0 and p != f) width = 1;
+        } else width = 0;
+        f = p;
+        if (f[0] == 'E' or f[0] == 'O') f += 1;
+        var buf: [100]u8 = undefined;
+        var k: usize = undefined;
+        var text = strftimeFmt1(&buf, &k, f[0], t, loc, pad) orelse break;
+        if (width != 0) {
+            if (text[0] == '+' or text[0] == '-') {
+                text += 1;
+                k -= 1;
+            }
+            while (text[0] == '0' and @as(c_uint, text[1] -% '0') < 10) {
+                text += 1;
+                k -= 1;
+            }
+            if (width < k) width = k;
+            var d: usize = 0;
+            while (@as(c_uint, text[d] -% '0') < 10) : (d += 1) {}
+            if (t.tm_year < -1900) {
+                s[l] = '-';
+                l += 1;
+                width -= 1;
+            } else if (plus and d + (width - k) >= if (p[0] == 'C') 3 else 5) {
+                s[l] = '+';
+                l += 1;
+                width -= 1;
+            }
+            while (width > k and l < n) : (width -= 1) {
+                s[l] = '0';
+                l += 1;
+            }
+        }
+        if (k > n - l) k = n - l;
+        @memcpy(s[l .. l + k], text[0..k]);
+        l += k;
+    }
+    if (n != 0) {
+        if (l == n) l = n - 1;
+        s[l] = 0;
+    }
+    return 0;
+}
+
+fn strftimeImpl(s: [*]u8, n: usize, f: [*:0]const u8, t: *const tm) callconv(.c) usize {
+    return __strftime_l(s, n, f, t, currentLocale());
+}
+
+fn parseWideWidth(f: [*:0]const wchar_t, end: *[*:0]const wchar_t) c_ulong {
+    var p = f;
+    var width: c_ulong = 0;
+    while (p[0] >= '0' and p[0] <= '9') : (p += 1) width = width * 10 + @as(c_ulong, @intCast(p[0] - '0'));
+    end.* = p;
+    return width;
+}
+
+fn __wcsftime_l(s: [*]wchar_t, n: usize, f_arg: [*:0]const wchar_t, t: *const tm, loc: locale_t) callconv(.c) usize {
+    var l: usize = 0;
+    var f = f_arg;
+    while (l < n) : (f += 1) {
+        if (f[0] == 0) {
+            s[l] = 0;
+            return l;
+        }
+        if (f[0] != '%') {
+            s[l] = f[0];
+            l += 1;
+            continue;
+        }
+        f += 1;
+        var pad: c_int = 0;
+        if (f[0] == '-' or f[0] == '_' or f[0] == '0') {
+            pad = @intCast(f[0]);
+            f += 1;
+        }
+        const plus = f[0] == '+';
+        if (plus) f += 1;
+        var p: [*:0]const wchar_t = undefined;
+        var width = parseWideWidth(f, &p);
+        if (p[0] == 'C' or p[0] == 'F' or p[0] == 'G' or p[0] == 'Y') {
+            if (width == 0 and p != f) width = 1;
+        } else width = 0;
+        f = p;
+        if (f[0] == 'E' or f[0] == 'O') f += 1;
+        var buf: [100]u8 = undefined;
+        var wbuf: [100]wchar_t = undefined;
+        var k: usize = undefined;
+        const text_mb = strftimeFmt1(&buf, &k, @intCast(f[0]), t, loc, pad) orelse break;
+        k = mbstowcs(&wbuf, text_mb, wbuf.len);
+        if (k == std.math.maxInt(usize)) return 0;
+        var text: [*]wchar_t = &wbuf;
+        if (width != 0) {
+            while (text[0] == '+' or text[0] == '-' or (text[0] == '0' and text[1] != 0)) {
+                text += 1;
+                k -= 1;
+            }
+            width -= 1;
+            if (plus and t.tm_year >= 10000 - 1900) {
+                s[l] = '+';
+                l += 1;
+            } else if (t.tm_year < -1900) {
+                s[l] = '-';
+                l += 1;
+            } else width += 1;
+            while (width > k and l < n) : (width -= 1) {
+                s[l] = '0';
+                l += 1;
+            }
+        }
+        if (k >= n - l) k = n - l;
+        @memcpy(s[l .. l + k], text[0..k]);
+        l += k;
+    }
+    if (n != 0) {
+        if (l == n) l = n - 1;
+        s[l] = 0;
+    }
+    return 0;
+}
+
+fn wcsftimeImpl(s: [*]wchar_t, n: usize, f: [*:0]const wchar_t, t: *const tm) callconv(.c) usize {
+    return __wcsftime_l(s, n, f, t, currentLocale());
+}
+
 fn nanosleepLinux(req: *const linux.timespec, rem: ?*linux.timespec) callconv(.c) c_int {
     return errno(linux.nanosleep(req, rem));
 }
@@ -525,10 +951,7 @@ fn clock_nanosleepLinux(clk: c_int, flags: c_int, req: *const linux.timespec, re
 const SIGTIMER: usize = 32;
 const ptr_size = @sizeOf(usize);
 const tls_above_tp = switch (builtin.cpu.arch) {
-    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb,
-    .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-    .loongarch64, .m68k => true,
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .loongarch64, .m68k => true,
     else => false,
 };
 const part1_size: usize = if (tls_above_tp) 4 * ptr_size else 6 * ptr_size;

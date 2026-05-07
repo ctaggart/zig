@@ -76,7 +76,6 @@ const SEEK_END: c_int = 2;
 const towrite_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__towrite" });
 const linux = std.os.linux;
 const c_errno = @import("../c.zig").errno;
-const fflush_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "fflush" });
 const uflow_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__uflow" });
 const overflow_fn = @extern(*const fn (*FILE, c_int) callconv(.c) c_int, .{ .name = "__overflow" });
 const VaList = std.builtin.VaList;
@@ -209,6 +208,16 @@ comptime {
         symbol(&stdout_write_impl, "__stdout_write");
 
         symbol(&getdelim_impl, "getdelim");
+
+        // File open/close/flush operations (fopen.c, fclose.c, fflush.c, freopen.c, __fdopen.c, tmpfile.c)
+        symbol(&fopen_impl, "fopen");
+        symbol(&fclose_impl, "fclose");
+        symbol(&fflush_impl, "fflush");
+        symbol(&fflush_impl, "fflush_unlocked");
+        symbol(&freopen_impl, "freopen");
+        symbol(&fdopen_impl, "__fdopen");
+        symbol(&fdopen_impl, "fdopen");
+        symbol(&tmpfile_impl, "tmpfile");
 
         // Variadic entry points forwarding to v* implementations (unblocked by #243 fix).
         symbol(&printf_impl, "printf");
@@ -682,7 +691,7 @@ fn fgets(s: [*]u8, n_arg: c_int, f: *FILE) callconv(.c) ?[*]u8 {
 
 /// _flushlbf: flush all line-buffered streams
 fn _flushlbf() callconv(.c) void {
-    _ = fflush_fn(null);
+    _ = fflush_impl(null);
 }
 
 /// __fsetlocking: set locking type (no-op in musl)
@@ -919,23 +928,14 @@ fn overflow_impl(f: *FILE, _c: c_int) callconv(.c) c_int {
 }
 
 /// fprintf.c: int fprintf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// printf.c: int printf(const char *restrict fmt, ...)
-
 /// snprintf.c: int snprintf(char *restrict s, size_t n, const char *restrict fmt, ...)
-
 /// sprintf.c: int sprintf(char *restrict s, const char *restrict fmt, ...)
-
 /// asprintf.c: int asprintf(char **s, const char *fmt, ...)
-
 /// dprintf.c: int dprintf(int fd, const char *restrict fmt, ...)
-
 /// scanf.c: int scanf(const char *restrict fmt, ...)
-
 /// fscanf.c: int fscanf(FILE *restrict f, const char *restrict fmt, ...)
-
 /// sscanf.c: int sscanf(const char *restrict s, const char *restrict fmt, ...)
-
 /// perror.c: void perror(const char *msg)
 fn perror_impl(msg: ?[*:0]const u8) callconv(.c) void {
     const f: *FILE = @ptrCast(stderr_ext.*);
@@ -988,6 +988,7 @@ fn fmodeflags_impl(mode: [*:0]const u8) callconv(.c) c_int {
     if (has_x) o.EXCL = true;
     if (has_e) o.CLOEXEC = true;
     if (mode[0] != 'r') o.CREAT = true;
+    if (@hasField(O, "LARGEFILE")) o.LARGEFILE = true;
     if (mode[0] == 'w') o.TRUNC = true;
     if (mode[0] == 'a') o.APPEND = true;
     return @bitCast(@as(u32, @bitCast(o)));
@@ -1009,6 +1010,7 @@ fn fopen_rb_ca_impl(filename: [*:0]const u8, f: *FILE, buf: [*]u8, len: usize) c
     var o = O{};
     o.ACCMODE = .RDONLY;
     o.CLOEXEC = true;
+    if (@hasField(O, "LARGEFILE")) o.LARGEFILE = true;
     const fd_raw: isize = @bitCast(linux.openat(linux.AT.FDCWD, @ptrCast(filename), o, 0));
     if (fd_raw < 0) return null;
     const fd: c_int = @intCast(fd_raw);
@@ -1022,6 +1024,240 @@ fn fopen_rb_ca_impl(filename: [*:0]const u8, f: *FILE, buf: [*]u8, len: usize) c
     f.fd = fd;
     f.lock = -1;
     return f;
+}
+
+const O_CREAT_U: u32 = @bitCast(linux.O{ .CREAT = true });
+const O_EXCL_U: u32 = @bitCast(linux.O{ .EXCL = true });
+const O_APPEND_U: u32 = @bitCast(linux.O{ .APPEND = true });
+const O_CLOEXEC_U: u32 = @bitCast(linux.O{ .CLOEXEC = true });
+const F_SETFL: c_int = linux.F.SETFL;
+const F_GETFL: c_int = linux.F.GETFL;
+const F_SETFD: c_int = linux.F.SETFD;
+const FD_CLOEXEC_U: usize = linux.FD_CLOEXEC;
+const MAX_TMPFILE_TRIES = 100;
+
+fn modeHas(mode: [*:0]const u8, ch: u8) bool {
+    var p = mode;
+    while (p[0] != 0) : (p += 1) {
+        if (p[0] == ch) return true;
+    }
+    return false;
+}
+
+fn validInitialMode(mode: [*:0]const u8) bool {
+    return mode[0] == 'r' or mode[0] == 'w' or mode[0] == 'a';
+}
+
+fn flagsHas(flags: c_int, mask: u32) bool {
+    return (@as(u32, @bitCast(flags)) & mask) != 0;
+}
+
+fn flagsWithout(flags: c_int, mask: u32) c_int {
+    return @bitCast(@as(u32, @bitCast(flags)) & ~mask);
+}
+
+fn flagsToOpen(flags: c_int) linux.O {
+    return @bitCast(@as(u32, @bitCast(flags)));
+}
+
+fn syscallArgInt(x: c_int) usize {
+    return @bitCast(@as(isize, x));
+}
+
+fn fopen_impl(filename: [*:0]const u8, mode: [*:0]const u8) callconv(.c) ?*FILE {
+    if (!validInitialMode(mode)) {
+        setErrno(.INVAL);
+        return null;
+    }
+
+    const flags = fmodeflags_impl(mode);
+    const fd = c_errno(linux.openat(linux.AT.FDCWD, filename, flagsToOpen(flags), 0o666));
+    if (fd < 0) return null;
+    if (flagsHas(flags, O_CLOEXEC_U))
+        _ = linux.fcntl(fd, F_SETFD, FD_CLOEXEC_U);
+
+    if (fdopen_impl(fd, mode)) |f| return f;
+
+    _ = linux.close(@bitCast(fd));
+    return null;
+}
+
+fn fdopen_impl(fd: c_int, mode: [*:0]const u8) callconv(.c) ?*FILE {
+    if (!validInitialMode(mode)) {
+        setErrno(.INVAL);
+        return null;
+    }
+
+    const raw = malloc_fn(@sizeOf(FILE) + UNGET + BUFSIZ) orelse return null;
+    const f: *FILE = @ptrCast(@alignCast(raw));
+    @memset(@as([*]u8, @ptrCast(f))[0..@sizeOf(FILE)], 0);
+
+    if (!modeHas(mode, '+')) f.flags = if (mode[0] == 'r') F_NOWR else F_NORD;
+
+    if (modeHas(mode, 'e')) _ = linux.fcntl(fd, F_SETFD, FD_CLOEXEC_U);
+
+    if (mode[0] == 'a') {
+        const fl_raw: isize = @bitCast(linux.fcntl(fd, F_GETFL, 0));
+        if ((@as(usize, @bitCast(fl_raw)) & O_APPEND_U) == 0) {
+            _ = linux.fcntl(fd, F_SETFL, @as(usize, @bitCast(fl_raw)) | O_APPEND_U);
+        }
+        f.flags |= F_APP;
+    }
+
+    f.fd = fd;
+    f.buf = @as([*]u8, @ptrCast(f)) + @sizeOf(FILE) + UNGET;
+    f.buf_size = BUFSIZ;
+
+    f.lbf = EOF;
+    if (f.flags & F_NOWR == 0) {
+        var wsz: [4]u16 = undefined;
+        const r: isize = @bitCast(linux.ioctl(@bitCast(fd), TIOCGWINSZ, @intFromPtr(&wsz)));
+        if (r == 0) f.lbf = '\n';
+    }
+
+    f.read_fn = &stdio_read_impl;
+    f.write_fn = &stdio_write_impl;
+    f.seek_fn = &stdio_seek_impl;
+    f.close_fn = &stdio_close_impl;
+
+    if (libc_ptr.threaded == 0) f.lock = -1;
+
+    return ofl_add_fn(f);
+}
+
+fn fflush_impl(f_raw: ?*FILE) callconv(.c) c_int {
+    if (f_raw == null) {
+        var r: c_int = 0;
+        if (stdout_used.*) |f| r |= fflush_impl(f);
+        if (stderr_used.*) |f| r |= fflush_impl(f);
+
+        const head = ofl_lock_fn();
+        var f = head.*;
+        while (f) |cur| : (f = cur.next) {
+            const need_unlock = flock(cur);
+            if (cur.wpos != cur.wbase) r |= fflush_impl(cur);
+            funlock(cur, need_unlock);
+        }
+        ofl_unlock_fn();
+
+        return r;
+    }
+
+    const f = f_raw.?;
+    const need_unlock = flock(f);
+
+    if (f.wpos != f.wbase) {
+        _ = f.write_fn.?(f, @ptrFromInt(1), 0);
+        if (f.wpos == null) {
+            funlock(f, need_unlock);
+            return EOF;
+        }
+    }
+
+    if (f.rpos != f.rend) {
+        const rpos = f.rpos orelse f.rend.?;
+        const delta: i64 = @intCast(@as(isize, @bitCast(@intFromPtr(rpos) -% @intFromPtr(f.rend.?))));
+        _ = f.seek_fn.?(f, delta, SEEK_CUR);
+    }
+
+    f.wpos = null;
+    f.wbase = null;
+    f.wend = null;
+    f.rpos = null;
+    f.rend = null;
+
+    funlock(f, need_unlock);
+    return 0;
+}
+
+fn fclose_impl(f: *FILE) callconv(.c) c_int {
+    const need_unlock = flock(f);
+    var r = fflush_impl(f);
+    r |= f.close_fn.?(f);
+    funlock(f, need_unlock);
+
+    if (f.flags & F_PERM != 0) return r;
+
+    unlist_locked_file_impl(f);
+
+    const head = ofl_lock_fn();
+    if (f.prev) |prev| prev.next = f.next;
+    if (f.next) |next| next.prev = f.prev;
+    if (head.* == f) head.* = f.next;
+    ofl_unlock_fn();
+
+    free_fn(f.getln_buf);
+    free_fn(f);
+
+    return r;
+}
+
+fn freopen_impl(filename: ?[*:0]const u8, mode: [*:0]const u8, f: *FILE) callconv(.c) ?*FILE {
+    var fl = fmodeflags_impl(mode);
+
+    const need_unlock = flock(f);
+
+    _ = fflush_impl(f);
+
+    if (filename == null) {
+        if (flagsHas(fl, O_CLOEXEC_U))
+            _ = linux.fcntl(f.fd, F_SETFD, FD_CLOEXEC_U);
+        fl = flagsWithout(fl, O_CREAT_U | O_EXCL_U | O_CLOEXEC_U);
+        const rc: isize = @bitCast(linux.fcntl(f.fd, F_SETFL, syscallArgInt(fl)));
+        if (rc < 0) {
+            funlock(f, need_unlock);
+            _ = fclose_impl(f);
+            return null;
+        }
+    } else {
+        const f2 = fopen_impl(filename.?, mode) orelse {
+            funlock(f, need_unlock);
+            _ = fclose_impl(f);
+            return null;
+        };
+        if (f2.fd == f.fd) {
+            f2.fd = -1;
+        } else {
+            const rc: isize = @bitCast(linux.dup3(f2.fd, f.fd, if (flagsHas(fl, O_CLOEXEC_U)) O_CLOEXEC_U else 0));
+            if (rc < 0) {
+                _ = fclose_impl(f2);
+                funlock(f, need_unlock);
+                _ = fclose_impl(f);
+                return null;
+            }
+        }
+
+        f.flags = (f.flags & F_PERM) | f2.flags;
+        f.read_fn = f2.read_fn;
+        f.write_fn = f2.write_fn;
+        f.seek_fn = f2.seek_fn;
+        f.close_fn = f2.close_fn;
+
+        _ = fclose_impl(f2);
+    }
+
+    f.mode = 0;
+    f.locale = null;
+    funlock(f, need_unlock);
+    return f;
+}
+
+fn tmpfile_impl() callconv(.c) ?*FILE {
+    var s = "/tmp/tmpfile_XXXXXX".*;
+    var try_count: usize = 0;
+    while (try_count < MAX_TMPFILE_TRIES) : (try_count += 1) {
+        _ = randname_fn(@ptrCast(&s[13]));
+        var o = linux.O{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true };
+        if (@hasField(linux.O, "LARGEFILE")) o.LARGEFILE = true;
+        const fd = c_errno(linux.openat(linux.AT.FDCWD, @ptrCast(&s), o, 0o600));
+        if (fd >= 0) {
+            _ = linux.unlink(@ptrCast(&s));
+            const f = fdopen_impl(fd, "w+");
+            if (f == null) _ = linux.close(@bitCast(fd));
+            return f;
+        }
+    }
+    return null;
 }
 
 /// fgetln.c: char *fgetln(FILE *f, size_t *plen)
@@ -1807,17 +2043,11 @@ fn vswscanf_impl(s: [*:0]const wchar_t, fmt: [*:0]const wchar_t, ap: VaList) cal
 }
 
 /// wprintf.c: int wprintf(const wchar_t *restrict fmt, ...)
-
 /// fwprintf.c: int fwprintf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swprintf.c: int swprintf(wchar_t *restrict s, size_t n, const wchar_t *restrict fmt, ...)
-
 /// wscanf.c: int wscanf(const wchar_t *restrict fmt, ...)
-
 /// fwscanf.c: int fwscanf(FILE *restrict f, const wchar_t *restrict fmt, ...)
-
 /// swscanf.c: int swscanf(const wchar_t *restrict s, const wchar_t *restrict fmt, ...)
-
 /// vwprintf.c: int vwprintf(const wchar_t *restrict fmt, va_list ap)
 fn vwprintf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
     return vfwprintf_fn(stdout_ext.*, fmt, ap);
@@ -1962,13 +2192,24 @@ const PThread = extern struct {
 
     /// Architectures where musl defines TLS_ABOVE_TP.
     const tls_above_tp: bool = switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be,
-        .arm, .armeb, .thumb, .thumbeb,
+        .aarch64,
+        .aarch64_be,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
         .loongarch64,
         .m68k,
-        .mips, .mipsel, .mips64, .mips64el,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-        .riscv32, .riscv64,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .riscv32,
+        .riscv64,
         => true,
         else => false,
     };
@@ -2624,6 +2865,11 @@ fn fopencookie_impl(cookie: ?*anyopaque, mode: [*:0]const u8, iofuncs: CookieIoF
 // Extern references to musl C functions that are still compiled from C sources.
 const free_fn = @extern(*const fn (?*anyopaque) callconv(.c) void, .{ .name = "free" });
 const ofl_add_fn = @extern(*const fn (*FILE) callconv(.c) ?*FILE, .{ .name = "__ofl_add" });
+const ofl_lock_fn = @extern(*const fn () callconv(.c) *?*FILE, .{ .name = "__ofl_lock" });
+const ofl_unlock_fn = @extern(*const fn () callconv(.c) void, .{ .name = "__ofl_unlock" });
+const stdout_used = @extern(*const ?*FILE, .{ .name = "__stdout_used" });
+const stderr_used = @extern(*const ?*FILE, .{ .name = "__stderr_used" });
+const randname_fn = @extern(*const fn ([*]u8) callconv(.c) [*]u8, .{ .name = "__randname" });
 const libc_ptr = @extern(*const Libc, .{ .name = "__libc" });
 const fwide_fn = @extern(*const fn (*FILE, c_int) callconv(.c) c_int, .{ .name = "fwide" });
 const mbsnrtowcs_fn = @extern(*const fn (?[*]wchar_t, *?[*]const u8, usize, usize, *mbstate_t) callconv(.c) usize, .{ .name = "mbsnrtowcs" });

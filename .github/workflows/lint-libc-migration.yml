@@ -10,12 +10,14 @@ on:
       - lib/c/**
       - scripts/check_musl_migration.py
       - .github/workflows/lint-libc-migration.yml
+      - .github/workflows/pr-build.yml
   pull_request:
     paths:
       - src/libs/musl.zig
       - lib/c/**
       - scripts/check_musl_migration.py
       - .github/workflows/lint-libc-migration.yml
+      - .github/workflows/pr-build.yml
   workflow_dispatch:
 
 jobs:

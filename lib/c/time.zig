@@ -3,6 +3,9 @@ const std = @import("std");
 const linux = std.os.linux;
 const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
+const TZNAME_MAX = 6;
+const NAME_MAX = linux.NAME_MAX;
+const PATH_MAX = linux.PATH_MAX;
 const timeb = extern struct {
     time: linux.time_t,
     millitm: c_ushort,
@@ -24,6 +27,33 @@ const tm = extern struct {
     __tm_zone: ?[*:0]const u8,
 };
 const __utc: [3:0]u8 = "UTC".*;
+var __timezone: c_long = 0;
+var __daylight: c_int = 0;
+var __tzname: [2]?[*:0]const u8 = .{ null, null };
+var std_name: [TZNAME_MAX + 1:0]u8 = [_:0]u8{0} ** (TZNAME_MAX + 1);
+var dst_name: [TZNAME_MAX + 1:0]u8 = [_:0]u8{0} ** (TZNAME_MAX + 1);
+var dst_off: c_int = 0;
+var r0: [5]c_int = .{0} ** 5;
+var r1: [5]c_int = .{0} ** 5;
+var zi: ?[*]const u8 = null;
+var trans: [*]const u8 = undefined;
+var index: [*]const u8 = undefined;
+var types: [*]const u8 = undefined;
+var abbrevs: [*]const u8 = undefined;
+var abbrevs_end: [*]const u8 = undefined;
+var map_size: usize = 0;
+var old_tz_buf: [32:0]u8 = [_:0]u8{0} ** 32;
+var old_tz: ?[*]u8 = &old_tz_buf;
+var old_tz_size: usize = 32;
+var timezone_lock: c_int = 0;
+var __timezone_lockptr: *volatile c_int = &timezone_lock;
+const LibC = extern struct {
+    can_do_threads: u8,
+    threaded: u8,
+    secure: u8,
+    need_locks: i8,
+};
+extern var __libc: LibC;
 const secs_through_month = [12]c_int{
     0,           31 * 86400,  59 * 86400,  90 * 86400,
     120 * 86400, 151 * 86400, 181 * 86400, 212 * 86400,
@@ -42,7 +72,6 @@ var asctime_buf: [26]u8 = undefined;
 extern "c" fn localtime(t: *const time_t) callconv(.c) ?*tm;
 extern "c" fn localtime_r(t: *const time_t, result: *tm) callconv(.c) ?*tm;
 // Internal helpers (remain as C or from other Zig PRs)
-extern "c" fn __secs_to_zone(t: c_longlong, local: c_int, isdst: *c_int, offset: *c_long, oppoff: ?*c_long, zonename: *?[*:0]const u8) callconv(.c) void;
 var localtime_buf: tm = undefined;
 extern "c" fn getenv(name: [*:0]const u8) callconv(.c) ?[*:0]const u8;
 extern "c" fn fopen(path: [*:0]const u8, mode: [*:0]const u8) callconv(.c) ?*anyopaque;
@@ -51,6 +80,10 @@ extern "c" fn fclose(stream: *anyopaque) callconv(.c) c_int;
 extern "c" fn ferror(stream: *anyopaque) callconv(.c) c_int;
 extern "c" fn strptime(s: [*:0]const u8, fmt: [*:0]const u8, t: *tm) callconv(.c) ?[*:0]const u8;
 extern "c" fn pthread_setcancelstate(state: c_int, oldstate: ?*c_int) callconv(.c) c_int;
+extern "c" fn malloc(size: usize) callconv(.c) ?*anyopaque;
+extern "c" fn __map_file(pathname: [*:0]const u8, size: *usize) callconv(.c) ?[*]const u8;
+extern "c" fn __lock(l: *volatile c_int) callconv(.c) void;
+extern "c" fn __unlock(l: *volatile c_int) callconv(.c) void;
 const PTHREAD_CANCEL_DEFERRED = 0;
 var getdate_err: c_int = 0;
 var tmbuf: tm = undefined;
@@ -75,6 +108,17 @@ comptime {
         symbol(&timer_deleteLinux, "timer_delete");
         symbol(&timer_getoverrunLinux, "timer_getoverrun");
         symbol(&timer_gettimeLinux, "timer_gettime");
+        symbol(&__secs_to_zone, "__secs_to_zone");
+        symbol(&__tzset, "__tzset");
+        symbol(&__tzset, "tzset");
+        symbol(&__tm_to_tzname, "__tm_to_tzname");
+        symbol(&__timezone, "__timezone");
+        symbol(&__timezone, "timezone");
+        symbol(&__daylight, "__daylight");
+        symbol(&__daylight, "daylight");
+        symbol(&__tzname, "__tzname");
+        symbol(&__tzname, "tzname");
+        @export(&__timezone_lockptr, .{ .name = "__timezone_lockptr", .linkage = .weak, .visibility = .hidden });
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&difftimeImpl, "difftime");
@@ -127,6 +171,44 @@ fn timeLinux(t: ?*linux.time_t) callconv(.c) linux.time_t {
     const sec: linux.time_t = @intCast(ts.sec);
     if (t) |ptr| ptr.* = sec;
     return sec;
+}
+
+fn cStringLen(s: [*:0]const u8) usize {
+    var i: usize = 0;
+    while (s[i] != 0) : (i += 1) {}
+    return i;
+}
+
+fn cStringEq(a: [*:0]const u8, b: [*:0]const u8) bool {
+    var i: usize = 0;
+    while (a[i] == b[i]) : (i += 1) {
+        if (a[i] == 0) return true;
+    }
+    return false;
+}
+
+fn cStringChr(s: [*:0]const u8, c: u8) bool {
+    var i: usize = 0;
+    while (s[i] != 0) : (i += 1) {
+        if (s[i] == c) return true;
+    }
+    return false;
+}
+
+fn isDigit(c: u8) bool {
+    return c >= '0' and c <= '9';
+}
+
+fn isAlpha(c: u8) bool {
+    return (c | 32) >= 'a' and (c | 32) <= 'z';
+}
+
+fn lockTimezone() void {
+    __lock(&timezone_lock);
+}
+
+fn unlockTimezone() void {
+    __unlock(&timezone_lock);
 }
 
 fn clockLinux() callconv(.c) c_long {
@@ -424,6 +506,342 @@ fn ctime_rImpl(t: *const time_t, buf: [*]u8) callconv(.c) ?[*]u8 {
     return __asctime_r(r, buf);
 }
 
+fn getint(p: *[*:0]const u8) c_int {
+    var x: c_uint = 0;
+    while (isDigit(p.*[0])) : (p.* += 1) x = @as(c_uint, p.*[0] - '0') + 10 * x;
+    return @intCast(x);
+}
+
+fn getoff(p: *[*:0]const u8) c_int {
+    var neg = false;
+    if (p.*[0] == '-') {
+        p.* += 1;
+        neg = true;
+    } else if (p.*[0] == '+') p.* += 1;
+    var off: c_int = 3600 * getint(p);
+    if (p.*[0] == ':') {
+        p.* += 1;
+        off += 60 * getint(p);
+        if (p.*[0] == ':') {
+            p.* += 1;
+            off += getint(p);
+        }
+    }
+    return if (neg) -off else off;
+}
+
+fn getrule(p: *[*:0]const u8, rule: *[5]c_int) void {
+    const r: c_int = p.*[0];
+    rule[0] = r;
+    if (r != 'M') {
+        if (r == 'J') p.* += 1 else rule[0] = 0;
+        rule[1] = getint(p);
+    } else {
+        p.* += 1;
+        rule[1] = getint(p);
+        p.* += 1;
+        rule[2] = getint(p);
+        p.* += 1;
+        rule[3] = getint(p);
+    }
+    if (p.*[0] == '/') {
+        p.* += 1;
+        rule[4] = getoff(p);
+    } else rule[4] = 7200;
+}
+
+fn getname(d: [*:0]u8, p: *[*:0]const u8) void {
+    var i: usize = 0;
+    if (p.*[0] == '<') {
+        p.* += 1;
+        while (p.*[i] != 0 and p.*[i] != '>') : (i += 1) {
+            if (i < TZNAME_MAX) d[i] = p.*[i];
+        }
+        if (p.*[i] != 0) p.* += 1;
+    } else while (isAlpha(p.*[i])) : (i += 1) {
+        if (i < TZNAME_MAX) d[i] = p.*[i];
+    }
+    p.* += i;
+    d[if (i < TZNAME_MAX) i else TZNAME_MAX] = 0;
+}
+
+fn ziRead32(z: [*]const u8) u32 {
+    return @as(u32, z[0]) << 24 | @as(u32, z[1]) << 16 | @as(u32, z[2]) << 8 | z[3];
+}
+fn ziDotprod(z_start: [*]const u8, v: []const u8) usize {
+    var z = z_start;
+    var y: usize = 0;
+    for (v) |coef| {
+        y += @as(usize, ziRead32(z)) * coef;
+        z += 4;
+    }
+    return y;
+}
+
+fn doTzset() void {
+    var buf: [NAME_MAX + 25:0]u8 = [_:0]u8{0} ** (NAME_MAX + 25);
+    const pathname_base: [*:0]u8 = @ptrCast((&buf).ptr + 24);
+    var map: ?[*]const u8 = null;
+    var s = getenv("TZ") orelse "/etc/localtime";
+    if (s[0] == 0) s = &__utc;
+    if (old_tz) |ot| if (cStringEq(@ptrCast(ot), s)) return;
+    for (0..5) |i| {
+        r0[i] = 0;
+        r1[i] = 0;
+    }
+    if (zi) |z| _ = linux.munmap(z, map_size);
+    zi = null;
+    var s_len = cStringLen(s);
+    if (s_len > PATH_MAX + 1) {
+        s = &__utc;
+        s_len = 3;
+    }
+    if (s_len >= old_tz_size) {
+        old_tz_size *= 2;
+        if (s_len >= old_tz_size) old_tz_size = s_len + 1;
+        if (old_tz_size > PATH_MAX + 2) old_tz_size = PATH_MAX + 2;
+        old_tz = @ptrCast(malloc(old_tz_size));
+    }
+    if (old_tz) |ot| @memcpy(ot[0 .. s_len + 1], s[0 .. s_len + 1]);
+    var posix_form = false;
+    if (s[0] != ':') {
+        var p2 = s;
+        var dummy_name: [TZNAME_MAX + 1:0]u8 = [_:0]u8{0} ** (TZNAME_MAX + 1);
+        getname(&dummy_name, &p2);
+        if (p2 != s and (p2[0] == '+' or p2[0] == '-' or isDigit(p2[0]) or cStringEq(&dummy_name, "UTC") or cStringEq(&dummy_name, "GMT"))) posix_form = true;
+    }
+    if (!posix_form) {
+        if (s[0] == ':') s += 1;
+        if (s[0] == '/' or s[0] == '.') {
+            if (__libc.secure == 0 or cStringEq(s, "/etc/localtime")) map = __map_file(s, &map_size);
+        } else {
+            const l0 = cStringLen(s);
+            if (l0 <= NAME_MAX and !cStringChr(s, '.')) {
+                @memcpy(pathname_base[0 .. l0 + 1], s[0 .. l0 + 1]);
+                pathname_base[l0] = 0;
+                const search = "/usr/share/zoneinfo/\x00/share/zoneinfo/\x00/etc/zoneinfo/\x00";
+                var try_idx: usize = 0;
+                while (map == null and search[try_idx] != 0) {
+                    const try_path: [*:0]const u8 = @ptrCast(search.ptr + try_idx);
+                    const l = cStringLen(try_path);
+                    @memcpy((pathname_base - l)[0..l], try_path[0..l]);
+                    map = __map_file(pathname_base - l, &map_size);
+                    try_idx += l + 1;
+                }
+            }
+        }
+        if (map == null) s = &__utc;
+    }
+    if (map) |m| if (map_size < 44 or !std.mem.eql(u8, m[0..4], "TZif")) {
+        _ = linux.munmap(m, map_size);
+        map = null;
+        s = &__utc;
+    };
+    zi = map;
+    if (map) |m| {
+        var scale: u5 = 2;
+        if (m[4] != '1') {
+            const skip = ziDotprod(m + 20, &.{ 1, 1, 8, 5, 6, 1 });
+            trans = m + skip + 44 + 44;
+            scale += 1;
+        } else trans = m + 44;
+        index = trans + (ziRead32(trans - 12) << scale);
+        types = index + ziRead32(trans - 12);
+        abbrevs = types + 6 * ziRead32(trans - 8);
+        abbrevs_end = abbrevs + ziRead32(trans - 4);
+        if (m[map_size - 1] == '\n') {
+            var pos = map_size - 2;
+            while (m[pos] != '\n') : (pos -= 1) {}
+            s = @ptrCast(m + pos + 1);
+        } else {
+            __tzname = .{ null, null };
+            __daylight = 0;
+            __timezone = 0;
+            dst_off = 0;
+            var tp = types;
+            while (@intFromPtr(tp) < @intFromPtr(abbrevs)) : (tp += 6) {
+                if (tp[4] == 0 and __tzname[0] == null) {
+                    __tzname[0] = @ptrCast(abbrevs + tp[5]);
+                    __timezone = -@as(c_long, @intCast(@as(i32, @bitCast(ziRead32(tp)))));
+                }
+                if (tp[4] != 0 and __tzname[1] == null) {
+                    __tzname[1] = @ptrCast(abbrevs + tp[5]);
+                    dst_off = -@as(c_int, @bitCast(ziRead32(tp)));
+                    __daylight = 1;
+                }
+            }
+            if (__tzname[0] == null) __tzname[0] = __tzname[1];
+            if (__tzname[0] == null) __tzname[0] = &__utc;
+            if (__daylight == 0) {
+                __tzname[1] = __tzname[0];
+                dst_off = @intCast(__timezone);
+            }
+            return;
+        }
+    }
+    getname(&std_name, &s);
+    __tzname[0] = &std_name;
+    __timezone = getoff(&s);
+    getname(&dst_name, &s);
+    __tzname[1] = &dst_name;
+    if (dst_name[0] != 0) {
+        __daylight = 1;
+        if (s[0] == '+' or s[0] == '-' or isDigit(s[0])) dst_off = getoff(&s) else dst_off = @intCast(__timezone - 3600);
+    } else {
+        __daylight = 0;
+        dst_off = @intCast(__timezone);
+    }
+    if (s[0] == ',') {
+        s += 1;
+        getrule(&s, &r0);
+    }
+    if (s[0] == ',') {
+        s += 1;
+        getrule(&s, &r1);
+    }
+}
+
+fn scanTrans(t: c_longlong, local: c_int, alt: ?*usize) usize {
+    const z = zi.?;
+    const scale: u5 = 3 - @intFromBool(trans == z + 44);
+    var off: c_int = 0;
+    var a: usize = 0;
+    var n: usize = (@intFromPtr(index) - @intFromPtr(trans)) >> scale;
+    if (n == 0) {
+        if (alt) |ap| ap.* = 0;
+        return 0;
+    }
+    while (n > 1) {
+        const m = a + n / 2;
+        var xu = @as(u64, ziRead32(trans + (m << scale)));
+        const x: c_longlong = if (scale == 3) blk: {
+            xu = xu << 32 | ziRead32(trans + (m << scale) + 4);
+            break :blk @bitCast(xu);
+        } else @as(i32, @bitCast(@as(u32, @intCast(xu))));
+        if (local != 0) off = @bitCast(ziRead32(types + 6 * index[m - 1]));
+        if (t - off < x) n /= 2 else {
+            a = m;
+            n -= n / 2;
+        }
+    }
+    n = (@intFromPtr(index) - @intFromPtr(trans)) >> scale;
+    if (a == n - 1) return std.math.maxInt(usize);
+    if (a == 0) {
+        var xu = @as(u64, ziRead32(trans));
+        const x: c_longlong = if (scale == 3) blk: {
+            xu = xu << 32 | ziRead32(trans + 4);
+            break :blk @bitCast(xu);
+        } else @as(i32, @bitCast(@as(u32, @intCast(xu))));
+        var j: usize = 0;
+        var i: usize = @intFromPtr(abbrevs) - @intFromPtr(types);
+        while (i != 0) {
+            i -= 6;
+            if (types[i + 4] == 0) j = i;
+        }
+        if (local != 0) off = @bitCast(ziRead32(types + j));
+        if (t - off < x) {
+            if (alt) |ap| ap.* = index[0];
+            return j / 6;
+        }
+    }
+    if (alt) |ap| {
+        if (a != 0 and types[6 * index[a - 1] + 4] != types[6 * index[a] + 4]) ap.* = index[a - 1] else if (a + 1 < n and types[6 * index[a + 1] + 4] != types[6 * index[a] + 4]) ap.* = index[a + 1] else ap.* = index[a];
+    }
+    return index[a];
+}
+
+fn daysInMonth(m: c_int, is_leap: c_int) c_int {
+    if (m == 2) return 28 + is_leap;
+    return 30 + @as(c_int, @intCast((@as(u32, 0xad5) >> @intCast(m - 1)) & 1));
+}
+
+fn ruleToSecs(rule: *const [5]c_int, year: c_longlong) c_longlong {
+    var is_leap: c_int = undefined;
+    var t = __year_to_secs(year, &is_leap);
+    if (rule[0] != 'M') {
+        var x = rule[1];
+        if (rule[0] == 'J' and (x < 60 or is_leap == 0)) x -= 1;
+        t += 86400 * @as(c_longlong, x);
+    } else {
+        var n = rule[2];
+        t += __month_to_secs(rule[1] - 1, is_leap);
+        const wday: c_int = @intCast(@divTrunc(@mod(t + 4 * 86400, 7 * 86400), 86400));
+        var days = rule[3] - wday;
+        if (days < 0) days += 7;
+        if (n == 5 and days + 28 >= daysInMonth(rule[1], is_leap)) n = 4;
+        t += 86400 * @as(c_longlong, days + 7 * (n - 1));
+    }
+    t += rule[4];
+    return t;
+}
+
+fn __secs_to_zone(t: c_longlong, local: c_int, isdst: *c_int, offset: *c_long, oppoff: ?*c_long, zonename: *?[*:0]const u8) callconv(.c) void {
+    lockTimezone();
+    doTzset();
+    if (zi != null) {
+        var alt: usize = undefined;
+        const i = scanTrans(t, local, &alt);
+        if (i != std.math.maxInt(usize)) {
+            isdst.* = types[6 * i + 4];
+            offset.* = @as(i32, @bitCast(ziRead32(types + 6 * i)));
+            zonename.* = @ptrCast(abbrevs + types[6 * i + 5]);
+            if (oppoff) |op| op.* = @as(i32, @bitCast(ziRead32(types + 6 * alt)));
+            unlockTimezone();
+            return;
+        }
+    }
+    if (__daylight != 0) {
+        var y: c_longlong = @divTrunc(t, 31556952) + 70;
+        while (__year_to_secs(y, null) > t) y -= 1;
+        while (__year_to_secs(y + 1, null) < t) y += 1;
+        var t0 = ruleToSecs(&r0, y);
+        var t1 = ruleToSecs(&r1, y);
+        if (local == 0) {
+            t0 += __timezone;
+            t1 += dst_off;
+        }
+        if (t0 < t1) {
+            if (t >= t0 and t < t1) {
+                isdst.* = 1;
+                offset.* = -dst_off;
+                if (oppoff) |op| op.* = -__timezone;
+                zonename.* = __tzname[1];
+                unlockTimezone();
+                return;
+            }
+        } else if (!(t >= t1 and t < t0)) {
+            isdst.* = 1;
+            offset.* = -dst_off;
+            if (oppoff) |op| op.* = -__timezone;
+            zonename.* = __tzname[1];
+            unlockTimezone();
+            return;
+        }
+    }
+    isdst.* = 0;
+    offset.* = -__timezone;
+    if (oppoff) |op| op.* = -dst_off;
+    zonename.* = __tzname[0];
+    unlockTimezone();
+}
+
+fn __tzset() callconv(.c) void {
+    lockTimezone();
+    doTzset();
+    unlockTimezone();
+}
+
+fn __tm_to_tzname(t: *const tm) callconv(.c) [*:0]const u8 {
+    var p = t.__tm_zone orelse return "";
+    lockTimezone();
+    doTzset();
+    if (p != &__utc and p != __tzname[0] and p != __tzname[1]) {
+        if (zi == null or @intFromPtr(p) -% @intFromPtr(abbrevs) >= @intFromPtr(abbrevs_end) - @intFromPtr(abbrevs)) p = "";
+    }
+    unlockTimezone();
+    return p;
+}
+
 fn __localtime_r(t: *const time_t, r: *tm) callconv(.c) ?*tm {
     const t64: c_longlong = t.*;
     if (t64 < @as(c_longlong, std.math.minInt(c_int)) * 31622400 or
@@ -525,10 +943,7 @@ fn clock_nanosleepLinux(clk: c_int, flags: c_int, req: *const linux.timespec, re
 const SIGTIMER: usize = 32;
 const ptr_size = @sizeOf(usize);
 const tls_above_tp = switch (builtin.cpu.arch) {
-    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb,
-    .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-    .loongarch64, .m68k => true,
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .loongarch64, .m68k => true,
     else => false,
 };
 const part1_size: usize = if (tls_above_tp) 4 * ptr_size else 6 * ptr_size;

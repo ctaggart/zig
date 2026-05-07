@@ -29,7 +29,7 @@ else
 /// blocks will need to each check for `builtin.link_libc` and skip exports
 /// when the exported functions have libc dependencies not provided by this
 /// compilation unit.
-pub inline fn symbol(comptime func: *const anyopaque, comptime name: []const u8) void {
+pub inline fn symbol(comptime func: anytype, comptime name: []const u8) void {
     @export(func, .{
         .name = name,
         // Normally, libc goes into a static archive, making all symbols

@@ -8,6 +8,9 @@ const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
 
 const in_addr_t = u32;
+const syscall_arg_t = usize;
+const SOCK_CLOEXEC = linux.SOCK.CLOEXEC;
+const SOCK_NONBLOCK = linux.SOCK.NONBLOCK;
 
 // ============================================================
 // Internal struct definitions (from lookup.h / netlink.h)
@@ -210,6 +213,16 @@ const c = if (builtin.link_libc) struct {
 
 comptime {
     if (builtin.target.isMuslLibC()) {
+        // socket.c / bind.c / listen.c / accept.c / accept4.c / connect.c / shutdown.c / socketpair.c
+        symbol(&socket_impl, "socket");
+        symbol(&bind_impl, "bind");
+        symbol(&listen_impl, "listen");
+        symbol(&accept_impl, "accept");
+        symbol(&accept4_impl, "accept4");
+        symbol(&connect_impl, "connect");
+        symbol(&shutdown_impl, "shutdown");
+        symbol(&socketpair_impl, "socketpair");
+
         // htonl.c / htons.c / ntohl.c / ntohs.c
         symbol(&htonl_impl, "htonl");
         symbol(&htons_impl, "htons");
@@ -245,6 +258,131 @@ fn networkEndian(comptime T: type, n: T) T {
         .little => @byteSwap(n),
         .big => n,
     };
+}
+
+fn iarg(v: c_int) syscall_arg_t {
+    return @bitCast(@as(isize, v));
+}
+
+fn syscallCpRaw(nr: linux.SYS, a: syscall_arg_t, b: syscall_arg_t, c_arg: syscall_arg_t, d: syscall_arg_t, e: syscall_arg_t, f: syscall_arg_t) isize {
+    const syscall_cp = @extern(*const fn (usize, syscall_arg_t, syscall_arg_t, syscall_arg_t, syscall_arg_t, syscall_arg_t, syscall_arg_t) callconv(.c) isize, .{ .name = "__syscall_cp" });
+    return syscall_cp(@intFromEnum(nr), a, b, c_arg, d, e, f);
+}
+
+fn socketcallRaw(comptime sc: c_int, cp: bool, a: syscall_arg_t, b: syscall_arg_t, c_arg: syscall_arg_t, d: syscall_arg_t, e: syscall_arg_t, f: syscall_arg_t) isize {
+    if (builtin.cpu.arch == .x86) {
+        var args = [6]syscall_arg_t{ a, b, c_arg, d, e, f };
+        const ret = if (cp)
+            syscallCpRaw(.socketcall, @as(usize, @intCast(sc)), @intFromPtr(&args), 0, 0, 0, 0)
+        else
+            linux.syscall2(.socketcall, @as(usize, @intCast(sc)), @intFromPtr(&args));
+        return @bitCast(ret);
+    } else {
+        unreachable;
+    }
+}
+
+fn socketRaw(domain: c_int, socket_type: c_int, protocol: c_int) isize {
+    if (builtin.cpu.arch == .x86) {
+        return socketcallRaw(linux.SC.socket, false, iarg(domain), iarg(socket_type), iarg(protocol), 0, 0, 0);
+    }
+    return @bitCast(linux.syscall3(.socket, iarg(domain), iarg(socket_type), iarg(protocol)));
+}
+
+fn socket_impl(domain: c_int, socket_type: c_int, protocol: c_int) callconv(.c) c_int {
+    var s = socketRaw(domain, socket_type, protocol);
+    if ((s == -@as(isize, @intFromEnum(linux.E.INVAL)) or s == -@as(isize, @intFromEnum(linux.E.PROTONOSUPPORT))) and (socket_type & (SOCK_CLOEXEC | SOCK_NONBLOCK)) != 0) {
+        s = socketRaw(domain, socket_type & ~(SOCK_CLOEXEC | SOCK_NONBLOCK), protocol);
+        if (s < 0) return errno(@bitCast(s));
+        const fd: c_int = @intCast(s);
+        if ((socket_type & SOCK_CLOEXEC) != 0)
+            _ = linux.fcntl(fd, linux.F.SETFD, linux.FD_CLOEXEC);
+        if ((socket_type & SOCK_NONBLOCK) != 0)
+            _ = linux.fcntl(fd, linux.F.SETFL, @as(usize, @intCast(SOCK_NONBLOCK)));
+    }
+    return errno(@bitCast(s));
+}
+
+fn bind_impl(fd: c_int, addr: *const linux.sockaddr, len: linux.socklen_t) callconv(.c) c_int {
+    return errno(linux.bind(fd, addr, len));
+}
+
+fn listen_impl(fd: c_int, backlog: c_int) callconv(.c) c_int {
+    return errno(linux.syscall2(.listen, iarg(fd), iarg(backlog)));
+}
+
+fn acceptRaw(fd: c_int, addr: ?*linux.sockaddr, len: ?*linux.socklen_t) isize {
+    if (builtin.cpu.arch == .x86) {
+        return socketcallRaw(linux.SC.accept, true, iarg(fd), @intFromPtr(addr), @intFromPtr(len), 0, 0, 0);
+    }
+    return syscallCpRaw(.accept, iarg(fd), @intFromPtr(addr), @intFromPtr(len), 0, 0, 0);
+}
+
+fn accept_impl(fd: c_int, addr: ?*linux.sockaddr, len: ?*linux.socklen_t) callconv(.c) c_int {
+    return errno(@bitCast(acceptRaw(fd, addr, len)));
+}
+
+fn accept4Raw(fd: c_int, addr: ?*linux.sockaddr, len: ?*linux.socklen_t, flags: c_int) isize {
+    if (builtin.cpu.arch == .x86) {
+        return socketcallRaw(linux.SC.accept4, true, iarg(fd), @intFromPtr(addr), @intFromPtr(len), iarg(flags), 0, 0);
+    }
+    return syscallCpRaw(.accept4, iarg(fd), @intFromPtr(addr), @intFromPtr(len), iarg(flags), 0, 0);
+}
+
+fn accept4_impl(fd: c_int, addr: ?*linux.sockaddr, len: ?*linux.socklen_t, flags: c_int) callconv(.c) c_int {
+    if (flags == 0) return accept_impl(fd, addr, len);
+    var ret = errno(@bitCast(accept4Raw(fd, addr, len, flags)));
+    if (ret >= 0 or (std.c._errno().* != @intFromEnum(linux.E.NOSYS) and std.c._errno().* != @intFromEnum(linux.E.INVAL))) return ret;
+    if ((flags & ~(SOCK_CLOEXEC | SOCK_NONBLOCK)) != 0) {
+        std.c._errno().* = @intFromEnum(linux.E.INVAL);
+        return -1;
+    }
+    ret = accept_impl(fd, addr, len);
+    if (ret < 0) return ret;
+    if ((flags & SOCK_CLOEXEC) != 0)
+        _ = linux.fcntl(ret, linux.F.SETFD, linux.FD_CLOEXEC);
+    if ((flags & SOCK_NONBLOCK) != 0)
+        _ = linux.fcntl(ret, linux.F.SETFL, @as(usize, @intCast(SOCK_NONBLOCK)));
+    return ret;
+}
+
+fn connectRaw(fd: c_int, addr: *const linux.sockaddr, len: linux.socklen_t) isize {
+    if (builtin.cpu.arch == .x86) {
+        return socketcallRaw(linux.SC.connect, true, iarg(fd), @intFromPtr(addr), @as(usize, @intCast(len)), 0, 0, 0);
+    }
+    return syscallCpRaw(.connect, iarg(fd), @intFromPtr(addr), @as(usize, @intCast(len)), 0, 0, 0);
+}
+
+fn connect_impl(fd: c_int, addr: *const linux.sockaddr, len: linux.socklen_t) callconv(.c) c_int {
+    return errno(@bitCast(connectRaw(fd, addr, len)));
+}
+
+fn shutdown_impl(fd: c_int, how: c_int) callconv(.c) c_int {
+    return errno(linux.shutdown(fd, how));
+}
+
+fn socketpairRaw(domain: c_int, socket_type: c_int, protocol: c_int, fds: *[2]c_int) isize {
+    if (builtin.cpu.arch == .x86) {
+        return socketcallRaw(linux.SC.socketpair, false, iarg(domain), iarg(socket_type), iarg(protocol), @intFromPtr(fds), 0, 0);
+    }
+    return @bitCast(linux.syscall4(.socketpair, iarg(domain), iarg(socket_type), iarg(protocol), @intFromPtr(fds)));
+}
+
+fn socketpair_impl(domain: c_int, socket_type: c_int, protocol: c_int, fds: *[2]c_int) callconv(.c) c_int {
+    var ret = errno(@bitCast(socketpairRaw(domain, socket_type, protocol, fds)));
+    if (ret < 0 and (std.c._errno().* == @intFromEnum(linux.E.INVAL) or std.c._errno().* == @intFromEnum(linux.E.PROTONOSUPPORT)) and (socket_type & (SOCK_CLOEXEC | SOCK_NONBLOCK)) != 0) {
+        ret = errno(@bitCast(socketpairRaw(domain, socket_type & ~(SOCK_CLOEXEC | SOCK_NONBLOCK), protocol, fds)));
+        if (ret < 0) return ret;
+        if ((socket_type & SOCK_CLOEXEC) != 0) {
+            _ = linux.fcntl(fds[0], linux.F.SETFD, linux.FD_CLOEXEC);
+            _ = linux.fcntl(fds[1], linux.F.SETFD, linux.FD_CLOEXEC);
+        }
+        if ((socket_type & SOCK_NONBLOCK) != 0) {
+            _ = linux.fcntl(fds[0], linux.F.SETFL, @as(usize, @intCast(SOCK_NONBLOCK)));
+            _ = linux.fcntl(fds[1], linux.F.SETFL, @as(usize, @intCast(SOCK_NONBLOCK)));
+        }
+    }
+    return ret;
 }
 
 const in6addr_any = in6_addr{ .__in6_union = .{ .__s6_addr = .{0} ** 16 } };

@@ -1,3 +1,4 @@
+const std = @import("std");
 const builtin = @import("builtin");
 const symbol = @import("../c.zig").symbol;
 
@@ -25,6 +26,18 @@ const fexcept_t = switch (builtin.cpu.arch) {
 };
 
 const FE_TONEAREST: c_int = 0;
+
+const isArmHardFloat = switch (builtin.abi) {
+    .eabihf, .gnueabihf, .musleabihf => switch (builtin.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => true,
+        else => false,
+    },
+    else => false,
+};
+
+const ARM_FE_ALL_EXCEPT: c_int = 0x1f;
+const ARM_FE_ROUND_MASK: c_uint = 0xc00000;
+const ARM_FE_DFL_ENV = @as(usize, std.math.maxInt(usize));
 
 const FE_ALL_EXCEPT: c_int = switch (builtin.cpu.arch) {
     .x86_64, .x86, .hexagon => 0x3f,
@@ -108,15 +121,25 @@ const FE_DOWNWARD: ?c_int = switch (builtin.cpu.arch) {
 
 comptime {
     if (builtin.link_libc) {
-        // Weak generic fallbacks (from fenv.c).
-        // Overridden by arch-specific implementations at link time.
-        symbol(&feclearexcept, "feclearexcept");
-        symbol(&feraiseexcept, "feraiseexcept");
-        symbol(&fetestexcept, "fetestexcept");
-        symbol(&fegetround, "fegetround");
-        symbol(&__fesetround, "__fesetround");
-        symbol(&fegetenv, "fegetenv");
-        symbol(&fesetenv, "fesetenv");
+        if (isArmHardFloat) {
+            symbol(&arm_feclearexcept, "feclearexcept");
+            symbol(&arm_feraiseexcept, "feraiseexcept");
+            symbol(&arm_fetestexcept, "fetestexcept");
+            symbol(&arm_fegetround, "fegetround");
+            symbol(&arm___fesetround, "__fesetround");
+            symbol(&arm_fegetenv, "fegetenv");
+            symbol(&arm_fesetenv, "fesetenv");
+        } else {
+            // Weak generic fallbacks (from fenv.c).
+            // Overridden by arch-specific implementations at link time.
+            symbol(&feclearexcept, "feclearexcept");
+            symbol(&feraiseexcept, "feraiseexcept");
+            symbol(&fetestexcept, "fetestexcept");
+            symbol(&fegetround, "fegetround");
+            symbol(&__fesetround, "__fesetround");
+            symbol(&fegetenv, "fegetenv");
+            symbol(&fesetenv, "fesetenv");
+        }
 
         // Generic callers (no arch-specific overrides for these).
         symbol(&__flt_rounds, "__flt_rounds");
@@ -128,40 +151,102 @@ comptime {
     }
 }
 
+fn arm_get_fpscr() c_uint {
+    var fpscr: c_uint = undefined;
+    asm volatile ("vmrs %[fpscr], fpscr"
+        : [fpscr] "=r" (fpscr),
+    );
+    return fpscr;
+}
+
+fn arm_set_fpscr(fpscr: c_uint) void {
+    asm volatile ("vmsr fpscr, %[fpscr]"
+        :
+        : [fpscr] "r" (fpscr),
+    );
+}
+
+fn arm_feclearexcept(mask: c_int) callconv(.c) c_int {
+    const exceptions = @as(c_uint, @bitCast(mask)) & ARM_FE_ALL_EXCEPT;
+    arm_set_fpscr(arm_get_fpscr() & ~exceptions);
+    return 0;
+}
+
+fn arm_feraiseexcept(mask: c_int) callconv(.c) c_int {
+    const exceptions = @as(c_uint, @bitCast(mask)) & ARM_FE_ALL_EXCEPT;
+    arm_set_fpscr(arm_get_fpscr() | exceptions);
+    return 0;
+}
+
+fn arm_fetestexcept(mask: c_int) callconv(.c) c_int {
+    const exceptions = @as(c_uint, @bitCast(mask)) & ARM_FE_ALL_EXCEPT;
+    return @intCast(arm_get_fpscr() & exceptions);
+}
+
+fn arm_fegetround() callconv(.c) c_int {
+    return @intCast(arm_get_fpscr() & ARM_FE_ROUND_MASK);
+}
+
+fn arm___fesetround(r: c_int) callconv(.c) c_int {
+    var fpscr = arm_get_fpscr();
+    fpscr &= ~ARM_FE_ROUND_MASK;
+    fpscr |= @as(c_uint, @bitCast(r)) & ARM_FE_ROUND_MASK;
+    arm_set_fpscr(fpscr);
+    return 0;
+}
+
+fn arm_fegetenv(envp: *c_ulong) callconv(.c) c_int {
+    envp.* = arm_get_fpscr();
+    return 0;
+}
+
+fn arm_fesetenv(envp: *const c_ulong) callconv(.c) c_int {
+    const fpscr: c_uint = if (@intFromPtr(envp) == ARM_FE_DFL_ENV) 0 else @intCast(envp.*);
+    arm_set_fpscr(fpscr);
+    return 0;
+}
+
 // Weak generic fallbacks for archs without arch-specific fenv.
 // On archs with FPU support, the arch-specific assembly provides
 // strong definitions that override these at link time.
 
 fn feclearexcept(mask: c_int) callconv(.c) c_int {
+    if (isArmHardFloat) return arm_feclearexcept(mask);
     _ = mask;
     return 0;
 }
 
 fn feraiseexcept(mask: c_int) callconv(.c) c_int {
+    if (isArmHardFloat) return arm_feraiseexcept(mask);
     _ = mask;
     return 0;
 }
 
 fn fetestexcept(mask: c_int) callconv(.c) c_int {
+    if (isArmHardFloat) return arm_fetestexcept(mask);
     _ = mask;
     return 0;
 }
 
 fn fegetround() callconv(.c) c_int {
+    if (isArmHardFloat) return arm_fegetround();
     return FE_TONEAREST;
 }
 
 fn __fesetround(r: c_int) callconv(.c) c_int {
+    if (isArmHardFloat) return arm___fesetround(r);
     _ = r;
     return 0;
 }
 
 fn fegetenv(envp: *anyopaque) callconv(.c) c_int {
+    if (isArmHardFloat) return arm_fegetenv(@ptrCast(@alignCast(envp)));
     _ = envp;
     return 0;
 }
 
 fn fesetenv(envp: *const anyopaque) callconv(.c) c_int {
+    if (isArmHardFloat) return arm_fesetenv(@ptrCast(@alignCast(envp)));
     _ = envp;
     return 0;
 }

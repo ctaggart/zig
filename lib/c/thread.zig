@@ -124,6 +124,7 @@ const PtCb = extern struct {
 const PR_SET_NAME: usize = 15;
 const PR_GET_NAME: usize = 16;
 const AT_FDCWD: usize = @bitCast(@as(isize, -100));
+const AT_PLATFORM: usize = 15;
 const O_CLOEXEC: usize = 0o2000000;
 const thrd_success: c_int = 0;
 const thrd_error: c_int = 2;

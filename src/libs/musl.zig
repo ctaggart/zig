@@ -790,7 +790,7 @@ const src_files = [_][]const u8{
     "musl/src/thread/powerpc/__set_thread_area.s",
     "musl/src/thread/powerpc/syscall_cp.s",
     "musl/src/thread/powerpc/__unmapself.s",
-    "musl/src/thread/pthread_atfork.c",
+    //"musl/src/thread/pthread_atfork.c", // migrated to lib/c/thread.zig; exports: pthread_atfork,__fork_handler
     //"musl/src/thread/pthread_attr_destroy.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_attr_get.c", // migrated to lib/c/thread.zig; exports: pthread_attr_getdetachstate,pthread_attr_getguardsize,pthread_attr_getinheritsched,pthread_attr_getschedparam,pthread_attr_getschedpolicy,pthread_attr_getscope,pthread_attr_getstack,pthread_attr_getstacksize,pthread_barrierattr_getpshared,pthread_condattr_getclock,pthread_condattr_getpshared,pthread_mutexattr_getprotocol,pthread_mutexattr_getpshared,pthread_mutexattr_getrobust,pthread_mutexattr_gettype
     "musl/src/thread/riscv32/clone.s",

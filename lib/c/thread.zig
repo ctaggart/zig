@@ -18,6 +18,7 @@ const LibC = extern struct {
 };
 extern var __libc: LibC;
 const E = std.os.linux.E;
+const c_ENOMEM: c_int = @intCast(@intFromEnum(E.NOMEM));
 /// `typedef struct { unsigned __attr; } pthread_mutexattr_t;`
 const pthread_mutexattr_t = extern struct { __attr: c_uint = 0 };
 /// `typedef struct { unsigned __attr; } pthread_condattr_t;`
@@ -79,17 +80,12 @@ const sem_impl = extern struct {
 };
 const arch = builtin.target.cpu.arch;
 const tls_above_tp = switch (arch) {
-    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb,
-    .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-    .loongarch64, .m68k => true,
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .loongarch64, .m68k => true,
     else => false,
 };
 /// TP_OFFSET from musl per-arch pthread_arch.h (defaults to 0).
 const tp_offset: usize = switch (arch) {
-    .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-    .m68k => 0x7000,
+    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .m68k => 0x7000,
     else => 0,
 };
 const ptr_size = @sizeOf(usize);
@@ -204,6 +200,16 @@ const off_cancel: usize = off_tid + 12;
 const DT_EXITED: c_int = 0;
 var vmlock_storage: [2]c_int = .{ 0, 0 };
 const SIG_BLOCK: c_int = 0;
+const AtforkFunc = ?*const fn () callconv(.c) void;
+const AtforkFuncs = extern struct {
+    prepare: AtforkFunc,
+    parent: AtforkFunc,
+    child: AtforkFunc,
+    prev: ?*AtforkFuncs,
+    next: ?*AtforkFuncs,
+};
+var atfork_funcs: ?*AtforkFuncs = null;
+var atfork_lock: c_int = 0;
 
 comptime {
     if (builtin.target.isMuslLibC()) {
@@ -281,6 +287,8 @@ comptime {
         symbol(&sem_post_fn, "sem_post");
         symbol(&__default_stacksize, "__default_stacksize");
         symbol(&__default_guardsize, "__default_guardsize");
+        symbol(&__fork_handler_fn, "__fork_handler");
+        symbol(&pthread_atfork_fn, "pthread_atfork");
     }
     if (builtin.target.isMuslLibC()) {
         if (builtin.link_libc) {
@@ -364,6 +372,45 @@ comptime {
         }
     }
     @export(&vmlock, .{ .name = "__vmlock_lockptr" });
+}
+
+fn __fork_handler_fn(who: c_int) callconv(.c) void {
+    const funcs = atfork_funcs orelse return;
+    if (who < 0) {
+        __lock_fn(&atfork_lock);
+        var p: ?*AtforkFuncs = funcs;
+        while (p) |node| : (p = node.next) {
+            if (node.prepare) |prepare| prepare();
+            atfork_funcs = node;
+        }
+    } else {
+        var p: ?*AtforkFuncs = funcs;
+        while (p) |node| : (p = node.prev) {
+            if (who == 0) {
+                if (node.parent) |parent| parent();
+            } else if (node.child) |child| {
+                child();
+            }
+            atfork_funcs = node;
+        }
+        __unlock_fn(&atfork_lock);
+    }
+}
+
+fn pthread_atfork_fn(prepare: AtforkFunc, parent: AtforkFunc, child: AtforkFunc) callconv(.c) c_int {
+    const new = std.c.malloc(@sizeOf(AtforkFuncs)) orelse return c_ENOMEM;
+    const node: *AtforkFuncs = @ptrCast(@alignCast(new));
+
+    __lock_fn(&atfork_lock);
+    node.next = atfork_funcs;
+    node.prev = null;
+    node.prepare = prepare;
+    node.parent = parent;
+    node.child = child;
+    if (atfork_funcs) |funcs| funcs.prev = node;
+    atfork_funcs = node;
+    __unlock_fn(&atfork_lock);
+    return 0;
 }
 
 fn pthread_attr_destroy(a: ?*anyopaque) callconv(.c) c_int {

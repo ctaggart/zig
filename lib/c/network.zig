@@ -198,7 +198,38 @@ const c = if (builtin.link_libc) struct {
 // ============================================================
 
 comptime {
+    if (builtin.target.isMuslLibC()) {
+        // htonl.c / htons.c / ntohl.c / ntohs.c
+        symbol(&htonl_impl, "htonl");
+        symbol(&htons_impl, "htons");
+        symbol(&ntohl_impl, "ntohl");
+        symbol(&ntohs_impl, "ntohs");
+    }
+
     // Subdirectory modules with real implementations
     _ = @import("network/dns.zig");
     _ = @import("network/resolver.zig");
+}
+
+fn networkEndian(comptime T: type, n: T) T {
+    return switch (builtin.target.cpu.arch.endian()) {
+        .little => @byteSwap(n),
+        .big => n,
+    };
+}
+
+fn htonl_impl(n: u32) callconv(.c) u32 {
+    return networkEndian(u32, n);
+}
+
+fn htons_impl(n: u16) callconv(.c) u16 {
+    return networkEndian(u16, n);
+}
+
+fn ntohl_impl(n: u32) callconv(.c) u32 {
+    return networkEndian(u32, n);
+}
+
+fn ntohs_impl(n: u16) callconv(.c) u16 {
+    return networkEndian(u16, n);
 }

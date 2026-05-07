@@ -472,7 +472,7 @@ const src_files = [_][]const u8{
     "musl/src/fenv/x32/fenv.s",
     "musl/src/fenv/x86_64/fenv.s",
     //"musl/src/internal/emulate_wait4.c", // migrated to lib/c/internal.zig; exports: __emulate_wait4
-    "musl/src/internal/floatscan.c",
+    //"musl/src/internal/floatscan.c", // migrated to lib/c/internal.zig; exports: __floatscan
     "musl/src/internal/i386/defsysinfo.s",
     "musl/src/internal/intscan.c",
     "musl/src/internal/shgetc.c",

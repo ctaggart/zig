@@ -7,6 +7,19 @@ const mips_soft_float = switch (builtin.cpu.arch) {
     else => false,
 };
 
+const powerpc_soft_float = switch (builtin.abi) {
+    .eabi, .gnueabi, .musleabi => switch (builtin.cpu.arch) {
+        .powerpc, .powerpcle => true,
+        else => false,
+    },
+    else => false,
+};
+
+const powerpc_hard_float = switch (builtin.cpu.arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => !powerpc_soft_float,
+    else => false,
+};
+
 /// fexcept_t type matching musl's arch-specific bits/fenv.h definitions.
 const fexcept_t = switch (builtin.cpu.arch) {
     .x86_64, .x86, .mips, .mipsel, .mips64, .mips64el => c_ushort,
@@ -53,7 +66,7 @@ const FE_ALL_EXCEPT: c_int = switch (builtin.cpu.arch) {
     .loongarch64 => 0x1f0000,
     .m68k => 0xf8,
     .mips, .mipsel, .mips64, .mips64el => if (mips_soft_float) 0 else 0x7c,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => 0x3e000000,
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => if (powerpc_soft_float) 0 else 0x3e000000,
     .s390x => 0xf80000,
     else => 0,
 };
@@ -129,6 +142,14 @@ comptime {
             symbol(&arm___fesetround, "__fesetround");
             symbol(&arm_fegetenv, "fegetenv");
             symbol(&arm_fesetenv, "fesetenv");
+        } else if (powerpc_hard_float) {
+            symbol(&powerpc_feclearexcept, "feclearexcept");
+            symbol(&powerpc_feraiseexcept, "feraiseexcept");
+            symbol(&powerpc_fetestexcept, "fetestexcept");
+            symbol(&powerpc_fegetround, "fegetround");
+            symbol(&powerpc___fesetround, "__fesetround");
+            symbol(&powerpc_fegetenv, "fegetenv");
+            symbol(&powerpc_fesetenv, "fesetenv");
         } else {
             // Weak generic fallbacks (from fenv.c).
             // Overridden by arch-specific implementations at link time.
@@ -149,6 +170,71 @@ comptime {
         symbol(&fesetround, "fesetround");
         symbol(&feupdateenv, "feupdateenv");
     }
+}
+
+const POWERPC_FE_INVALID: u64 = 0x20000000;
+const POWERPC_FE_ALL_INVALID: u64 = 0x01f80700;
+const POWERPC_FE_INVALID_SOFTWARE: u64 = 0x00000400;
+const POWERPC_FE_DFL_ENV = @as(usize, std.math.maxInt(usize));
+
+fn powerpc_get_fpscr_f() f64 {
+    var fpscr: f64 = undefined;
+    asm volatile ("mffs %[fpscr]"
+        : [fpscr] "=d" (fpscr),
+    );
+    return fpscr;
+}
+
+fn powerpc_get_fpscr() c_long {
+    return @intCast(@as(u64, @bitCast(powerpc_get_fpscr_f())));
+}
+
+fn powerpc_set_fpscr_f(fpscr: f64) void {
+    asm volatile ("mtfsf 255, %[fpscr]"
+        :
+        : [fpscr] "d" (fpscr),
+    );
+}
+
+fn powerpc_set_fpscr(fpscr: c_long) void {
+    powerpc_set_fpscr_f(@bitCast(@as(u64, @intCast(fpscr))));
+}
+
+fn powerpc_feclearexcept(mask_arg: c_int) callconv(.c) c_int {
+    var mask = @as(u64, @intCast(mask_arg)) & @as(u64, @intCast(FE_ALL_EXCEPT));
+    if (mask & POWERPC_FE_INVALID != 0) mask |= POWERPC_FE_ALL_INVALID;
+    powerpc_set_fpscr(@intCast(@as(u64, @intCast(powerpc_get_fpscr())) & ~mask));
+    return 0;
+}
+
+fn powerpc_feraiseexcept(mask_arg: c_int) callconv(.c) c_int {
+    var mask = @as(u64, @intCast(mask_arg)) & @as(u64, @intCast(FE_ALL_EXCEPT));
+    if (mask & POWERPC_FE_INVALID != 0) mask |= POWERPC_FE_INVALID_SOFTWARE;
+    powerpc_set_fpscr(@intCast(@as(u64, @intCast(powerpc_get_fpscr())) | mask));
+    return 0;
+}
+
+fn powerpc_fetestexcept(mask: c_int) callconv(.c) c_int {
+    return @intCast(@as(u64, @intCast(powerpc_get_fpscr())) & @as(u64, @intCast(mask)) & @as(u64, @intCast(FE_ALL_EXCEPT)));
+}
+
+fn powerpc_fegetround() callconv(.c) c_int {
+    return @intCast(@as(u64, @intCast(powerpc_get_fpscr())) & 3);
+}
+
+fn powerpc___fesetround(r: c_int) callconv(.c) c_int {
+    powerpc_set_fpscr(@intCast((@as(u64, @intCast(powerpc_get_fpscr())) & ~@as(u64, 3)) | @as(u64, @intCast(r))));
+    return 0;
+}
+
+fn powerpc_fegetenv(envp: *f64) callconv(.c) c_int {
+    envp.* = powerpc_get_fpscr_f();
+    return 0;
+}
+
+fn powerpc_fesetenv(envp: *const f64) callconv(.c) c_int {
+    powerpc_set_fpscr_f(if (@intFromPtr(envp) != POWERPC_FE_DFL_ENV) envp.* else 0);
+    return 0;
 }
 
 fn arm_get_fpscr() c_uint {

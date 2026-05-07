@@ -212,19 +212,16 @@ fn arm_fesetenv(envp: *const c_ulong) callconv(.c) c_int {
 
 fn feclearexcept(mask: c_int) callconv(.c) c_int {
     if (isArmHardFloat) return arm_feclearexcept(mask);
-    _ = mask;
     return 0;
 }
 
 fn feraiseexcept(mask: c_int) callconv(.c) c_int {
     if (isArmHardFloat) return arm_feraiseexcept(mask);
-    _ = mask;
     return 0;
 }
 
 fn fetestexcept(mask: c_int) callconv(.c) c_int {
     if (isArmHardFloat) return arm_fetestexcept(mask);
-    _ = mask;
     return 0;
 }
 
@@ -235,19 +232,16 @@ fn fegetround() callconv(.c) c_int {
 
 fn __fesetround(r: c_int) callconv(.c) c_int {
     if (isArmHardFloat) return arm___fesetround(r);
-    _ = r;
     return 0;
 }
 
 fn fegetenv(envp: *anyopaque) callconv(.c) c_int {
     if (isArmHardFloat) return arm_fegetenv(@ptrCast(@alignCast(envp)));
-    _ = envp;
     return 0;
 }
 
 fn fesetenv(envp: *const anyopaque) callconv(.c) c_int {
     if (isArmHardFloat) return arm_fesetenv(@ptrCast(@alignCast(envp)));
-    _ = envp;
     return 0;
 }
 

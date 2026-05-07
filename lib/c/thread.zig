@@ -44,6 +44,8 @@ const sched_param = extern struct {
     sched_priority: c_int,
 };
 const PTHREAD_STACK_MIN: usize = 2048;
+const PTHREAD_KEYS_MAX: usize = 128;
+const PTHREAD_DESTRUCTOR_ITERATIONS: c_int = 4;
 const mutex_size = if (@sizeOf(c_ulong) == 8) @as(usize, 40) else 24;
 const pthread_mutex_impl = extern struct {
     _m_type: c_int = 0,
@@ -79,17 +81,12 @@ const sem_impl = extern struct {
 };
 const arch = builtin.target.cpu.arch;
 const tls_above_tp = switch (arch) {
-    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb,
-    .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-    .loongarch64, .m68k => true,
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .loongarch64, .m68k => true,
     else => false,
 };
 /// TP_OFFSET from musl per-arch pthread_arch.h (defaults to 0).
 const tp_offset: usize = switch (arch) {
-    .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-    .m68k => 0x7000,
+    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .m68k => 0x7000,
     else => 0,
 };
 const ptr_size = @sizeOf(usize);
@@ -112,6 +109,7 @@ const DT_JOINABLE: c_int = 2;
 const DT_DETACHED: c_int = 3;
 const SEM_VALUE_MAX: c_int = 0x7fffffff;
 const linux = std.os.linux;
+const off_next = if (tls_above_tp) 2 * ptr_size else 3 * ptr_size;
 const off_tid = part1_size;
 const off_killlock = part1_size + map_base_off + 11 * ptr_size + 8 + ptr_size;
 const CLOCK_REALTIME: c_int = 0;
@@ -133,6 +131,11 @@ var check_pi_result: c_int = -1;
 var check_robust_result: c_int = -1;
 const rwlock_int_count: usize = if (@sizeOf(c_long) == 8) 14 else 8;
 var ptc_lock: [rwlock_int_count]c_int = [_]c_int{0} ** rwlock_int_count;
+var pthread_tsd_size: usize = @sizeOf(?*anyopaque) * PTHREAD_KEYS_MAX;
+var pthread_tsd_main: [PTHREAD_KEYS_MAX]?*anyopaque = [_]?*anyopaque{null} ** PTHREAD_KEYS_MAX;
+var pthread_key_dtors: [PTHREAD_KEYS_MAX]?*const fn (?*anyopaque) callconv(.c) void = [_]?*const fn (?*anyopaque) callconv(.c) void{null} ** PTHREAD_KEYS_MAX;
+var pthread_key_lock: pthread_rwlock_impl = .{};
+var pthread_next_key: c_uint = 0;
 const FUTEX_WAIT: usize = 0;
 const FUTEX_WAKE: usize = 1;
 const FUTEX_PRIVATE: usize = 128;
@@ -281,6 +284,8 @@ comptime {
         symbol(&sem_post_fn, "sem_post");
         symbol(&__default_stacksize, "__default_stacksize");
         symbol(&__default_guardsize, "__default_guardsize");
+        symbol(&pthread_tsd_size, "__pthread_tsd_size");
+        symbol(&pthread_tsd_main, "__pthread_tsd_main");
     }
     if (builtin.target.isMuslLibC()) {
         if (builtin.link_libc) {
@@ -356,6 +361,12 @@ comptime {
             symbol(&mutex_unlock_fn, "__pthread_mutex_unlock");
             symbol(&mutex_unlock_fn, "pthread_mutex_unlock");
             symbol(&attr_init_fn, "pthread_attr_init");
+            symbol(&pthread_key_atfork_fn, "__pthread_key_atfork");
+            symbol(&pthread_key_create_fn, "__pthread_key_create");
+            symbol(&pthread_key_create_fn, "pthread_key_create");
+            symbol(&pthread_key_delete_fn, "__pthread_key_delete");
+            symbol(&pthread_key_delete_fn, "pthread_key_delete");
+            symbol(&pthread_tsd_run_dtors_fn, "__pthread_tsd_run_dtors");
             symbol(&tss_set_fn, "tss_set");
             symbol(&setattr_default_np_fn, "pthread_setattr_default_np");
             symbol(&getattr_default_np_fn, "pthread_getattr_default_np");
@@ -872,16 +883,32 @@ fn pthread_getspecific_fn(k: c_uint) callconv(.c) ?*anyopaque {
     return tsd.*[k];
 }
 
+fn setTsdUsed(self: usize) void {
+    const flags: *u8 = @ptrFromInt(self + off_tsd_flags);
+    // C bitfield tsd_used:1 — bit 0 on LE, bit 7 on BE.
+    const tsd_used_bit: u8 = if (arch.endian() == .big) 0x80 else 1;
+    flags.* |= tsd_used_bit;
+}
+
+fn getTsdUsed(self: usize) bool {
+    const flags: *const u8 = @ptrFromInt(self + off_tsd_flags);
+    const tsd_used_bit: u8 = if (arch.endian() == .big) 0x80 else 1;
+    return flags.* & tsd_used_bit != 0;
+}
+
+fn clearTsdUsed(self: usize) void {
+    const flags: *u8 = @ptrFromInt(self + off_tsd_flags);
+    const tsd_used_bit: u8 = if (arch.endian() == .big) 0x80 else 1;
+    flags.* &= ~tsd_used_bit;
+}
+
 fn pthread_setspecific_fn(k: c_uint, x: ?*const anyopaque) callconv(.c) c_int {
     const self = pthread_self_ptr();
     const tsd: *[*]?*anyopaque = @ptrFromInt(self + off_tsd);
     const val: ?*anyopaque = @constCast(x);
     if (tsd.*[k] != val) {
         tsd.*[k] = val;
-        const flags: *u8 = @ptrFromInt(self + off_tsd_flags);
-        // C bitfield tsd_used:1 — bit 0 on LE, bit 7 on BE
-        const tsd_used_bit: u8 = if (arch.endian() == .big) 0x80 else 1;
-        flags.* |= tsd_used_bit;
+        setTsdUsed(self);
     }
     return 0;
 }
@@ -2766,29 +2793,119 @@ fn mtx_unlock_fn(m: *anyopaque) callconv(.c) c_int {
     return __pthread_mutex_unlock_ext(m);
 }
 
+fn pthreadKeyNoDtor(_: ?*anyopaque) callconv(.c) void {}
+
+fn pthreadKeyDtor(dtor: ?*const fn (?*anyopaque) callconv(.c) void) *const fn (?*anyopaque) callconv(.c) void {
+    return dtor orelse pthreadKeyNoDtor;
+}
+
+// --- pthread_key_create.c ---
+fn pthread_key_atfork_fn(who: c_int) callconv(.c) void {
+    if (who < 0) {
+        _ = rwlock_rdlock_fn(@ptrCast(&pthread_key_lock));
+    } else if (who == 0) {
+        _ = rwlock_unlock_fn(@ptrCast(&pthread_key_lock));
+    } else {
+        pthread_key_lock = .{};
+    }
+}
+
+fn pthread_key_create_fn(k: *c_uint, dtor: ?*const fn (?*anyopaque) callconv(.c) void) callconv(.c) c_int {
+    const self = pthread_self_ptr();
+    const tsd_pp: *?[*]?*anyopaque = @ptrFromInt(self + off_tsd);
+    if (tsd_pp.* == null) tsd_pp.* = @ptrCast(&pthread_tsd_main);
+
+    _ = rwlock_wrlock_fn(@ptrCast(&pthread_key_lock));
+    var j = pthread_next_key;
+    while (true) {
+        if (pthread_key_dtors[j] == null) {
+            pthread_next_key = j;
+            k.* = j;
+            pthread_key_dtors[j] = pthreadKeyDtor(dtor);
+            _ = rwlock_unlock_fn(@ptrCast(&pthread_key_lock));
+            return 0;
+        }
+        j = (j + 1) % PTHREAD_KEYS_MAX;
+        if (j == pthread_next_key) break;
+    }
+
+    _ = rwlock_unlock_fn(@ptrCast(&pthread_key_lock));
+    return eint(.AGAIN);
+}
+
+fn pthread_key_delete_fn(k: c_uint) callconv(.c) c_int {
+    const __block_app_sigs = @extern(*const fn (*anyopaque) callconv(.c) void, .{ .name = "__block_app_sigs" });
+    const __restore_sigs = @extern(*const fn (*anyopaque) callconv(.c) void, .{ .name = "__restore_sigs" });
+    const __tl_lock = @extern(*const fn () callconv(.c) void, .{ .name = "__tl_lock" });
+    const __tl_unlock = @extern(*const fn () callconv(.c) void, .{ .name = "__tl_unlock" });
+
+    var set: [128]u8 = undefined;
+    const self = pthread_self_ptr();
+    var td = self;
+
+    __block_app_sigs(@ptrCast(&set));
+    _ = rwlock_wrlock_fn(@ptrCast(&pthread_key_lock));
+
+    __tl_lock();
+    while (true) {
+        const tsd_pp: *?[*]?*anyopaque = @ptrFromInt(td + off_tsd);
+        if (tsd_pp.*) |tsd| tsd[k] = null;
+        const next: *usize = @ptrFromInt(td + off_next);
+        td = next.*;
+        if (td == self) break;
+    }
+    __tl_unlock();
+
+    pthread_key_dtors[k] = null;
+
+    _ = rwlock_unlock_fn(@ptrCast(&pthread_key_lock));
+    __restore_sigs(@ptrCast(&set));
+    return 0;
+}
+
+fn pthread_tsd_run_dtors_fn() callconv(.c) void {
+    const self = pthread_self_ptr();
+    var j: c_int = 0;
+    while (getTsdUsed(self) and j < PTHREAD_DESTRUCTOR_ITERATIONS) : (j += 1) {
+        _ = rwlock_rdlock_fn(@ptrCast(&pthread_key_lock));
+        clearTsdUsed(self);
+        const tsd_pp: *?[*]?*anyopaque = @ptrFromInt(self + off_tsd);
+        if (tsd_pp.*) |tsd| {
+            var i: usize = 0;
+            while (i < PTHREAD_KEYS_MAX) : (i += 1) {
+                const val = tsd[i];
+                const dtor = pthread_key_dtors[i];
+                tsd[i] = null;
+                if (val != null and dtor != null and dtor.? != pthreadKeyNoDtor) {
+                    _ = rwlock_unlock_fn(@ptrCast(&pthread_key_lock));
+                    dtor.?(val);
+                    _ = rwlock_rdlock_fn(@ptrCast(&pthread_key_lock));
+                }
+            }
+        }
+        _ = rwlock_unlock_fn(@ptrCast(&pthread_key_lock));
+    }
+}
+
 // --- tss_create.c ---
 fn tss_create_fn(tss: *c_uint, dtor: ?*const anyopaque) callconv(.c) c_int {
-    const __pthread_key_create_ext = @extern(*const fn (*c_uint, ?*const anyopaque) callconv(.c) c_int, .{ .name = "__pthread_key_create" });
-    return if (__pthread_key_create_ext(tss, dtor) != 0) thrd_error else thrd_success;
+    const dtor_fn: ?*const fn (?*anyopaque) callconv(.c) void = if (dtor) |p| @ptrCast(p) else null;
+    return if (pthread_key_create_fn(tss, dtor_fn) != 0) thrd_error else thrd_success;
 }
 
 // --- tss_delete.c ---
 fn tss_delete_fn(key: c_uint) callconv(.c) void {
-    const __pthread_key_delete_ext = @extern(*const fn (c_uint) callconv(.c) c_int, .{ .name = "__pthread_key_delete" });
-    _ = __pthread_key_delete_ext(key);
+    _ = pthread_key_delete_fn(key);
 }
 
 // --- tss_set.c ---
-// Accesses self->tsd[k] - use struct pthread layout
 fn tss_set_fn(k: c_uint, x: ?*anyopaque) callconv(.c) c_int {
     const self_addr = selfAddr();
     const tsd_pp: *[*]?*anyopaque = @ptrFromInt(self_addr + off_tsd);
     const tsd = tsd_pp.*;
     if (tsd[k] != x) {
         tsd[k] = x;
-        // tsd_used is at off_tid+18 (1 byte, bitfield byte)
-        const tsd_used: *u8 = @ptrFromInt(self_addr + off_tid + 18);
-        tsd_used.* = 1;
+        setTsdUsed(self_addr);
     }
     return thrd_success;
 }

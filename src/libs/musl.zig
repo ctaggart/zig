@@ -456,11 +456,11 @@ const src_files = [_][]const u8{
     "musl/src/fenv/loongarch64/fenv-sf.c",
     "musl/src/fenv/m68k/fenv.c",
     "musl/src/fenv/mips64/fenv.S",
-    "musl/src/fenv/mips64/fenv-sf.c",
+    //"musl/src/fenv/mips64/fenv-sf.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/mips/fenv.S",
-    "musl/src/fenv/mips/fenv-sf.c",
+    //"musl/src/fenv/mips/fenv-sf.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/mipsn32/fenv.S",
-    "musl/src/fenv/mipsn32/fenv-sf.c",
+    //"musl/src/fenv/mipsn32/fenv-sf.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/powerpc64/fenv.c",
     "musl/src/fenv/powerpc/fenv.S",
     "musl/src/fenv/powerpc/fenv-sf.c",

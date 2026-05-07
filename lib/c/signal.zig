@@ -57,6 +57,45 @@ extern fn __unlock(lock: *c_int) callconv(.c) void;
 extern var __abort_lock: c_int;
 const SA_RESTART = 0x10000000;
 extern "c" fn psignal(sig: c_int, msg: ?[*:0]const u8) callconv(.c) void;
+const FILE = extern struct {
+    flags: c_uint,
+    rpos: ?[*]u8,
+    rend: ?[*]u8,
+    close_fn: ?*anyopaque,
+    wend: ?[*]u8,
+    wpos: ?[*]u8,
+    mustbezero_1: ?[*]u8,
+    wbase: ?[*]u8,
+    read_fn: ?*anyopaque,
+    write_fn: ?*anyopaque,
+    seek_fn: ?*anyopaque,
+    buf: ?[*]u8,
+    buf_size: usize,
+    prev: ?*anyopaque,
+    next: ?*anyopaque,
+    fd: c_int,
+    pipe_pid: c_int,
+    lockcount: c_long,
+    mode: c_int,
+    lock: c_int,
+    lbf: c_int,
+    cookie: ?*anyopaque,
+    off: i64,
+    getln_buf: ?[*]u8,
+    mustbezero_2: ?*anyopaque,
+    shend: ?[*]u8,
+    shlim: i64,
+    shcnt: i64,
+    prev_locked: ?*anyopaque,
+    next_locked: ?*anyopaque,
+    locale: ?*anyopaque,
+};
+const stderr_ext = @extern(*const ?*FILE, .{ .name = "stderr" });
+const strsignal_fn = @extern(*const fn (c_int) callconv(.c) [*:0]const u8, .{ .name = "strsignal" });
+const fwrite_fn = @extern(*const fn (*const anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fwrite" });
+const fputc_fn = @extern(*const fn (c_int, ?*FILE) callconv(.c) c_int, .{ .name = "fputc" });
+const lockfile_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__lockfile" });
+const unlockfile_fn = @extern(*const fn (*FILE) callconv(.c) void, .{ .name = "__unlockfile" });
 const SIG_HOLD: ?*align(1) const fn (c_int) callconv(.c) void = @ptrFromInt(2);
 const SIG_ERR: ?*align(1) const fn (c_int) callconv(.c) void = @ptrFromInt(std.math.maxInt(usize));
 const SI_QUEUE = -1;
@@ -96,6 +135,7 @@ comptime {
         symbol(&siginterruptImpl, "siginterrupt");
         symbol(&sigignoreImpl, "sigignore");
         symbol(&psiginfo, "psiginfo");
+        symbol(&psignalImpl, "psignal");
         symbol(&sigsetImpl, "sigset");
         symbol(&sigqueueImpl, "sigqueue");
     }
@@ -398,6 +438,34 @@ fn sigignoreImpl(sig: c_int) callconv(.c) c_int {
 
 fn psiginfo(si: *const linux.siginfo_t, msg: ?[*:0]const u8) callconv(.c) void {
     psignal(@intCast(@intFromEnum(si.signo)), msg);
+}
+
+fn psignalImpl(sig: c_int, msg: ?[*:0]const u8) callconv(.c) void {
+    const f: *FILE = @ptrCast(stderr_ext.*);
+    const s = strsignal_fn(sig);
+    const need_unlock = if (f.lock >= 0) lockfile_fn(f) else 0;
+
+    // Save stderr's orientation and encoding rule, since psignal is not
+    // permitted to change them. Save errno and restore it if there is no error.
+    const old_locale = f.locale;
+    const old_mode = f.mode;
+    const old_errno = std.c._errno().*;
+
+    var ok = true;
+    if (msg) |m| {
+        if (m[0] != 0) {
+            ok = ok and fwrite_fn(m, std.mem.len(m), 1, f) == 1;
+            ok = ok and fputc_fn(':', f) >= 0;
+            ok = ok and fputc_fn(' ', f) >= 0;
+        }
+    }
+    ok = ok and fwrite_fn(s, std.mem.len(s), 1, f) == 1;
+    ok = ok and fputc_fn('\n', f) >= 0;
+    if (ok) std.c._errno().* = old_errno;
+    f.mode = old_mode;
+    f.locale = old_locale;
+
+    if (need_unlock != 0) unlockfile_fn(f);
 }
 
 fn sigsetImpl(sig: c_int, handler: ?*align(1) const fn (c_int) callconv(.c) void) callconv(.c) ?*align(1) const fn (c_int) callconv(.c) void {

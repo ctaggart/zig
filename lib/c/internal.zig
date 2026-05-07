@@ -3,6 +3,471 @@ const std = @import("std");
 const c = @import("../c.zig");
 const linux = std.os.linux;
 
+const off_t = c_longlong;
+const EOF = -1;
+const ULLONG_MAX = std.math.maxInt(c_ulonglong);
+const UINT_MAX = std.math.maxInt(c_uint);
+
+/// Musl internal FILE struct layout (struct _IO_FILE from stdio_impl.h).
+/// Field order MUST match musl's struct _IO_FILE exactly.
+const FILE = extern struct {
+    flags: c_uint,
+    rpos: ?[*]u8,
+    rend: ?[*]u8,
+    close_fn: ?*const fn (*FILE) callconv(.c) c_int,
+    wend: ?[*]u8,
+    wpos: ?[*]u8,
+    mustbezero_1: ?[*]u8,
+    wbase: ?[*]u8,
+    read_fn: ?*const fn (*FILE, [*]u8, usize) callconv(.c) usize,
+    write_fn: ?*const fn (*FILE, [*]const u8, usize) callconv(.c) usize,
+    seek_fn: ?*const fn (*FILE, i64, c_int) callconv(.c) i64,
+    buf: ?[*]u8,
+    buf_size: usize,
+    prev: ?*FILE,
+    next: ?*FILE,
+    fd: c_int,
+    pipe_pid: c_int,
+    lockcount: c_long,
+    mode: c_int,
+    lock: c_int,
+    lbf: c_int,
+    cookie: ?*anyopaque,
+    off: i64,
+    getln_buf: ?[*]u8,
+    mustbezero_2: ?*anyopaque,
+    shend: ?[*]u8,
+    shlim: off_t,
+    shcnt: off_t,
+    prev_locked: ?*FILE,
+    next_locked: ?*FILE,
+    locale: ?*anyopaque,
+};
+
+const uflow_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__uflow" });
+
+fn ptrDiff(a: [*]const u8, b: [*]const u8) off_t {
+    return @as(off_t, @intCast(@as(isize, @bitCast(@intFromPtr(a) -% @intFromPtr(b)))));
+}
+
+fn ptrAdd(p: [*]u8, n: off_t) [*]u8 {
+    return p + @as(usize, @intCast(n));
+}
+
+fn shcnt(f: *FILE) off_t {
+    return f.shcnt + ptrDiff(f.rpos.?, f.buf.?);
+}
+
+fn shlim(f: *FILE, lim: off_t) callconv(.c) void {
+    f.shlim = lim;
+    f.shcnt = ptrDiff(f.buf.?, f.rpos.?);
+    // If lim is nonzero, rend must be a valid pointer.
+    if (lim != 0 and ptrDiff(f.rend.?, f.rpos.?) > lim) {
+        f.shend = ptrAdd(f.rpos.?, lim);
+    } else {
+        f.shend = f.rend;
+    }
+}
+
+fn shunget(f: *FILE) void {
+    if (f.shlim >= 0) f.rpos = f.rpos.? - 1;
+}
+
+fn shgetc(f: *FILE) c_int {
+    if (f.rpos != f.shend) {
+        const ch = f.rpos.?[0];
+        f.rpos = f.rpos.? + 1;
+        return ch;
+    }
+    return shgetcSlow(f);
+}
+
+// shgetc.c — scan helper bytestream functions
+fn shgetcSlow(f: *FILE) callconv(.c) c_int {
+    var cnt = shcnt(f);
+    const c_uflow = if (f.shlim != 0 and cnt >= f.shlim) EOF else uflow_fn(f);
+    if (c_uflow < 0) {
+        f.shcnt = ptrDiff(f.buf.?, f.rpos.?) + cnt;
+        f.shend = f.rpos;
+        f.shlim = -1;
+        return EOF;
+    }
+    cnt += 1;
+    if (f.shlim != 0 and ptrDiff(f.rend.?, f.rpos.?) > f.shlim - cnt) {
+        f.shend = ptrAdd(f.rpos.?, f.shlim - cnt);
+    } else {
+        f.shend = f.rend;
+    }
+    f.shcnt = ptrDiff(f.buf.?, f.rpos.?) + cnt;
+    if (@intFromPtr(f.rpos.?) <= @intFromPtr(f.buf.?)) (f.rpos.? - 1)[0] = @intCast(c_uflow);
+    return c_uflow;
+}
+
+// intscan.c — integer scanner used by scanf-family and strto*-family functions
+const digit_table = [_]u8{
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+};
+
+fn digitVal(ch: c_int) u8 {
+    if (ch < 0 or ch > 255) return 255;
+    return digit_table[@as(usize, @intCast(ch)) + 1];
+}
+
+fn isSpace(ch: c_int) bool {
+    return ch == ' ' or @as(c_uint, @bitCast(ch - 0x09)) < 5;
+}
+
+fn intscan(f: *FILE, base_arg: c_uint, pok: c_int, lim: c_ulonglong) callconv(.c) c_ulonglong {
+    var base = base_arg;
+    var c_ch: c_int = undefined;
+    var neg: c_ulonglong = 0;
+    var x: c_uint = undefined;
+    var y: c_ulonglong = undefined;
+
+    if (base > 36 or base == 1) {
+        std.c._errno().* = @intFromEnum(linux.E.INVAL);
+        return 0;
+    }
+    while (true) {
+        c_ch = shgetc(f);
+        if (!isSpace(c_ch)) break;
+    }
+    if (c_ch == '+' or c_ch == '-') {
+        neg = if (c_ch == '-') ULLONG_MAX else 0;
+        c_ch = shgetc(f);
+    }
+    if ((base == 0 or base == 16) and c_ch == '0') {
+        c_ch = shgetc(f);
+        if ((c_ch | 32) == 'x') {
+            c_ch = shgetc(f);
+            if (digitVal(c_ch) >= 16) {
+                shunget(f);
+                if (pok != 0) shunget(f) else shlim(f, 0);
+                return 0;
+            }
+            base = 16;
+        } else if (base == 0) {
+            base = 8;
+        }
+    } else {
+        if (base == 0) base = 10;
+        if (digitVal(c_ch) >= base) {
+            shunget(f);
+            shlim(f, 0);
+            std.c._errno().* = @intFromEnum(linux.E.INVAL);
+            return 0;
+        }
+    }
+    if (base == 10) {
+        x = 0;
+        while (@as(c_uint, @bitCast(c_ch - '0')) < 10 and x <= UINT_MAX / 10 - 1) : (c_ch = shgetc(f)) {
+            x = x * 10 + @as(c_uint, @intCast(c_ch - '0'));
+        }
+        y = x;
+        while (@as(c_uint, @bitCast(c_ch - '0')) < 10 and y <= ULLONG_MAX / 10 and 10 * y <= ULLONG_MAX - @as(c_ulonglong, @intCast(c_ch - '0'))) : (c_ch = shgetc(f)) {
+            y = y * 10 + @as(c_ulonglong, @intCast(c_ch - '0'));
+        }
+        if (@as(c_uint, @bitCast(c_ch - '0')) >= 10) return intscanDone(f, y, neg, lim);
+    } else if ((base & (base - 1)) == 0) {
+        const shift_table = [_]u3{ 0, 1, 2, 4, 7, 3, 6, 5 };
+        const bs = shift_table[((0x17 * base) >> 5) & 7];
+        x = 0;
+        while (digitVal(c_ch) < base and x <= UINT_MAX / 32) : (c_ch = shgetc(f)) {
+            x = (x << bs) | digitVal(c_ch);
+        }
+        y = x;
+        while (digitVal(c_ch) < base and y <= (ULLONG_MAX >> bs)) : (c_ch = shgetc(f)) {
+            y = (y << bs) | digitVal(c_ch);
+        }
+    } else {
+        x = 0;
+        while (digitVal(c_ch) < base and x <= UINT_MAX / 36 - 1) : (c_ch = shgetc(f)) {
+            x = x * base + digitVal(c_ch);
+        }
+        y = x;
+        while (digitVal(c_ch) < base and y <= ULLONG_MAX / base and base * y <= ULLONG_MAX - digitVal(c_ch)) : (c_ch = shgetc(f)) {
+            y = y * base + digitVal(c_ch);
+        }
+    }
+    if (digitVal(c_ch) < base) {
+        while (digitVal(c_ch) < base) : (c_ch = shgetc(f)) {}
+        std.c._errno().* = @intFromEnum(linux.E.RANGE);
+        y = lim;
+        if ((lim & 1) != 0) neg = 0;
+    }
+    return intscanDone(f, y, neg, lim);
+}
+
+fn intscanDone(f: *FILE, y: c_ulonglong, neg: c_ulonglong, lim: c_ulonglong) c_ulonglong {
+    shunget(f);
+    if (y >= lim) {
+        if ((lim & 1) == 0 and neg == 0) {
+            std.c._errno().* = @intFromEnum(linux.E.RANGE);
+            return lim - 1;
+        } else if (y > lim) {
+            std.c._errno().* = @intFromEnum(linux.E.RANGE);
+            return lim;
+        }
+    }
+    return (y ^ neg) -% neg;
+}
+
 // syscall_ret.c — syscall return value to errno conversion
 fn syscall_retLinux(r: c_ulong) callconv(.c) c_long {
     const signed_r: c_long = @bitCast(r);
@@ -121,6 +586,9 @@ comptime {
     if (builtin.target.isMuslLibC()) {
         c.symbol(&syscall_retLinux, "__syscall_ret");
         c.symbol(&procfdnameLinux, "__procfdname");
+        c.symbol(&shlim, "__shlim");
+        c.symbol(&shgetcSlow, "__shgetc");
+        c.symbol(&intscan, "__intscan");
 
         // Export __emulate_wait4 only on arches where musl needs it (i.e. those
         // lacking SYS_wait4). On other arches musl's `__sys_wait4` macro inlines

@@ -3,6 +3,9 @@ const std = @import("std");
 const symbol = @import("../c.zig").symbol;
 
 const tls_module_t = opaque {};
+const GlobalLocale = extern struct {
+    cat: [6]?*anyopaque,
+};
 const LibC = extern struct {
     can_do_threads: u8,
     threaded: u8,
@@ -15,8 +18,10 @@ const LibC = extern struct {
     tls_align: usize,
     tls_cnt: usize,
     page_size: usize,
+    global_locale: GlobalLocale,
 };
 extern var __libc: LibC;
+extern var __thread_list_lock: c_int;
 const E = std.os.linux.E;
 /// `typedef struct { unsigned __attr; } pthread_mutexattr_t;`
 const pthread_mutexattr_t = extern struct { __attr: c_uint = 0 };
@@ -106,8 +111,18 @@ const off_detach_state = part1_size + 8;
 const off_canceldisable = part1_size + 16;
 const off_cancelasync = part1_size + 17;
 const off_tsd_flags = part1_size + 18;
+const off_map_size = off_map_base + ptr_size;
+const off_stack = off_map_base + 2 * ptr_size;
+const off_stack_size = off_map_base + 3 * ptr_size;
+const off_guard_size = off_map_base + 4 * ptr_size;
+const off_result = off_map_base + 5 * ptr_size;
+const off_cancelbuf = off_map_base + 6 * ptr_size;
 const off_tsd = part1_size + map_base_off + 7 * ptr_size;
+const off_h_errno = off_robust_pending + ptr_size;
+const off_locale = std.mem.alignForward(usize, off_h_errno + 2 * @sizeOf(c_int), ptr_size);
+const off_dlerror_buf = off_killlock + @sizeOf(c_int);
 /// Musl detach state enum values from pthread_impl.h.
+const DT_EXITING: c_int = 1;
 const DT_JOINABLE: c_int = 2;
 const DT_DETACHED: c_int = 3;
 const SEM_VALUE_MAX: c_int = 0x7fffffff;
@@ -121,6 +136,24 @@ const PtCb = extern struct {
     x: ?*anyopaque,
     next: ?*PtCb,
 };
+const PROT_NONE: c_int = 0;
+const PROT_READ: c_int = 1;
+const PROT_WRITE: c_int = 2;
+const MAP_PRIVATE: c_int = 2;
+const MAP_ANON: c_int = 0x20;
+const MAP_FAILED: usize = std.math.maxInt(usize);
+const CLONE_VM: c_int = 0x100;
+const CLONE_FS: c_int = 0x200;
+const CLONE_FILES: c_int = 0x400;
+const CLONE_SIGHAND: c_int = 0x800;
+const CLONE_THREAD: c_int = 0x10000;
+const CLONE_SYSVSEM: c_int = 0x40000;
+const CLONE_SETTLS: c_int = 0x80000;
+const CLONE_PARENT_SETTID: c_int = 0x100000;
+const CLONE_CHILD_CLEARTID: c_int = 0x200000;
+const CLONE_DETACHED: c_int = 0x400000;
+const SIGCANCEL: usize = 33;
+const SIG_SETMASK: usize = 2;
 const PR_SET_NAME: usize = 15;
 const PR_GET_NAME: usize = 16;
 const AT_FDCWD: usize = @bitCast(@as(isize, -100));
@@ -139,6 +172,18 @@ const FUTEX_PRIVATE: usize = 128;
 var vmlock: [2]c_int = .{ 0, 0 };
 var __default_stacksize: c_uint = 131072; // DEFAULT_STACK_SIZE
 var __default_guardsize: c_uint = 8192; // DEFAULT_GUARD_SIZE
+var tl_lock_count: c_int = 0;
+var tl_lock_waiters: c_int = 0;
+const pthread_create_flags: c_int = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+    CLONE_THREAD | CLONE_SYSVSEM | CLONE_SETTLS | CLONE_PARENT_SETTID |
+    CLONE_CHILD_CLEARTID | CLONE_DETACHED;
+
+const StartArgs = extern struct {
+    start_func: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+    start_arg: ?*anyopaque,
+    control: c_int,
+    sig_mask: [_NSIG / 8 / @sizeOf(c_long)]c_ulong,
+};
 
 // --- __lock.c ---
 // Futex-based lock combining a flag (sign bit) and congestion count.

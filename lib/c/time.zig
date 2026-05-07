@@ -62,7 +62,7 @@ extern "c" fn fopen(path: [*:0]const u8, mode: [*:0]const u8) callconv(.c) ?*any
 extern "c" fn fgets(buf: [*]u8, size: c_int, stream: *anyopaque) callconv(.c) ?[*]u8;
 extern "c" fn fclose(stream: *anyopaque) callconv(.c) c_int;
 extern "c" fn ferror(stream: *anyopaque) callconv(.c) c_int;
-extern "c" fn strptime(s: [*:0]const u8, fmt: [*:0]const u8, t: *tm) callconv(.c) ?[*:0]const u8;
+extern "c" fn nl_langinfo(item: c_int) callconv(.c) [*:0]const u8;
 extern "c" fn pthread_setcancelstate(state: c_int, oldstate: ?*c_int) callconv(.c) c_int;
 const PTHREAD_CANCEL_DEFERRED = 0;
 var getdate_err: c_int = 0;
@@ -108,6 +108,7 @@ comptime {
         symbol(&__localtime_r, "__localtime_r");
         symbol(&localtimeImpl, "localtime");
         symbol(&mktimeImpl, "mktime");
+        symbol(&strptimeImpl, "strptime");
         symbol(&getdate_err, "getdate_err");
         symbol(&getdateImpl, "getdate");
     }
@@ -499,6 +500,316 @@ fn mktimeImpl(t: *tm) callconv(.c) time_t {
     return @intCast(secs);
 }
 
+const ABDAY_1 = 0x20000;
+const DAY_1 = 0x20007;
+const ABMON_1 = 0x2000E;
+const MON_1 = 0x2001A;
+const AM_STR = 0x20026;
+const PM_STR = 0x20027;
+const D_T_FMT = 0x20028;
+const D_FMT = 0x20029;
+const T_FMT = 0x2002A;
+const T_FMT_AMPM = 0x2002B;
+
+fn isAsciiSpace(c: u8) bool {
+    return c == ' ' or (c -% '\t' < 5);
+}
+
+fn isAsciiDigit(c: u8) bool {
+    return c -% '0' < 10;
+}
+
+fn asciiLower(c: u8) u8 {
+    if (c -% 'A' < 26) return c | 32;
+    return c;
+}
+
+fn cStrLen(s: [*:0]const u8) usize {
+    var len: usize = 0;
+    while (s[len] != 0) len += 1;
+    return len;
+}
+
+fn cStrNCaseCmp(a: [*:0]const u8, b: [*:0]const u8, len: usize) c_int {
+    var i: usize = 0;
+    while (i < len) : (i += 1) {
+        const ca = asciiLower(a[i]);
+        const cb = asciiLower(b[i]);
+        if (ca != cb) return @as(c_int, ca) - @as(c_int, cb);
+    }
+    return 0;
+}
+
+fn parseUnsignedWidth(f: [*:0]const u8, out: *c_int) [*:0]const u8 {
+    var p = f;
+    var value: c_ulong = 0;
+    const max: c_ulong = @intCast(std.math.maxInt(c_int));
+    while (isAsciiDigit(p[0])) {
+        if (value <= @divTrunc(max - (p[0] - '0'), 10)) {
+            value = value * 10 + (p[0] - '0');
+        } else {
+            value = max;
+        }
+        p += 1;
+    }
+    out.* = @intCast(value);
+    return p;
+}
+
+fn parseInto(dest: *c_int, s_ptr: *[*:0]const u8, width: c_int) void {
+    var s = s_ptr.*;
+    var i: c_int = 0;
+    dest.* = 0;
+    while (i < width and isAsciiDigit(s[0])) : (i += 1) {
+        dest.* = dest.* * 10 + @as(c_int, s[0] - '0');
+        s += 1;
+    }
+    s_ptr.* = s;
+}
+
+fn strptimeImpl(s_arg: [*:0]const u8, f_arg: [*:0]const u8, t: *tm) callconv(.c) ?[*:0]const u8 {
+    var s = s_arg;
+    var f = f_arg;
+    var w: c_int = undefined;
+    var adj: c_int = undefined;
+    var min: c_int = undefined;
+    var range: c_int = undefined;
+    var dest: *c_int = undefined;
+    var dummy: c_int = undefined;
+    var want_century: c_int = 0;
+    var century: c_int = 0;
+    var relyear: c_int = 0;
+
+    while (f[0] != 0) {
+        if (f[0] != '%') {
+            if (isAsciiSpace(f[0])) {
+                while (s[0] != 0 and isAsciiSpace(s[0])) s += 1;
+            } else if (s[0] != f[0]) {
+                return null;
+            } else {
+                s += 1;
+            }
+            f += 1;
+            continue;
+        }
+        f += 1;
+        if (f[0] == '+') f += 1;
+        if (isAsciiDigit(f[0])) {
+            f = parseUnsignedWidth(f, &w);
+        } else {
+            w = -1;
+        }
+        adj = 0;
+        const fmt = f[0];
+        f += 1;
+        switch (fmt) {
+            'a', 'A' => {
+                dest = &t.tm_wday;
+                min = if (fmt == 'a') ABDAY_1 else DAY_1;
+                range = 7;
+            },
+            'b', 'B', 'h' => {
+                dest = &t.tm_mon;
+                min = if (fmt == 'B') MON_1 else ABMON_1;
+                range = 12;
+            },
+            'c' => {
+                s = strptimeImpl(s, nl_langinfo(D_T_FMT), t) orelse return null;
+                continue;
+            },
+            'C' => {
+                dest = &century;
+                if (w < 0) w = 2;
+                want_century |= 2;
+                if (!parseNumericDigits(dest, &s, w, adj)) return null;
+                continue;
+            },
+            'd', 'e' => {
+                dest = &t.tm_mday;
+                min = 1;
+                range = 31;
+                if (!parseNumericRange(dest, &s, min, range, adj)) return null;
+                continue;
+            },
+            'D' => {
+                s = strptimeImpl(s, "%m/%d/%y", t) orelse return null;
+                continue;
+            },
+            'H' => {
+                dest = &t.tm_hour;
+                min = 0;
+                range = 24;
+                if (!parseNumericRange(dest, &s, min, range, adj)) return null;
+                continue;
+            },
+            'I' => {
+                dest = &t.tm_hour;
+                min = 1;
+                range = 12;
+                if (!parseNumericRange(dest, &s, min, range, adj)) return null;
+                continue;
+            },
+            'j' => {
+                dest = &t.tm_yday;
+                min = 1;
+                range = 366;
+                adj = 1;
+                if (!parseNumericRange(dest, &s, min, range, adj)) return null;
+                continue;
+            },
+            'm' => {
+                dest = &t.tm_mon;
+                min = 1;
+                range = 12;
+                adj = 1;
+                if (!parseNumericRange(dest, &s, min, range, adj)) return null;
+                continue;
+            },
+            'M' => {
+                dest = &t.tm_min;
+                min = 0;
+                range = 60;
+                if (!parseNumericRange(dest, &s, min, range, adj)) return null;
+                continue;
+            },
+            'n', 't' => {
+                while (s[0] != 0 and isAsciiSpace(s[0])) s += 1;
+                continue;
+            },
+            'p' => {
+                var ex = nl_langinfo(AM_STR);
+                var len = cStrLen(ex);
+                if (cStrNCaseCmp(s, ex, len) == 0) {
+                    t.tm_hour = @rem(t.tm_hour, 12);
+                    s += len;
+                    continue;
+                }
+                ex = nl_langinfo(PM_STR);
+                len = cStrLen(ex);
+                if (cStrNCaseCmp(s, ex, len) == 0) {
+                    t.tm_hour = @rem(t.tm_hour, 12);
+                    t.tm_hour += 12;
+                    s += len;
+                    continue;
+                }
+                return null;
+            },
+            'r' => {
+                s = strptimeImpl(s, nl_langinfo(T_FMT_AMPM), t) orelse return null;
+                continue;
+            },
+            'R' => {
+                s = strptimeImpl(s, "%H:%M", t) orelse return null;
+                continue;
+            },
+            'S' => {
+                dest = &t.tm_sec;
+                min = 0;
+                range = 61;
+                if (!parseNumericRange(dest, &s, min, range, adj)) return null;
+                continue;
+            },
+            'T' => {
+                s = strptimeImpl(s, "%H:%M:%S", t) orelse return null;
+                continue;
+            },
+            'U', 'W' => {
+                dest = &dummy;
+                min = 0;
+                range = 54;
+                if (!parseNumericRange(dest, &s, min, range, adj)) return null;
+                continue;
+            },
+            'w' => {
+                dest = &t.tm_wday;
+                min = 0;
+                range = 7;
+                if (!parseNumericRange(dest, &s, min, range, adj)) return null;
+                continue;
+            },
+            'x' => {
+                s = strptimeImpl(s, nl_langinfo(D_FMT), t) orelse return null;
+                continue;
+            },
+            'X' => {
+                s = strptimeImpl(s, nl_langinfo(T_FMT), t) orelse return null;
+                continue;
+            },
+            'y' => {
+                dest = &relyear;
+                w = 2;
+                want_century |= 1;
+                if (!parseNumericDigits(dest, &s, w, adj)) return null;
+                continue;
+            },
+            'Y' => {
+                dest = &t.tm_year;
+                if (w < 0) w = 4;
+                adj = 1900;
+                want_century = 0;
+                if (!parseNumericDigits(dest, &s, w, adj)) return null;
+                continue;
+            },
+            '%' => {
+                if (s[0] != '%') return null;
+                s += 1;
+                continue;
+            },
+            else => return null,
+        }
+
+        var i: c_int = 2 * range - 1;
+        while (i >= 0) : (i -= 1) {
+            const ex = nl_langinfo(min + i);
+            const len = cStrLen(ex);
+            if (cStrNCaseCmp(s, ex, len) != 0) continue;
+            s += len;
+            dest.* = @rem(i, range);
+            break;
+        }
+        if (i < 0) return null;
+    }
+
+    if (want_century != 0) {
+        t.tm_year = relyear;
+        if ((want_century & 2) != 0) {
+            t.tm_year += century * 100 - 1900;
+        } else if (t.tm_year <= 68) {
+            t.tm_year += 100;
+        }
+    }
+    return s;
+}
+
+fn parseNumericRange(dest: *c_int, s: *[*:0]const u8, min: c_int, range: c_int, adj: c_int) bool {
+    if (!isAsciiDigit(s.*[0])) return false;
+    dest.* = 0;
+    var i: c_int = 1;
+    while (i <= min + range and isAsciiDigit(s.*[0])) : (i *= 10) {
+        dest.* = dest.* * 10 + @as(c_int, s.*[0] - '0');
+        s.* += 1;
+    }
+    const diff: c_uint = @bitCast(dest.* -% min);
+    if (diff >= @as(c_uint, @bitCast(range))) return false;
+    dest.* -= adj;
+    return true;
+}
+
+fn parseNumericDigits(dest: *c_int, s: *[*:0]const u8, width: c_int, adj: c_int) bool {
+    var neg = false;
+    if (s.*[0] == '+') {
+        s.* += 1;
+    } else if (s.*[0] == '-') {
+        neg = true;
+        s.* += 1;
+    }
+    if (!isAsciiDigit(s.*[0])) return false;
+    parseInto(dest, s, width);
+    if (neg) dest.* = -dest.*;
+    dest.* -= adj;
+    return true;
+}
+
 fn getdateImpl(s: [*:0]const u8) callconv(.c) ?*tm {
     var ret: ?*tm = null;
     var cs: c_int = undefined;
@@ -521,7 +832,7 @@ fn getdateImpl(s: [*:0]const u8) callconv(.c) ?*tm {
 
     var fmt: [100]u8 = undefined;
     while (fgets(&fmt, 100, f)) |_| {
-        const p = strptime(s, @ptrCast(&fmt), &tmbuf);
+        const p = strptimeImpl(s, @ptrCast(&fmt), &tmbuf);
         if (p) |pp| {
             if (pp[0] == 0) {
                 ret = &tmbuf;

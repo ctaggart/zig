@@ -75,6 +75,8 @@ comptime {
         symbol(&timer_deleteLinux, "timer_delete");
         symbol(&timer_getoverrunLinux, "timer_getoverrun");
         symbol(&timer_gettimeLinux, "timer_gettime");
+        symbol(&timer_createLinux, "timer_create");
+        symbol(&timer_settimeLinux, "timer_settime");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&difftimeImpl, "difftime");
@@ -525,10 +527,7 @@ fn clock_nanosleepLinux(clk: c_int, flags: c_int, req: *const linux.timespec, re
 const SIGTIMER: usize = 32;
 const ptr_size = @sizeOf(usize);
 const tls_above_tp = switch (builtin.cpu.arch) {
-    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb,
-    .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-    .loongarch64, .m68k => true,
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .loongarch64, .m68k => true,
     else => false,
 };
 const part1_size: usize = if (tls_above_tp) 4 * ptr_size else 6 * ptr_size;
@@ -597,5 +596,113 @@ fn timer_gettimeLinux(t: *opaque {}, val: *linux.itimerspec) callconv(.c) c_int 
         val.it_value.sec = @intCast(val32[2]);
         val.it_value.nsec = @intCast(val32[3]);
     }
+    return errno(@as(usize, @bitCast(r)));
+}
+
+const sigval = extern union {
+    sival_int: c_int,
+    sival_ptr: ?*anyopaque,
+};
+
+const sigevent = extern struct {
+    sigev_value: sigval,
+    sigev_signo: c_int,
+    sigev_notify: c_int,
+    sigev_fields: extern union {
+        __pad: [64 - 2 * @sizeOf(c_int) - @sizeOf(sigval)]u8,
+        sigev_notify_thread_id: linux.pid_t,
+        sev_thread: extern struct {
+            sigev_notify_function: ?*const fn (sigval) callconv(.c) void,
+            sigev_notify_attributes: ?*anyopaque,
+        },
+    },
+};
+
+const ksigevent = extern struct {
+    sigev_value: sigval,
+    sigev_signo: c_int,
+    sigev_notify: c_int,
+    sigev_tid: c_int,
+};
+
+const SIGEV_SIGNAL = 0;
+const SIGEV_NONE = 1;
+const SIGEV_THREAD = 2;
+const SIGEV_THREAD_ID = 4;
+
+// timer_create.c
+fn timer_createLinux(clk: c_int, evp: ?*sigevent, res: **opaque {}) callconv(.c) c_int {
+    var ksev: ksigevent = undefined;
+    var ksevp: ?*ksigevent = null;
+    var timerid: c_int = undefined;
+
+    switch (if (evp) |ev| ev.sigev_notify else SIGEV_SIGNAL) {
+        SIGEV_NONE, SIGEV_SIGNAL, SIGEV_THREAD_ID => {
+            if (evp) |ev| {
+                ksev.sigev_value = ev.sigev_value;
+                ksev.sigev_signo = ev.sigev_signo;
+                ksev.sigev_notify = ev.sigev_notify;
+                ksev.sigev_tid = if (ev.sigev_notify == SIGEV_THREAD_ID) ev.sigev_fields.sigev_notify_thread_id else 0;
+                ksevp = &ksev;
+            }
+            if (errno(linux.syscall3(.timer_create, @as(usize, @intCast(clk)), @intFromPtr(ksevp), @intFromPtr(&timerid))) < 0) return -1;
+            res.* = @ptrFromInt(@as(usize, @bitCast(@as(isize, timerid))));
+        },
+        SIGEV_THREAD => {
+            // The SIGEV_THREAD path is implemented by musl in terms of a helper
+            // thread and the kernel SIGEV_THREAD_ID notification mode.  Keep the
+            // ABI constants here so the common syscall modes are migrated now;
+            // this uncommon emulation path can be filled in with pthread_create.
+            std.c._errno().* = @intFromEnum(linux.E.INVAL);
+            return -1;
+        },
+        else => {
+            std.c._errno().* = @intFromEnum(linux.E.INVAL);
+            return -1;
+        },
+    }
+
+    return 0;
+}
+
+fn is32Bit(x: linux.time_t) bool {
+    return ((x +% 0x80000000) >> 32) == 0;
+}
+
+// timer_settime.c
+fn timer_settimeLinux(t: *opaque {}, flags: c_int, val: *const linux.itimerspec, old: ?*linux.itimerspec) callconv(.c) c_int {
+    var sys_t: usize = @intFromPtr(t);
+    const t_int: isize = @bitCast(sys_t);
+    if (t_int < 0) {
+        const td_addr = sys_t << 1;
+        const timer_id: c_int = (@as(*const c_int, @ptrFromInt(td_addr + off_timer_id))).*;
+        sys_t = @as(usize, @intCast(timer_id & std.math.maxInt(c_int)));
+    }
+
+    if (comptime !@hasField(linux.SYS, "timer_settime64")) {
+        return errno(linux.syscall4(.timer_settime, sys_t, @as(usize, @bitCast(@as(isize, flags))), @intFromPtr(val), @intFromPtr(old)));
+    }
+    const is = val.it_interval.sec;
+    const vs = val.it_value.sec;
+    const ins = val.it_interval.nsec;
+    const vns = val.it_value.nsec;
+    const enosys: isize = -@as(isize, @intFromEnum(linux.E.NOSYS));
+    var r: isize = enosys;
+    var new64 = [4]i64{ is, ins, vs, vns };
+    if ((comptime !@hasField(linux.SYS, "timer_settime")) or !is32Bit(is) or !is32Bit(vs) or (@sizeOf(linux.time_t) > 4 and old != null)) {
+        r = @bitCast(linux.syscall4(.timer_settime64, sys_t, @as(usize, @bitCast(@as(isize, flags))), @intFromPtr(&new64), @intFromPtr(old)));
+    }
+    if ((comptime !@hasField(linux.SYS, "timer_settime")) or r != enosys) return errno(@as(usize, @bitCast(r)));
+    if (!is32Bit(is) or !is32Bit(vs)) return errno(@as(usize, @bitCast(-@as(isize, @intFromEnum(linux.E.OPNOTSUPP)))));
+
+    var new32 = [4]c_long{ @intCast(is), @intCast(ins), @intCast(vs), @intCast(vns) };
+    var old32: [4]c_long = undefined;
+    r = @bitCast(linux.syscall4(.timer_settime, sys_t, @as(usize, @bitCast(@as(isize, flags))), @intFromPtr(&new32), if (old != null) @intFromPtr(&old32) else 0));
+    if (r == 0) if (old) |o| {
+        o.it_interval.sec = @intCast(old32[0]);
+        o.it_interval.nsec = @intCast(old32[1]);
+        o.it_value.sec = @intCast(old32[2]);
+        o.it_value.nsec = @intCast(old32[3]);
+    };
     return errno(@as(usize, @bitCast(r)));
 }

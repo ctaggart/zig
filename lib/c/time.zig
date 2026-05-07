@@ -3,13 +3,26 @@ const std = @import("std");
 const linux = std.os.linux;
 const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
+const c_time_t = std.c.time_t;
+const c_timespec = extern struct {
+    sec: c_time_t,
+    nsec: c_long,
+};
+const c_timeval = extern struct {
+    sec: c_time_t,
+    usec: c_long,
+};
+const c_itimerspec = extern struct {
+    it_interval: c_timespec,
+    it_value: c_timespec,
+};
 const timeb = extern struct {
-    time: linux.time_t,
+    time: c_time_t,
     millitm: c_ushort,
     timezone: c_short,
     dstflag: c_short,
 };
-const time_t = linux.time_t;
+const time_t = c_time_t;
 const tm = extern struct {
     tm_sec: c_int,
     tm_min: c_int,
@@ -100,33 +113,52 @@ comptime {
     }
 }
 
-fn clock_gettimeLinux(clk: c_int, ts: *linux.timespec) callconv(.c) c_int {
-    return errno(linux.clock_gettime(@enumFromInt(@as(u32, @bitCast(clk))), ts));
+fn copyFromKernelTimespec(dst: *c_timespec, src: linux.timespec) void {
+    dst.sec = @intCast(src.sec);
+    dst.nsec = @intCast(src.nsec);
 }
 
-fn clock_settimeLinux(clk: c_int, ts: *const linux.timespec) callconv(.c) c_int {
-    return errno(linux.clock_settime(@enumFromInt(@as(u32, @bitCast(clk))), ts));
+fn copyToKernelTimespec(src: *const c_timespec) linux.timespec {
+    return .{
+        .sec = @intCast(src.sec),
+        .nsec = @intCast(src.nsec),
+    };
 }
 
-fn clock_getresLinux(clk: c_int, ts: *linux.timespec) callconv(.c) c_int {
-    return errno(linux.clock_getres(@enumFromInt(@as(u32, @bitCast(clk))), ts));
+fn clock_gettimeLinux(clk: c_int, ts: *c_timespec) callconv(.c) c_int {
+    var kts: linux.timespec = undefined;
+    const r = errno(linux.clock_gettime(@enumFromInt(@as(u32, @bitCast(clk))), &kts));
+    if (r == 0) copyFromKernelTimespec(ts, kts);
+    return r;
 }
 
-fn gettimeofdayLinux(tv: ?*linux.timeval, _: ?*anyopaque) callconv(.c) c_int {
+fn clock_settimeLinux(clk: c_int, ts: *const c_timespec) callconv(.c) c_int {
+    var kts = copyToKernelTimespec(ts);
+    return errno(linux.clock_settime(@enumFromInt(@as(u32, @bitCast(clk))), &kts));
+}
+
+fn clock_getresLinux(clk: c_int, ts: ?*c_timespec) callconv(.c) c_int {
+    var kts: linux.timespec = undefined;
+    const kts_ptr: ?*linux.timespec = if (ts == null) null else &kts;
+    const r = errno(linux.clock_getres(@enumFromInt(@as(u32, @bitCast(clk))), kts_ptr));
+    if (r == 0) if (ts) |out| copyFromKernelTimespec(out, kts);
+    return r;
+}
+
+fn gettimeofdayLinux(tv: ?*c_timeval, _: ?*anyopaque) callconv(.c) c_int {
     const t = tv orelse return 0;
-    var ts: linux.timespec = undefined;
-    _ = linux.clock_gettime(.REALTIME, &ts);
+    var ts: c_timespec = undefined;
+    _ = clock_gettimeLinux(@intFromEnum(linux.CLOCK.REALTIME), &ts);
     t.sec = ts.sec;
     t.usec = @intCast(@divTrunc(ts.nsec, 1000));
     return 0;
 }
 
-fn timeLinux(t: ?*linux.time_t) callconv(.c) linux.time_t {
-    var ts: linux.timespec = undefined;
-    _ = linux.clock_gettime(.REALTIME, &ts);
-    const sec: linux.time_t = @intCast(ts.sec);
-    if (t) |ptr| ptr.* = sec;
-    return sec;
+fn timeLinux(t: ?*c_time_t) callconv(.c) c_time_t {
+    var ts: c_timespec = undefined;
+    _ = clock_gettimeLinux(@intFromEnum(linux.CLOCK.REALTIME), &ts);
+    if (t) |ptr| ptr.* = ts.sec;
+    return ts.sec;
 }
 
 fn clockLinux() callconv(.c) c_long {
@@ -508,16 +540,23 @@ fn getdateImpl(s: [*:0]const u8) callconv(.c) ?*tm {
     return ret;
 }
 
-fn nanosleepLinux(req: *const linux.timespec, rem: ?*linux.timespec) callconv(.c) c_int {
-    return errno(linux.nanosleep(req, rem));
+fn nanosleepLinux(req: *const c_timespec, rem: ?*c_timespec) callconv(.c) c_int {
+    var kreq = copyToKernelTimespec(req);
+    var krem: linux.timespec = undefined;
+    const r = errno(linux.nanosleep(&kreq, if (rem == null) null else &krem));
+    if (r == 0) if (rem) |out| copyFromKernelTimespec(out, krem);
+    return r;
 }
 
-fn clock_nanosleepLinux(clk: c_int, flags: c_int, req: *const linux.timespec, rem: ?*linux.timespec) callconv(.c) c_int {
-    const r = linux.clock_nanosleep(@enumFromInt(@as(u32, @bitCast(clk))), @bitCast(@as(u32, @bitCast(flags))), req, rem);
+fn clock_nanosleepLinux(clk: c_int, flags: c_int, req: *const c_timespec, rem: ?*c_timespec) callconv(.c) c_int {
+    var kreq = copyToKernelTimespec(req);
+    var krem: linux.timespec = undefined;
+    const r = linux.clock_nanosleep(@enumFromInt(@as(u32, @bitCast(clk))), @bitCast(@as(u32, @bitCast(flags))), &kreq, if (rem == null) null else &krem);
     if (r != 0) {
         std.c._errno().* = @intCast(r);
         return -1;
     }
+    if (rem) |out| copyFromKernelTimespec(out, krem);
     return 0;
 }
 
@@ -525,10 +564,7 @@ fn clock_nanosleepLinux(clk: c_int, flags: c_int, req: *const linux.timespec, re
 const SIGTIMER: usize = 32;
 const ptr_size = @sizeOf(usize);
 const tls_above_tp = switch (builtin.cpu.arch) {
-    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb,
-    .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el,
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le,
-    .loongarch64, .m68k => true,
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .riscv64, .riscv32, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .loongarch64, .m68k => true,
     else => false,
 };
 const part1_size: usize = if (tls_above_tp) 4 * ptr_size else 6 * ptr_size;
@@ -563,7 +599,7 @@ fn timer_getoverrunLinux(t: *opaque {}) callconv(.c) c_int {
 }
 
 // timer_gettime.c
-fn timer_gettimeLinux(t: *opaque {}, val: *linux.itimerspec) callconv(.c) c_int {
+fn timer_gettimeLinux(t: *opaque {}, val: *c_itimerspec) callconv(.c) c_int {
     var sys_t: usize = @intFromPtr(t);
     const t_int: isize = @bitCast(sys_t);
     if (t_int < 0) {

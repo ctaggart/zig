@@ -197,7 +197,6 @@ comptime {
         symbol(&execlpImpl, "execlp");
         symbol(&systemImpl, "system");
         symbol(&forkImpl, "fork");
-        symbol(&dummyForkHandler, "__fork_handler");
         symbol(&dummyForkHandler, "__malloc_atfork");
         symbol(&dummyForkHandler, "__ldso_atfork");
         symbol(&dummy0, "__tl_lock");

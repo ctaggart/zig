@@ -250,6 +250,8 @@ comptime {
         symbol(&getresgidLinux, "getresgid");
         symbol(&setdomainnameLinux, "setdomainname");
         symbol(&gethostid, "gethostid");
+        symbol(&__getauxval, "__getauxval");
+        symbol(&__getauxval, "getauxval");
         symbol(&getdomainnameLinux, "getdomainname");
         symbol(&getrlimitLinux, "getrlimit");
         symbol(&setrlimitLinux, "setrlimit");
@@ -331,6 +333,35 @@ fn setdomainnameLinux(name: [*]const u8, len: usize) callconv(.c) c_int {
 }
 
 fn gethostid() callconv(.c) c_long {
+    return 0;
+}
+
+const LibC = extern struct {
+    can_do_threads: u8,
+    threaded: u8,
+    secure: u8,
+    need_locks: i8,
+    threads_minus_1: c_int,
+    auxv: ?[*]usize,
+    tls_head: ?*anyopaque,
+    tls_size: usize,
+    tls_align: usize,
+    tls_cnt: usize,
+    page_size: usize,
+};
+extern var __libc: LibC;
+
+fn __getauxval(item: c_ulong) callconv(.c) c_ulong {
+    if (item == std.elf.AT_SECURE) return __libc.secure;
+
+    var auxv = __libc.auxv orelse {
+        std.c._errno().* = @intFromEnum(linux.E.NOENT);
+        return 0;
+    };
+    while (auxv[0] != 0) : (auxv += 2) {
+        if (auxv[0] == item) return @intCast(auxv[1]);
+    }
+    std.c._errno().* = @intFromEnum(linux.E.NOENT);
     return 0;
 }
 

@@ -528,8 +528,8 @@ const src_files = [_][]const u8{
     //"musl/src/math/__math_uflowf.c", // migrated to lib/c/math.zig
     //"musl/src/math/__math_xflow.c", // migrated to lib/c/math.zig
     //"musl/src/math/__math_xflowf.c", // migrated to lib/c/math.zig
-    "musl/src/misc/getauxval.c",
-    "musl/src/misc/getdomainname.c",
+    //"musl/src/misc/getauxval.c", // migrated to lib/c/misc.zig
+    //"musl/src/misc/getdomainname.c", // migrated to lib/c/misc.zig
     "musl/src/network/accept4.c",
     "musl/src/network/accept.c",
     "musl/src/network/bind.c",

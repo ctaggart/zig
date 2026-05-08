@@ -697,8 +697,8 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/getwc.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/getwchar.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/__lockfile.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/ofl_add.c",
-    "musl/src/stdio/ofl.c",
+    //"musl/src/stdio/ofl_add.c", // migrated to lib/c/stdio.zig; exports: __ofl_add
+    //"musl/src/stdio/ofl.c", // migrated to lib/c/stdio.zig; exports: __ofl_lock,__ofl_unlock,__stdio_ofl_lockptr
     //"musl/src/stdio/open_memstream.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/open_wmemstream.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/__overflow.c", // migrated to lib/c/stdio.zig

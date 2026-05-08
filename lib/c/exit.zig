@@ -32,8 +32,7 @@ extern "c" fn __block_all_sigs(set: ?*anyopaque) void;
 var __abort_lock: c_int = 0;
 
 comptime {
-    if (builtin.target.isMuslLibC()) {
-    }
+    if (builtin.target.isMuslLibC()) {}
     if (builtin.link_libc) {
         symbol(&quick_exit, "quick_exit");
         symbol(&__funcs_on_quick_exit, "__funcs_on_quick_exit");
@@ -45,7 +44,7 @@ comptime {
         symbol(&qe_lock, "__at_quick_exit_lockptr");
         symbol(&ae_lock, "__atexit_lockptr");
         symbol(&abortImpl, "abort");
-        symbol(&dummy, "__stdio_exit");
+        if (!builtin.target.isMuslLibC()) symbol(&dummy, "__stdio_exit");
         symbol(&libc_exit_fini, "__libc_exit_fini");
         symbol(&_ExitImpl, "_Exit");
         @export(&__abort_lock, .{ .name = "__abort_lock" });
@@ -200,4 +199,6 @@ fn exitImpl(code: c_int) callconv(.c) noreturn {
     _ExitImpl(code);
 }
 
-comptime { if (builtin.target.isMuslLibC()) symbol(&_finiStub, "_fini"); }
+comptime {
+    if (builtin.target.isMuslLibC()) symbol(&_finiStub, "_fini");
+}

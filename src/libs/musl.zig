@@ -543,18 +543,18 @@ const src_files = [_][]const u8{
     //"musl/src/network/freeaddrinfo.c", // migrated to lib/c/network.zig
     "musl/src/network/gai_strerror.c",
     //"musl/src/network/getaddrinfo.c", // migrated to lib/c/network.zig
-    "musl/src/network/gethostbyaddr.c",
+    //"musl/src/network/gethostbyaddr.c", // migrated to lib/c/network.zig
     //"musl/src/network/gethostbyaddr_r.c", // migrated to lib/c/network.zig
-    "musl/src/network/gethostbyname2.c",
+    //"musl/src/network/gethostbyname2.c", // migrated to lib/c/network.zig
     //"musl/src/network/gethostbyname2_r.c", // migrated to lib/c/network.zig
-    "musl/src/network/gethostbyname.c",
-    "musl/src/network/gethostbyname_r.c",
+    //"musl/src/network/gethostbyname.c", // migrated to lib/c/network.zig
+    //"musl/src/network/gethostbyname_r.c", // migrated to lib/c/network.zig
     //"musl/src/network/getifaddrs.c", // migrated to lib/c/network.zig
     //"musl/src/network/getnameinfo.c", // migrated to lib/c/network.zig
     "musl/src/network/getpeername.c",
-    "musl/src/network/getservbyname.c",
+    //"musl/src/network/getservbyname.c", // migrated to lib/c/network.zig
     //"musl/src/network/getservbyname_r.c", // migrated to lib/c/network.zig
-    "musl/src/network/getservbyport.c",
+    //"musl/src/network/getservbyport.c", // migrated to lib/c/network.zig
     //"musl/src/network/getservbyport_r.c", // migrated to lib/c/network.zig
     "musl/src/network/getsockname.c",
     "musl/src/network/getsockopt.c",
@@ -580,7 +580,7 @@ const src_files = [_][]const u8{
     //"musl/src/network/lookup_name.c", // migrated to lib/c/network.zig; exports: __lookup_name
     //"musl/src/network/lookup_serv.c", // migrated to lib/c/network.zig; exports: __lookup_serv
     //"musl/src/network/netlink.c", // migrated to lib/c/network.zig; exports: __rtnetlink_enumerate
-    "musl/src/network/netname.c", // provides getnetbyaddr/getnetbyname (not migrated to Zig)
+    //"musl/src/network/netname.c", // migrated to lib/c/network.zig; exports: getnetbyaddr,getnetbyname
     //"musl/src/network/ns_parse.c", // migrated to lib/c/network.zig; exports: ns_get16,ns_get32,ns_put16,ns_put32,ns_initparse,ns_skiprr,ns_parserr,ns_name_uncompress
     //"musl/src/network/ntohl.c", // migrated to lib/c/network.zig
     //"musl/src/network/ntohs.c", // migrated to lib/c/network.zig
@@ -601,7 +601,7 @@ const src_files = [_][]const u8{
     "musl/src/network/sendmmsg.c",
     "musl/src/network/sendmsg.c",
     "musl/src/network/sendto.c",
-    "musl/src/network/serv.c",
+    //"musl/src/network/serv.c", // migrated to lib/c/network.zig; exports: endservent,setservent,getservent
     "musl/src/network/setsockopt.c",
     "musl/src/network/shutdown.c",
     "musl/src/network/sockatmark.c",

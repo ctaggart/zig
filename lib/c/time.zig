@@ -52,6 +52,7 @@ extern "c" fn ferror(stream: *anyopaque) callconv(.c) c_int;
 extern "c" fn nl_langinfo(item: c_int) callconv(.c) [*:0]const u8;
 extern "c" fn pthread_setcancelstate(state: c_int, oldstate: ?*c_int) callconv(.c) c_int;
 const PTHREAD_CANCEL_DEFERRED = 0;
+const MAP_FAILED = std.math.maxInt(usize);
 var getdate_err: c_int = 0;
 var tmbuf: tm = undefined;
 
@@ -77,6 +78,7 @@ comptime {
         symbol(&timer_gettimeLinux, "timer_gettime");
         symbol(&timer_createLinux, "timer_create");
         symbol(&timer_settimeLinux, "timer_settime");
+        symbol(&__map_file, "__map_file");
     }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&difftimeImpl, "difftime");
@@ -101,6 +103,24 @@ comptime {
         symbol(&getdate_err, "getdate_err");
         symbol(&getdateImpl, "getdate");
     }
+}
+
+fn __map_file(pathname: [*:0]const u8, size: *usize) callconv(.c) ?[*]const u8 {
+    var flags = linux.O{ .ACCMODE = .RDONLY, .CLOEXEC = true, .NONBLOCK = true };
+    if (@hasField(linux.O, "LARGEFILE")) flags.LARGEFILE = true;
+
+    const fd = errno(linux.open(pathname, flags, 0));
+    if (fd < 0) return null;
+
+    var st: linux.Statx = undefined;
+    var map: usize = MAP_FAILED;
+    if (errno(linux.statx(fd, "", linux.AT.EMPTY_PATH, .{ .SIZE = true }, &st)) == 0) {
+        map = linux.mmap(null, @intCast(st.size), .{ .READ = true }, .{ .TYPE = .SHARED }, fd, 0);
+        size.* = @intCast(st.size);
+    }
+    _ = linux.close(fd);
+
+    return if (map == MAP_FAILED) null else @ptrFromInt(map);
 }
 
 fn clock_gettimeLinux(clk: c_int, ts: *linux.timespec) callconv(.c) c_int {

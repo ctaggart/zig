@@ -253,7 +253,7 @@ comptime {
         symbol(&ntohl_impl, "ntohl");
         symbol(&ntohs_impl, "ntohs");
 
-        // in6addr_any.c / in6addr_loopback.c
+        // IPv6 address constants: in6addr_any.c / in6addr_loopback.c
         symbol(&in6addr_any, "in6addr_any");
         symbol(&in6addr_loopback, "in6addr_loopback");
 

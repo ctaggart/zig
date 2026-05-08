@@ -695,7 +695,7 @@ fn wasilibcPopulatePreopensImpl() callconv(.c) void {
         if (ret == .BADF) break;
         if (ret != .SUCCESS) _Exit(71); // EX_OSERR
 
-        switch (prestat.tag) {
+        switch (prestat.pr_type) {
             .DIR => {
                 const name_len = prestat.u.dir.pr_name_len;
                 const prefix_buf = malloc(name_len + 1) orelse _Exit(70); // EX_SOFTWARE
@@ -1138,11 +1138,14 @@ fn wasilibcRmdiratImpl(dirfd: c_int, path: [*:0]const u8) callconv(.c) c_int {
 // =========================================================================
 // environ.c / __wasilibc_environ.c / __wasilibc_initialize_environ.c
 // =========================================================================
-var wasilibc_environ_storage: ?[*:null]?[*:0]u8 = @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
+// `?[*:null]?[*:0]u8` requires alignment, so we cannot smuggle a "not yet
+// initialized" sentinel via @ptrFromInt of -1. Use a companion bool flag.
+var wasilibc_environ_storage: ?[*:null]?[*:0]u8 = null;
+var wasilibc_environ_initialized: bool = false;
 var empty_environ: [1]?[*:0]u8 = .{null};
 
 fn wasilibcEnsureEnvironImpl() callconv(.c) void {
-    if (@intFromPtr(wasilibc_environ_storage) == @as(usize, @bitCast(@as(isize, -1)))) {
+    if (!wasilibc_environ_initialized) {
         wasilibcInitializeEnvironImpl();
     }
 }
@@ -1160,6 +1163,7 @@ fn wasilibcInitializeEnvironImpl() callconv(.c) void {
 
     if (environ_count == 0) {
         wasilibc_environ_storage = @ptrCast(&empty_environ);
+        wasilibc_environ_initialized = true;
         return;
     }
 
@@ -1180,12 +1184,14 @@ fn wasilibcInitializeEnvironImpl() callconv(.c) void {
         _Exit(71);
     }
     wasilibc_environ_storage = environ_ptrs;
+    wasilibc_environ_initialized = true;
 }
 
 fn wasilibcDeinitializeEnvironImpl() callconv(.c) void {
-    if (@intFromPtr(wasilibc_environ_storage) != @as(usize, @bitCast(@as(isize, -1)))) {
+    if (wasilibc_environ_initialized) {
         _ = clearenv();
-        wasilibc_environ_storage = @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
+        wasilibc_environ_storage = null;
+        wasilibc_environ_initialized = false;
     }
 }
 
@@ -1426,7 +1432,12 @@ comptime {
         symbol(&floorImpl, "floor");
         symbol(&truncfImpl, "truncf");
         symbol(&truncImpl, "trunc");
-        symbol(&nearbyintfImpl, "nearbyintf");
+        // `nearbyintf` is also exported by lib/c/math.zig (under non-WASI musl),
+        // and the comptime symbol-collision check at lib/c.zig:33 trips when
+        // building wasm32-wasi-musl because both versions get pulled in. The
+        // math.zig version uses rintGeneric for proper rounding-mode behavior;
+        // this one uses @round and would only ever be a degraded shim. Drop it.
+        // symbol(&nearbyintfImpl, "nearbyintf");
         symbol(&nearbyintImpl, "nearbyint");
         symbol(&rintfImpl, "rintf");
         symbol(&rintImpl, "rint");

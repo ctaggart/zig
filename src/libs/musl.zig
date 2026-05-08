@@ -841,7 +841,7 @@ const src_files = [_][]const u8{
     //"musl/src/time/timer_getoverrun.c", // migrated to lib/c/time.zig
     //"musl/src/time/timer_gettime.c", // migrated to lib/c/time.zig
     //"musl/src/time/timer_settime.c", // migrated to lib/c/time.zig
-    "musl/src/time/__tz.c",
+    //"musl/src/time/__tz.c", // migrated to lib/c/time.zig; exports: __secs_to_zone,__tzset,tzset,__tm_to_tzname,__timezone,timezone,__daylight,daylight,__tzname,tzname,__timezone_lockptr
     //"musl/src/time/wcsftime.c", // migrated to lib/c/time.zig
     //"musl/src/stdio/asprintf.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/dprintf.c", // migrated to lib/c/stdio.zig

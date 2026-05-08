@@ -196,9 +196,15 @@ jobs:
         run: |
           # Raise thread/process limits to avoid "thread constructor failed:
           # Resource temporarily unavailable" during parallel musl sub-compiles.
-          ulimit -u 65535 || true
-          ulimit -n 65535 || true
+          # Only raise when current is below threshold, to avoid:
+          #   * the noisy "Operation not permitted" error on GH-hosted runners
+          #     where the user's hard nproc is already 63,838 (>= our needs);
+          #   * actively lowering soft nproc on self-hosted runners that have
+          #     much higher caps configured.
+          if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
+          if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
           echo "ulimit -u: $(ulimit -u)"
+          echo "ulimit -n: $(ulimit -n)"
 
           # Use -j1 for thread/pthread tests to avoid runner thread exhaustion
           FILTER="${{ inputs.test-filter }}"

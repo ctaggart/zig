@@ -307,8 +307,13 @@ jobs:
         timeout-minutes: 30
         run: |
           set -euo pipefail
-          ulimit -u 65535 || true
-          ulimit -n 65535 || true
+          # Only raise nproc/nofile if current soft is below threshold. Avoids
+          # noisy "cannot modify limit" errors on GH-hosted runners and
+          # avoids lowering already-high soft caps on self-hosted runners.
+          if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
+          if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          echo "ulimit -u: $(ulimit -u)"
+          echo "ulimit -n: $(ulimit -n)"
           echo "stage4: $STAGE4"
           echo "libc-test SHA: $LIBC_TEST_SHA"
           "$STAGE4/bin/zig" build test-libc \

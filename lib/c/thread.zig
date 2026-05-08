@@ -2438,7 +2438,13 @@ fn mutex_trylock_owner_fn(m: *anyopaque) callconv(.c) c_int {
 fn mutex_trylock_fn(m: *anyopaque) callconv(.c) c_int {
     const m_i: [*]c_int = @ptrCast(@alignCast(m));
     if ((m_i[0] & 15) == 0) { // PTHREAD_MUTEX_NORMAL
-        return @cmpxchgStrong(c_int, &m_i[1], 0, eint(.BUSY), .seq_cst, .seq_cst) orelse 0;
+        // musl: `return (a_cas(&m->_m_lock, 0, EBUSY) & 0x7fffffff) ? EBUSY : 0;`
+        // The waiters bit (0x80000000) must be masked off before deciding;
+        // otherwise a contended-with-waiters mutex returns a negative c_int
+        // here, which propagates through pthread_mutex_(timed)lock and causes
+        // libc++ to throw `system_error("mutex lock failed: ...")`.
+        const old = @cmpxchgStrong(c_int, &m_i[1], 0, eint(.BUSY), .seq_cst, .seq_cst) orelse return 0;
+        return if ((old & 0x7fffffff) != 0) eint(.BUSY) else 0;
     }
     return mutex_trylock_owner_fn(m);
 }

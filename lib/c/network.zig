@@ -226,10 +226,8 @@ const c = if (builtin.link_libc) struct {
     const strncmp = @extern(*const fn ([*]const u8, [*]const u8, usize) callconv(.c) c_int, .{ .name = "strncmp" });
     const strcpy = @extern(*const fn ([*]u8, [*:0]const u8) callconv(.c) [*]u8, .{ .name = "strcpy" });
     const strncpy = @extern(*const fn ([*]u8, [*:0]const u8, usize) callconv(.c) [*]u8, .{ .name = "strncpy" });
-    const strtol = @extern(*const fn ([*:0]const u8, ?*[*:0]u8, c_int) callconv(.c) c_long, .{ .name = "strtol" });
     const htons = @extern(*const fn (u16) callconv(.c) u16, .{ .name = "htons" });
     const ntohs = @extern(*const fn (u16) callconv(.c) u16, .{ .name = "ntohs" });
-    const inet_aton = @extern(*const fn ([*:0]const u8, *anyopaque) callconv(.c) c_int, .{ .name = "__inet_aton" });
     const if_nametoindex = @extern(*const fn ([*:0]const u8) callconv(.c) c_uint, .{ .name = "if_nametoindex" });
     const snprintf = @extern(*const fn ([*]u8, usize, [*:0]const u8, ...) callconv(.c) c_int, .{ .name = "snprintf" });
     const socket_fn = @extern(*const fn (c_int, c_int, c_int) callconv(.c) c_int, .{ .name = "socket" });

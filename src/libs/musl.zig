@@ -446,7 +446,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
 }
 
 const src_files = [_][]const u8{
-    //"musl/src/env/__init_tls.c", // migrated to lib/c/env.zig
+    "musl/src/env/__init_tls.c",
     "musl/src/fenv/aarch64/fenv.s",
     //"musl/src/fenv/arm/fenv.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/arm/fenv-hf.S",
@@ -663,7 +663,7 @@ const src_files = [_][]const u8{
     "musl/src/signal/riscv64/sigsetjmp.s",
     "musl/src/signal/s390x/restore.s",
     "musl/src/signal/s390x/sigsetjmp.s",
-    //"musl/src/signal/sigaction.c", // migrated to lib/c/signal.zig
+    "musl/src/signal/sigaction.c",
     "musl/src/signal/x32/restore.s",
     "musl/src/signal/x32/sigsetjmp.s",
     "musl/src/signal/x86_64/restore.s",
@@ -728,7 +728,7 @@ const src_files = [_][]const u8{
     // "musl/src/stdio/vasprintf.c", // migrated to Zig (vasprintf_impl)
     // "musl/src/stdio/vdprintf.c", // migrated to Zig (vdprintf_impl)
     "musl/src/stdio/vfprintf.c",
-    //"musl/src/stdio/vfscanf.c", // migrated to lib/c/stdio.zig
+    "musl/src/stdio/vfscanf.c",
     "musl/src/stdio/vfwprintf.c",
     "musl/src/stdio/vfwscanf.c",
     // "musl/src/stdio/vprintf.c", // migrated to Zig (vprintf_impl), positive test for #243 fix

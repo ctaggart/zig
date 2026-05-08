@@ -5,6 +5,13 @@ name: pr-build
 # ~30-90 min for the full GitHub-hosted QEMU matrix). The full multi-target
 # matrix runs post-merge on libc/0.16.x via post-merge-libc.yml.
 #
+# Jobs:
+#   - pr-build (REQUIRED via branch protection): ast-check + migration claims
+#     + Build stage4. Deterministic, cache-friendly, no flakiness exposure.
+#     This is the gate that prevents broken-code merges.
+#   - pr-libc-test (advisory): runs libc-test on the stage4 produced by
+#     pr-build. Will be promoted to required once #429 is fixed.
+#
 # Trust model: this workflow runs PR-controlled code on a persistent
 # self-hosted runner. The `if:` guard on the build job restricts execution
 # to PRs whose head is the canonical repo or the trusted cataggar fork
@@ -65,7 +72,9 @@ jobs:
     needs: trust-check
     if: needs.trust-check.outputs.trusted == 'true'
     runs-on: [self-hosted, Linux, ARM64, nvme]
-    timeout-minutes: 90
+    timeout-minutes: 60
+    outputs:
+      stage4_key: ${{ steps.stage4key.outputs.key }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -201,6 +210,85 @@ jobs:
           fi
           echo "STAGE4=$STAGE4" >> "$GITHUB_ENV"
 
+      - name: Prune old stage4 caches (keep 4 most recent)
+        if: always()
+        run: |
+          set -euo pipefail
+          cd "$CACHE_ROOT"
+          ls -1dt stage4-* 2>/dev/null | tail -n +5 | xargs -r rm -rf || true
+          echo "stage4 caches retained:"
+          ls -1dt stage4-* 2>/dev/null || true
+
+  libc-test:
+    name: pr-libc-test
+    needs: [trust-check, build]
+    if: needs.trust-check.outputs.trusted == 'true'
+    runs-on: [self-hosted, Linux, ARM64, nvme]
+    timeout-minutes: 45
+    # Advisory while #429 (libzigc pthread cold-cache crash) is open.
+    # Promote to required via branch protection once #429 is fixed.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare cache root
+        run: mkdir -p "$CACHE_ROOT"
+
+      - name: Setup release Zig (aarch64) + LLVM prefix (cached, atomic)
+        run: |
+          set -euo pipefail
+          zig_marker="$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}/.complete"
+          llvm_marker="$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux/.complete"
+
+          fetch_extract() {
+              local url="$1" final="$2" marker="$3"
+              if [ -f "$marker" ]; then
+                  return 0
+              fi
+              local staging
+              staging="$(mktemp -d -p "$CACHE_ROOT" .stage-XXXXXX)"
+              echo "Fetching $url"
+              curl --fail --show-error --location --silent \
+                  --retry 5 --retry-delay 5 --retry-connrefused --retry-all-errors \
+                  "$url" | xz -d | tar x -C "$staging"
+              local top
+              top="$(basename "$final")"
+              if [ ! -d "$staging/$top" ]; then
+                  echo "ERROR: tarball did not contain expected top-level dir '$top'" >&2
+                  ls -la "$staging" >&2
+                  rm -rf "$staging"
+                  exit 1
+              fi
+              rm -rf "$final"
+              mv "$staging/$top" "$final"
+              rm -rf "$staging"
+              touch "$marker"
+          }
+
+          fetch_extract \
+              "https://github.com/ctaggart/zig/releases/download/v${ZIG_VERSION}/zig-aarch64-linux-${ZIG_VERSION}.tar.xz" \
+              "$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}" \
+              "$zig_marker"
+          fetch_extract \
+              "https://github.com/ctaggart/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/llvm-zig-${LLVM_VERSION}-aarch64-linux.tar.xz" \
+              "$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux" \
+              "$llvm_marker"
+
+          echo "$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          echo "LLVM_PREFIX=$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux" >> "$GITHUB_ENV"
+
+      - name: Locate stage4 from build job (key=${{ needs.build.outputs.stage4_key }})
+        run: |
+          set -euo pipefail
+          STAGE4="$CACHE_ROOT/stage4-${{ needs.build.outputs.stage4_key }}"
+          if [ ! -x "$STAGE4/bin/zig" ]; then
+              echo "ERROR: stage4 not found at $STAGE4 (build job should have produced it)" >&2
+              exit 1
+          fi
+          "$STAGE4/bin/zig" version
+          echo "STAGE4=$STAGE4" >> "$GITHUB_ENV"
+
       - name: Update libc-test checkout (log SHA for forensics)
         run: |
           set -euo pipefail
@@ -230,12 +318,3 @@ jobs:
               -Dtest-filter="" \
               -j2 \
               --summary failures
-
-      - name: Prune old stage4 caches (keep 4 most recent)
-        if: always()
-        run: |
-          set -euo pipefail
-          cd "$CACHE_ROOT"
-          ls -1dt stage4-* 2>/dev/null | tail -n +5 | xargs -r rm -rf || true
-          echo "stage4 caches retained:"
-          ls -1dt stage4-* 2>/dev/null || true

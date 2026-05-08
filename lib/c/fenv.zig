@@ -163,6 +163,14 @@ comptime {
             symbol(&powerpc___fesetround, "__fesetround");
             symbol(&powerpc_fegetenv, "fegetenv");
             symbol(&powerpc_fesetenv, "fesetenv");
+        } else if (builtin.cpu.arch == .s390x) {
+            symbol(&s390x_feclearexcept, "feclearexcept");
+            symbol(&s390x_feraiseexcept, "feraiseexcept");
+            symbol(&s390x_fetestexcept, "fetestexcept");
+            symbol(&s390x_fegetround, "fegetround");
+            symbol(&s390x___fesetround, "__fesetround");
+            symbol(&s390x_fegetenv, "fegetenv");
+            symbol(&s390x_fesetenv, "fesetenv");
         } else {
             // Weak generic fallbacks (from fenv.c).
             // Overridden by arch-specific implementations at link time.
@@ -189,6 +197,59 @@ const POWERPC_FE_INVALID: u64 = 0x20000000;
 const POWERPC_FE_ALL_INVALID: u64 = 0x01f80700;
 const POWERPC_FE_INVALID_SOFTWARE: u64 = 0x00000400;
 const POWERPC_FE_DFL_ENV = @as(usize, std.math.maxInt(usize));
+const S390X_FE_DFL_ENV = @as(usize, std.math.maxInt(usize));
+
+fn s390x_get_fpc() c_uint {
+    return asm volatile ("efpc %[fpc]"
+        : [fpc] "=r" (-> c_uint),
+    );
+}
+
+fn s390x_set_fpc(fpc: c_uint) void {
+    asm volatile ("sfpc %[fpc]"
+        :
+        : [fpc] "r" (fpc),
+    );
+}
+
+fn s390x_feclearexcept(mask: c_int) callconv(.c) c_int {
+    const exceptions = @as(c_uint, @bitCast(mask)) & @as(c_uint, @intCast(FE_ALL_EXCEPT));
+    s390x_set_fpc(s390x_get_fpc() & ~exceptions);
+    return 0;
+}
+
+fn s390x_feraiseexcept(mask: c_int) callconv(.c) c_int {
+    const exceptions = @as(c_uint, @bitCast(mask)) & @as(c_uint, @intCast(FE_ALL_EXCEPT));
+    s390x_set_fpc(s390x_get_fpc() | exceptions);
+    return 0;
+}
+
+fn s390x_fetestexcept(mask: c_int) callconv(.c) c_int {
+    const exceptions = @as(c_uint, @bitCast(mask)) & @as(c_uint, @intCast(FE_ALL_EXCEPT));
+    return @intCast(s390x_get_fpc() & exceptions);
+}
+
+fn s390x_fegetround() callconv(.c) c_int {
+    return @intCast(s390x_get_fpc() & 3);
+}
+
+fn s390x___fesetround(r: c_int) callconv(.c) c_int {
+    var fpc = s390x_get_fpc();
+    fpc &= ~@as(c_uint, 3);
+    fpc |= @as(c_uint, @bitCast(r)) & 3;
+    s390x_set_fpc(fpc);
+    return 0;
+}
+
+fn s390x_fegetenv(envp: *c_uint) callconv(.c) c_int {
+    envp.* = s390x_get_fpc();
+    return 0;
+}
+
+fn s390x_fesetenv(envp: *const c_uint) callconv(.c) c_int {
+    s390x_set_fpc(if (@intFromPtr(envp) != S390X_FE_DFL_ENV) envp.* else 0);
+    return 0;
+}
 
 fn powerpc_get_fpscr_f() f64 {
     var fpscr: f64 = undefined;

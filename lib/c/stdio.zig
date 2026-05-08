@@ -1833,7 +1833,7 @@ fn vfscanf_impl(f_arg: ?*FILE, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_in
                     while (p[0] != ']') : (p += 1) {
                         if (p[0] == 0) return fail_with_alloc(matches, alloc, s, wcs);
                         if (p[0] == '-' and p[1] != 0 and p[1] != ']') {
-                            const start = p[-1];
+                            const start = (p - 1)[0];
                             p += 1;
                             var rc: c_int = start;
                             while (rc < p[0]) : (rc += 1) scanset[@as(usize, @intCast(1 + rc))] = @intCast(1 - invert);

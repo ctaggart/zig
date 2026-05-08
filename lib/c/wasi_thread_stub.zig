@@ -36,7 +36,7 @@ const PTHREAD_CREATE_DETACHED: c_int = 1;
 const CLOCK_REALTIME: c_int = 0;
 const TIMER_ABSTIME: c_int = 1;
 
-const INT_MAX: c_uint = @bitCast(std.math.maxInt(c_int));
+const INT_MAX: c_uint = @as(c_uint, @bitCast(@as(c_int, std.math.maxInt(c_int))));
 
 extern "c" fn clock_nanosleep(clock_id: c_int, flags: c_int, request: *const anyopaque, remain: ?*anyopaque) c_int;
 

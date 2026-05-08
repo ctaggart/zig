@@ -18,17 +18,24 @@ const timeval = extern struct {
     usec: i64,
 };
 const sym = @import("../c.zig").symbol;
-extern "c" fn c_close(fd: c_int) c_int;
-extern "c" fn c_malloc(size: usize) ?[*]align(@alignOf(usize)) u8;
-extern "c" fn c_free(ptr: ?*anyopaque) void;
-extern "c" fn c_realloc(ptr: ?*anyopaque, size: usize) ?[*]align(@alignOf(usize)) u8;
-extern "c" fn c_qsort(
-    base: ?*anyopaque,
-    nmemb: usize,
-    size: usize,
-    compar: *const fn (*const anyopaque, *const anyopaque) callconv(.c) c_int,
-) void;
-extern "c" fn c_openat_nomode(dir: c_int, path: [*:0]const u8, flags: c_int) c_int;
+// External libc symbols this module relies on (provided by other compilation
+// units of wasi libc.a, e.g. dlmalloc / cloudlibc-derived sources). They live
+// in a struct so the Zig identifiers `close`, `malloc`, etc. do not collide
+// with the *Wasi suffixed Zig functions defined in this file that are exported
+// under the very same C names via `symbol(...)`. Use as `cextern.close(fd)`.
+const cextern = struct {
+    extern "c" fn close(fd: c_int) c_int;
+    extern "c" fn malloc(size: usize) ?[*]align(@alignOf(usize)) u8;
+    extern "c" fn free(ptr: ?*anyopaque) void;
+    extern "c" fn realloc(ptr: ?*anyopaque, size: usize) ?[*]align(@alignOf(usize)) u8;
+    extern "c" fn qsort(
+        base: ?*anyopaque,
+        nmemb: usize,
+        size: usize,
+        compar: *const fn (*const anyopaque, *const anyopaque) callconv(.c) c_int,
+    ) void;
+    extern "c" fn __wasilibc_nocwd_openat_nomode(dir: c_int, path: [*:0]const u8, flags: c_int) c_int;
+};
 const DIRENT_DEFAULT_BUFFER_SIZE: usize = 4096;
 /// Internal DIR structure matching cloudlibc dirent_impl.h
 const DIR = extern struct {
@@ -84,7 +91,12 @@ const O_DIRECTORY: c_int = 2 << 12; // __WASI_OFLAGS_DIRECTORY << 12
 const O_RDONLY: c_int = 0x04000000;
 const clock_monotonic = ClockId{ .id = .MONOTONIC };
 const clock_realtime = ClockId{ .id = .REALTIME };
-threadlocal var wasi_errno: c_int = 0;
+// WASI musl is single-threaded today; `wasi_errno` is exported as the libc
+// `errno` global. `@export` requires a comptime-known target, which threadlocal
+// variables are not, so this must be a regular global. If WASI ever gains
+// multithreading, this will need a thread-local indirection through musl's
+// __errno_location() shim instead.
+var wasi_errno: c_int = 0;
 
 comptime {
     if (builtin.target.isWasiLibC()) {
@@ -132,12 +144,12 @@ comptime {
         @export(&clock_realtime, .{ .name = "_CLOCK_REALTIME", .linkage = .weak, .visibility = .hidden });
         @export(&wasi_errno, .{ .name = "errno", .linkage = .weak, .visibility = .hidden });
     }
-    @export(&c_close, .{ .name = "close" });
-    @export(&c_malloc, .{ .name = "malloc" });
-    @export(&c_free, .{ .name = "free" });
-    @export(&c_realloc, .{ .name = "realloc" });
-    @export(&c_qsort, .{ .name = "qsort" });
-    @export(&c_openat_nomode, .{ .name = "__wasilibc_nocwd_openat_nomode" });
+    // The previous code attempted `@export(&cextern.close, .{ .name = "close" })` for
+    // close/malloc/free/realloc/qsort/__wasilibc_nocwd_openat_nomode here. That
+    // is invalid Zig: `extern` declarations cannot be re-exported (the symbol
+    // is defined elsewhere; the extern is just a reference). The corresponding
+    // C-defined symbols are provided by other wasi libc.a sub-compilation
+    // units, so no aliasing is needed at this layer.
 }
 
 fn setErrno(e: E) void {
@@ -146,7 +158,7 @@ fn setErrno(e: E) void {
 
 fn readWasi(fd: c_int, buf: [*]u8, nbyte: usize) callconv(.c) isize {
     var nread: usize = 0;
-    const iov = wasi.iovec_t{ .buf = buf, .buf_len = nbyte };
+    const iov = wasi.iovec_t{ .base = buf, .len = nbyte };
     switch (wasi.fd_read(@intCast(fd), @ptrCast(&iov), 1, &nread)) {
         .SUCCESS => return @intCast(nread),
         .NOTCAPABLE => {
@@ -162,7 +174,7 @@ fn readWasi(fd: c_int, buf: [*]u8, nbyte: usize) callconv(.c) isize {
 
 fn writeWasi(fd: c_int, buf: [*]const u8, nbyte: usize) callconv(.c) isize {
     var nwritten: usize = 0;
-    const iov = wasi.ciovec_t{ .buf = buf, .buf_len = nbyte };
+    const iov = wasi.ciovec_t{ .base = buf, .len = nbyte };
     switch (wasi.fd_write(@intCast(fd), @ptrCast(&iov), 1, &nwritten)) {
         .SUCCESS => return @intCast(nwritten),
         .NOTCAPABLE => {
@@ -239,7 +251,7 @@ fn preadWasi(fd: c_int, buf: [*]u8, nbyte: usize, offset: i64) callconv(.c) isiz
         return -1;
     }
     var nread: usize = 0;
-    const iov = wasi.iovec_t{ .buf = buf, .buf_len = nbyte };
+    const iov = wasi.iovec_t{ .base = buf, .len = nbyte };
     switch (wasi.fd_pread(@intCast(fd), @ptrCast(&iov), 1, @intCast(offset), &nread)) {
         .SUCCESS => return @intCast(nread),
         .NOTCAPABLE => {
@@ -267,7 +279,7 @@ fn pwriteWasi(fd: c_int, buf: [*]const u8, nbyte: usize, offset: i64) callconv(.
         return -1;
     }
     var nwritten: usize = 0;
-    const iov = wasi.ciovec_t{ .buf = buf, .buf_len = nbyte };
+    const iov = wasi.ciovec_t{ .base = buf, .len = nbyte };
     switch (wasi.fd_pwrite(@intCast(fd), @ptrCast(&iov), 1, @intCast(offset), &nwritten)) {
         .SUCCESS => return @intCast(nwritten),
         .NOTCAPABLE => {
@@ -289,7 +301,7 @@ fn pwriteWasi(fd: c_int, buf: [*]const u8, nbyte: usize, offset: i64) callconv(.
     }
 }
 
-fn readlinkatWasi(fd: c_int, path: [*]const u8, buf: [*]u8, bufsize: usize) callconv(.c) isize {
+fn readlinkatWasi(fd: c_int, path: [*:0]const u8, buf: [*]u8, bufsize: usize) callconv(.c) isize {
     const path_len = std.mem.len(path);
     var bufused: usize = 0;
     switch (wasi.path_readlink(@intCast(fd), path, path_len, buf, bufsize, &bufused)) {
@@ -301,7 +313,7 @@ fn readlinkatWasi(fd: c_int, path: [*]const u8, buf: [*]u8, bufsize: usize) call
     }
 }
 
-fn linkatWasi(fd1: c_int, path1: [*]const u8, fd2: c_int, path2: [*]const u8, flag: c_int) callconv(.c) c_int {
+fn linkatWasi(fd1: c_int, path1: [*:0]const u8, fd2: c_int, path2: [*:0]const u8, flag: c_int) callconv(.c) c_int {
     const AT_SYMLINK_FOLLOW = 0x400;
     const path1_len = std.mem.len(path1);
     const path2_len = std.mem.len(path2);
@@ -317,7 +329,7 @@ fn linkatWasi(fd1: c_int, path1: [*]const u8, fd2: c_int, path2: [*]const u8, fl
     }
 }
 
-fn symlinkatWasi(path1: [*]const u8, fd: c_int, path2: [*]const u8) callconv(.c) c_int {
+fn symlinkatWasi(path1: [*:0]const u8, fd: c_int, path2: [*:0]const u8) callconv(.c) c_int {
     const path1_len = std.mem.len(path1);
     const path2_len = std.mem.len(path2);
     switch (wasi.path_symlink(path1, path1_len, @intCast(fd), path2, path2_len)) {
@@ -329,7 +341,7 @@ fn symlinkatWasi(path1: [*]const u8, fd: c_int, path2: [*]const u8) callconv(.c)
     }
 }
 
-fn faccessatWasi(fd: c_int, path: [*]const u8, amode: c_int, flag: c_int) callconv(.c) c_int {
+fn faccessatWasi(fd: c_int, path: [*:0]const u8, amode: c_int, flag: c_int) callconv(.c) c_int {
     const F_OK = 0;
     const R_OK = 4;
     const W_OK = 2;
@@ -434,7 +446,7 @@ fn fcntlWasi(fd: c_int, cmd: c_int, ...) callconv(.c) c_int {
                 },
             }
 
-            var oflags: c_int = @as(c_int, @bitCast(@as(u32, @bitCast(fds.fs_flags)) & 0xffff));
+            var oflags: c_int = @as(c_int, @as(u16, @bitCast(fds.fs_flags)));
             if (fds.fs_rights_base.FD_READ or fds.fs_rights_base.FD_READDIR) {
                 if (fds.fs_rights_base.FD_WRITE)
                     oflags |= O_RDWR
@@ -467,7 +479,7 @@ fn fcntlWasi(fd: c_int, cmd: c_int, ...) callconv(.c) c_int {
     }
 }
 
-fn openatWasi(fd: c_int, path: [*]const u8, oflag: c_int) callconv(.c) c_int {
+fn openatWasi(fd: c_int, path: [*:0]const u8, oflag: c_int) callconv(.c) c_int {
     const O_ACCMODE = 0x1c000000;
     const O_WRONLY = 0x10000000;
     const O_RDWR = 0x14000000;
@@ -637,7 +649,7 @@ fn fstatWasi(fd: c_int, buf: *std.c.Stat) callconv(.c) c_int {
     }
 }
 
-fn fstatatWasi(fd: c_int, path: [*]const u8, buf: *std.c.Stat, flag: c_int) callconv(.c) c_int {
+fn fstatatWasi(fd: c_int, path: [*:0]const u8, buf: *std.c.Stat, flag: c_int) callconv(.c) c_int {
     const AT_SYMLINK_NOFOLLOW = 0x100;
     const path_len = std.mem.len(path);
     var lookup_flags = wasi.lookupflags_t{};
@@ -680,7 +692,7 @@ fn futimensWasi(fd: c_int, times: ?[*]const std.c.timespec) callconv(.c) c_int {
     }
 }
 
-fn mkdiratWasi(fd: c_int, path: [*]const u8) callconv(.c) c_int {
+fn mkdiratWasi(fd: c_int, path: [*:0]const u8) callconv(.c) c_int {
     const path_len = std.mem.len(path);
     switch (wasi.path_create_directory(@intCast(fd), path, path_len)) {
         .SUCCESS => return 0,
@@ -691,7 +703,7 @@ fn mkdiratWasi(fd: c_int, path: [*]const u8) callconv(.c) c_int {
     }
 }
 
-fn utimensatWasi(fd: c_int, path: [*]const u8, times: ?[*]const std.c.timespec, flag: c_int) callconv(.c) c_int {
+fn utimensatWasi(fd: c_int, path: [*:0]const u8, times: ?[*]const std.c.timespec, flag: c_int) callconv(.c) c_int {
     var st_atim: wasi.timestamp_t = 0;
     var st_mtim: wasi.timestamp_t = 0;
     var flags = wasi.fstflags_t{};
@@ -728,7 +740,7 @@ fn recvWasi(socket: c_int, buffer: [*]u8, length: usize, flags_arg: c_int) callc
         return -1;
     }
 
-    const iov = wasi.iovec_t{ .buf = buffer, .buf_len = length };
+    var iov = wasi.iovec_t{ .base = buffer, .len = length };
     var ro_datalen: usize = 0;
     var ro_flags: wasi.roflags_t = 0;
     switch (wasi.sock_recv(@intCast(socket), @ptrCast(&iov), 1, @intCast(flags_arg), &ro_datalen, &ro_flags)) {
@@ -746,7 +758,7 @@ fn sendWasi(socket: c_int, buffer: [*]const u8, length: usize, flags_arg: c_int)
         return -1;
     }
 
-    const iov = wasi.ciovec_t{ .buf = buffer, .buf_len = length };
+    const iov = wasi.ciovec_t{ .base = buffer, .len = length };
     var so_datalen: usize = 0;
     switch (wasi.sock_send(@intCast(socket), @ptrCast(&iov), 1, 0, &so_datalen)) {
         .SUCCESS => return @intCast(so_datalen),
@@ -861,7 +873,7 @@ fn clockNanosleepImpl(clock_id: wasi.clockid_t, flags_arg: c_int, rqtp: *const s
     var ev: wasi.event_t = undefined;
     const rc = wasi.poll_oneoff(&sub, &ev, 1, &nevents);
     if (rc == .SUCCESS and ev.@"error" == .SUCCESS) return 0;
-    return @intFromEnum(E.NOTSUP);
+    return @intFromEnum(E.OPNOTSUPP);
 }
 
 /// C ABI wrapper that accepts the C clockid_t pointer.
@@ -907,7 +919,7 @@ fn schedYieldWasi() callconv(.c) c_int {
     }
 }
 
-fn renameatWasi(oldfd: c_int, old: [*]const u8, newfd: c_int, new: [*]const u8) callconv(.c) c_int {
+fn renameatWasi(oldfd: c_int, old: [*:0]const u8, newfd: c_int, new: [*:0]const u8) callconv(.c) c_int {
     const old_len = std.mem.len(old);
     const new_len = std.mem.len(new);
     switch (wasi.path_rename(@intCast(oldfd), old, old_len, @intCast(newfd), new, new_len)) {
@@ -985,7 +997,7 @@ fn grow(buf: ?[*]u8, buf_size: *usize, target_size: usize) ?[*]u8 {
     if (buf_size.* >= target_size) return buf;
     var new_size = buf_size.*;
     while (new_size < target_size) new_size *= 2;
-    const new_buf = c_realloc(@ptrCast(buf), new_size) orelse return null;
+    const new_buf = cextern.realloc(@ptrCast(buf), new_size) orelse return null;
     buf_size.* = new_size;
     return new_buf;
 }
@@ -1016,20 +1028,20 @@ fn rewinddirWasi(dirp: *DIR) callconv(.c) void {
 
 fn fdclosedirWasi(dirp: *DIR) callconv(.c) c_int {
     const fd = dirp.fd;
-    c_free(@ptrCast(dirp.buffer));
-    c_free(@ptrCast(dirp.dirent_ptr));
-    c_free(@ptrCast(dirp));
+    cextern.free(@ptrCast(dirp.buffer));
+    cextern.free(@ptrCast(dirp.dirent_ptr));
+    cextern.free(@ptrCast(dirp));
     return fd;
 }
 
 fn closedirWasi(dirp: *DIR) callconv(.c) c_int {
-    return c_close(fdclosedirWasi(dirp));
+    return cextern.close(fdclosedirWasi(dirp));
 }
 
 fn fdopendirWasi(fd: c_int) callconv(.c) ?*DIR {
-    const dirp: *DIR = @ptrCast(@alignCast(c_malloc(@sizeOf(DIR)) orelse return null));
-    dirp.buffer = c_malloc(DIRENT_DEFAULT_BUFFER_SIZE) orelse {
-        c_free(@ptrCast(dirp));
+    const dirp: *DIR = @ptrCast(@alignCast(cextern.malloc(@sizeOf(DIR)) orelse return null));
+    dirp.buffer = cextern.malloc(DIRENT_DEFAULT_BUFFER_SIZE) orelse {
+        cextern.free(@ptrCast(dirp));
         return null;
     };
 
@@ -1037,8 +1049,8 @@ fn fdopendirWasi(fd: c_int) callconv(.c) ?*DIR {
     switch (wasi.fd_readdir(fd, dirp.buffer.?, DIRENT_DEFAULT_BUFFER_SIZE, wasi.DIRCOOKIE_START, &dirp.buffer_used)) {
         .SUCCESS => {},
         else => |err| {
-            c_free(@ptrCast(dirp.buffer));
-            c_free(@ptrCast(dirp));
+            cextern.free(@ptrCast(dirp.buffer));
+            cextern.free(@ptrCast(dirp));
             setErrno(err);
             return null;
         },
@@ -1054,11 +1066,11 @@ fn fdopendirWasi(fd: c_int) callconv(.c) ?*DIR {
 }
 
 fn opendiratWasi(dir: c_int, dirname: [*:0]const u8) callconv(.c) ?*DIR {
-    const fd = c_openat_nomode(dir, dirname, O_RDONLY | O_NONBLOCK | O_DIRECTORY);
+    const fd = cextern.__wasilibc_nocwd_openat_nomode(dir, dirname, O_RDONLY | O_NONBLOCK | O_DIRECTORY);
     if (fd == -1) return null;
 
     const result = fdopendirWasi(fd);
-    if (result == null) _ = c_close(fd);
+    if (result == null) _ = cextern.close(fd);
     return result;
 }
 
@@ -1163,13 +1175,13 @@ fn scandiratWasi(
     sel: ?*const fn (*const anyopaque) callconv(.c) c_int,
     compar: *const fn (*const anyopaque, *const anyopaque) callconv(.c) c_int,
 ) callconv(.c) c_int {
-    const fd = c_openat_nomode(dirfd, dir, O_RDONLY | O_NONBLOCK | O_DIRECTORY);
+    const fd = cextern.__wasilibc_nocwd_openat_nomode(dirfd, dir, O_RDONLY | O_NONBLOCK | O_DIRECTORY);
     if (fd == -1) return -1;
 
     var buffer_size: usize = DIRENT_DEFAULT_BUFFER_SIZE;
-    var buffer: ?[*]u8 = @ptrCast(c_malloc(buffer_size));
+    var buffer: ?[*]u8 = @ptrCast(cextern.malloc(buffer_size));
     if (buffer == null) {
-        _ = c_close(fd);
+        _ = cextern.close(fd);
         return -1;
     }
     var buffer_processed: usize = buffer_size;
@@ -1194,8 +1206,8 @@ fn scandiratWasi(
                 else => |err| {
                     setErrno(err);
                     scandiratFree(dirents, dirents_used);
-                    c_free(@ptrCast(buffer));
-                    _ = c_close(fd);
+                    cextern.free(@ptrCast(buffer));
+                    _ = cextern.close(fd);
                     return -1;
                 },
             }
@@ -1214,10 +1226,10 @@ fn scandiratWasi(
 
         if (buffer_left < entry_size) {
             while (buffer_size < entry_size) buffer_size *= 2;
-            buffer = @ptrCast(c_realloc(@ptrCast(buffer), buffer_size) orelse {
+            buffer = @ptrCast(cextern.realloc(@ptrCast(buffer), buffer_size) orelse {
                 scandiratFree(dirents, dirents_used);
-                c_free(@ptrCast(buffer));
-                _ = c_close(fd);
+                cextern.free(@ptrCast(buffer));
+                _ = cextern.close(fd);
                 return -1;
             });
             // Read entries again with larger buffer.
@@ -1226,8 +1238,8 @@ fn scandiratWasi(
                 else => |err| {
                     setErrno(err);
                     scandiratFree(dirents, dirents_used);
-                    c_free(@ptrCast(buffer));
-                    _ = c_close(fd);
+                    cextern.free(@ptrCast(buffer));
+                    _ = cextern.close(fd);
                     return -1;
                 },
             }
@@ -1242,10 +1254,10 @@ fn scandiratWasi(
 
         // Allocate a new dirent.
         const alloc_size = DIRENT_D_NAME_OFFSET + entry.namlen + 1;
-        const dirent_bytes: [*]u8 = @ptrCast(c_malloc(alloc_size) orelse {
+        const dirent_bytes: [*]u8 = @ptrCast(cextern.malloc(alloc_size) orelse {
             scandiratFree(dirents, dirents_used);
-            c_free(@ptrCast(buffer));
-            _ = c_close(fd);
+            cextern.free(@ptrCast(buffer));
+            _ = cextern.close(fd);
             return -1;
         });
 
@@ -1264,10 +1276,10 @@ fn scandiratWasi(
                     d_type = @intFromEnum(filestat.filetype);
                 },
                 else => {
-                    c_free(@ptrCast(dirent_bytes));
+                    cextern.free(@ptrCast(dirent_bytes));
                     scandiratFree(dirents, dirents_used);
-                    c_free(@ptrCast(buffer));
-                    _ = c_close(fd);
+                    cextern.free(@ptrCast(buffer));
+                    _ = cextern.close(fd);
                     return -1;
                 },
             }
@@ -1283,15 +1295,15 @@ fn scandiratWasi(
             // Grow dirents array if needed.
             if (dirents_used == dirents_size) {
                 dirents_size = if (dirents_size < 8) 8 else dirents_size * 2;
-                const new_dirents: ?[*]*anyopaque = @ptrCast(@alignCast(c_realloc(
+                const new_dirents: ?[*]*anyopaque = @ptrCast(@alignCast(cextern.realloc(
                     @ptrCast(dirents),
                     dirents_size * @sizeOf(*anyopaque),
                 )));
                 if (new_dirents == null) {
-                    c_free(@ptrCast(dirent_bytes));
+                    cextern.free(@ptrCast(dirent_bytes));
                     scandiratFree(dirents, dirents_used);
-                    c_free(@ptrCast(buffer));
-                    _ = c_close(fd);
+                    cextern.free(@ptrCast(buffer));
+                    _ = cextern.close(fd);
                     return -1;
                 }
                 dirents = new_dirents;
@@ -1299,22 +1311,22 @@ fn scandiratWasi(
             dirents.?[dirents_used] = @ptrCast(dirent_bytes);
             dirents_used += 1;
         } else {
-            c_free(@ptrCast(dirent_bytes));
+            cextern.free(@ptrCast(dirent_bytes));
         }
     }
 
     // Sort and return results.
-    c_free(@ptrCast(buffer));
-    _ = c_close(fd);
-    c_qsort(@ptrCast(dirents), dirents_used, @sizeOf(*anyopaque), compar);
+    cextern.free(@ptrCast(buffer));
+    _ = cextern.close(fd);
+    cextern.qsort(@ptrCast(dirents), dirents_used, @sizeOf(*anyopaque), compar);
     namelist.* = dirents;
     return @intCast(dirents_used);
 }
 
 fn scandiratFree(dirents: ?[*]*anyopaque, count: usize) void {
     if (dirents) |d| {
-        for (d[0..count]) |entry| c_free(entry);
-        c_free(@ptrCast(d));
+        for (d[0..count]) |entry| cextern.free(entry);
+        cextern.free(@ptrCast(d));
     }
 }
 
@@ -1325,18 +1337,18 @@ fn pollWasi(fds: ?[*]PollFd, nfds: usize, timeout: c_int) callconv(.c) c_int {
 fn pollWasiP1(fds: ?[*]PollFd, nfds: usize, timeout: c_int) c_int {
     const max_subs = 2 * nfds + 1;
     if (max_subs == 0) {
-        setErrno(.NOTSUP);
+        setErrno(.OPNOTSUPP);
         return -1;
     }
 
     // Allocate subscription and event arrays.
     const subs_bytes = max_subs * @sizeOf(wasi.subscription_t);
-    const subs_mem: [*]align(@alignOf(wasi.subscription_t)) u8 = @alignCast(c_malloc(subs_bytes) orelse {
+    const subs_mem: [*]align(@alignOf(wasi.subscription_t)) u8 = @alignCast(cextern.malloc(subs_bytes) orelse {
         setErrno(.NOMEM);
         return -1;
     });
     const subs: [*]wasi.subscription_t = @ptrCast(subs_mem);
-    defer c_free(@ptrCast(subs_mem));
+    defer cextern.free(@ptrCast(subs_mem));
 
     var nsubs: usize = 0;
 
@@ -1377,24 +1389,24 @@ fn pollWasiP1(fds: ?[*]PollFd, nfds: usize, timeout: c_int) c_int {
     }
 
     if (nsubs == 0) {
-        setErrno(.NOTSUP);
+        setErrno(.OPNOTSUPP);
         return -1;
     }
 
     // Allocate events array.
-    const events_mem: [*]align(@alignOf(wasi.event_t)) u8 = @alignCast(c_malloc(nsubs * @sizeOf(wasi.event_t)) orelse {
+    const events_mem: [*]align(@alignOf(wasi.event_t)) u8 = @alignCast(cextern.malloc(nsubs * @sizeOf(wasi.event_t)) orelse {
         setErrno(.NOMEM);
         return -1;
     });
     const events: [*]wasi.event_t = @ptrCast(events_mem);
-    defer c_free(@ptrCast(events_mem));
+    defer cextern.free(@ptrCast(events_mem));
 
     var nevents: usize = 0;
     switch (wasi.poll_oneoff(&subs[0], &events[0], nsubs, &nevents)) {
         .SUCCESS => {},
         else => |err| {
             if (nsubs == 0)
-                setErrno(.NOTSUP)
+                setErrno(.OPNOTSUPP)
             else
                 setErrno(err);
             return -1;
@@ -1471,13 +1483,13 @@ fn pselectWasi(
 
     const poll_nfds_max = rds.__nfds + wrs.__nfds;
     const poll_fds_mem: ?[*]align(@alignOf(PollFd)) u8 = if (poll_nfds_max > 0)
-        @alignCast(c_malloc(poll_nfds_max * @sizeOf(PollFd)) orelse {
+        @alignCast(cextern.malloc(poll_nfds_max * @sizeOf(PollFd)) orelse {
             setErrno(.NOMEM);
             return -1;
         })
     else
         null;
-    defer if (poll_fds_mem) |m| c_free(@ptrCast(m));
+    defer if (poll_fds_mem) |m| cextern.free(@ptrCast(m));
 
     const poll_fds: [*]PollFd = if (poll_fds_mem) |m| @ptrCast(m) else @as([*]PollFd, undefined);
     var poll_nfds: usize = 0;

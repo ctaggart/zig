@@ -459,14 +459,9 @@ fn addLibcTopHalfIncludes(
 const libc_bottom_half_src_files = [_][]const u8{};
 
 const libc_top_half_src_files = [_][]const u8{
-    "musl/src/crypt/crypt_blowfish.c",
-    "musl/src/crypt/crypt.c",
-    "musl/src/crypt/crypt_des.c",
-    "musl/src/crypt/crypt_md5.c",
-    "musl/src/crypt/crypt_r.c",
-    "musl/src/crypt/crypt_sha256.c",
-    "musl/src/crypt/crypt_sha512.c",
-    "musl/src/crypt/encrypt.c",
+    // crypt: migrated to lib/c/crypt.zig in commit 3af2155d38; the eight
+    // musl/src/crypt/*.c files were deleted from the tree but their entries
+    // were left here, breaking wasi sub-compilation with FileNotFound.
     "musl/src/math/acosh.c",
     "musl/src/math/acoshl.c",
     "musl/src/math/atan2l.c",

@@ -5,8 +5,8 @@ const linux = std.os.linux;
 
 const off_t = c_longlong;
 const EOF = -1;
-const ULLONG_MAX = std.math.maxInt(c_ulonglong);
-const UINT_MAX = std.math.maxInt(c_uint);
+const ULLONG_MAX: c_ulonglong = std.math.maxInt(c_ulonglong);
+const UINT_MAX: c_uint = std.math.maxInt(c_uint);
 
 /// Musl internal FILE struct layout (struct _IO_FILE from stdio_impl.h).
 /// Field order MUST match musl's struct _IO_FILE exactly.

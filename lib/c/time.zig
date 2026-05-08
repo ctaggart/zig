@@ -497,17 +497,6 @@ fn mktimeImpl(t: *tm) callconv(.c) time_t {
     return @intCast(secs);
 }
 
-const ABDAY_1 = 0x20000;
-const DAY_1 = 0x20007;
-const ABMON_1 = 0x2000E;
-const MON_1 = 0x2001A;
-const AM_STR = 0x20026;
-const PM_STR = 0x20027;
-const D_T_FMT = 0x20028;
-const D_FMT = 0x20029;
-const T_FMT = 0x2002A;
-const T_FMT_AMPM = 0x2002B;
-
 fn isAsciiSpace(c: u8) bool {
     return c == ' ' or (c -% '\t' < 5);
 }
@@ -875,7 +864,7 @@ const pthread = extern struct {
     prev: *pthread,
     next: *pthread,
     sysinfo: usize,
-    canary_pad: if (comptime builtin.cpu.arch == .mips64 or builtin.cpu.arch == .mips64el) usize else void,
+    canary_pad: if (builtin.cpu.arch == .mips64 or builtin.cpu.arch == .mips64el) usize else void,
     canary: if (tls_above_tp) void else usize,
     tid: c_int,
     errno_val: c_int,

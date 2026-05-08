@@ -7,6 +7,11 @@ const mips_soft_float = switch (builtin.cpu.arch) {
     else => false,
 };
 
+const riscv_soft_float = switch (builtin.cpu.arch) {
+    .riscv32, .riscv64 => !builtin.cpu.has(.riscv, .f),
+    else => false,
+};
+
 const powerpc_soft_float = switch (builtin.abi) {
     .eabi, .gnueabi, .musleabi => switch (builtin.cpu.arch) {
         .powerpc, .powerpcle => true,
@@ -142,6 +147,14 @@ comptime {
             symbol(&arm___fesetround, "__fesetround");
             symbol(&arm_fegetenv, "fegetenv");
             symbol(&arm_fesetenv, "fesetenv");
+        } else if (riscv_soft_float) {
+            symbol(&riscv_sf_feclearexcept, "feclearexcept");
+            symbol(&riscv_sf_feraiseexcept, "feraiseexcept");
+            symbol(&riscv_sf_fetestexcept, "fetestexcept");
+            symbol(&riscv_sf_fegetround, "fegetround");
+            symbol(&riscv_sf___fesetround, "__fesetround");
+            symbol(&riscv_sf_fegetenv, "fegetenv");
+            symbol(&riscv_sf_fesetenv, "fesetenv");
         } else if (powerpc_hard_float) {
             symbol(&powerpc_feclearexcept, "feclearexcept");
             symbol(&powerpc_feraiseexcept, "feraiseexcept");
@@ -289,6 +302,40 @@ fn arm_fegetenv(envp: *c_ulong) callconv(.c) c_int {
 fn arm_fesetenv(envp: *const c_ulong) callconv(.c) c_int {
     const fpscr: c_uint = if (@intFromPtr(envp) == ARM_FE_DFL_ENV) 0 else @intCast(envp.*);
     arm_set_fpscr(fpscr);
+    return 0;
+}
+
+fn riscv_sf_feclearexcept(mask: c_int) callconv(.c) c_int {
+    _ = mask;
+    return 0;
+}
+
+fn riscv_sf_feraiseexcept(mask: c_int) callconv(.c) c_int {
+    _ = mask;
+    return 0;
+}
+
+fn riscv_sf_fetestexcept(mask: c_int) callconv(.c) c_int {
+    _ = mask;
+    return 0;
+}
+
+fn riscv_sf_fegetround() callconv(.c) c_int {
+    return FE_TONEAREST;
+}
+
+fn riscv_sf___fesetround(r: c_int) callconv(.c) c_int {
+    _ = r;
+    return 0;
+}
+
+fn riscv_sf_fegetenv(envp: *anyopaque) callconv(.c) c_int {
+    _ = envp;
+    return 0;
+}
+
+fn riscv_sf_fesetenv(envp: *const anyopaque) callconv(.c) c_int {
+    _ = envp;
     return 0;
 }
 

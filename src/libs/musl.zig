@@ -465,9 +465,9 @@ const src_files = [_][]const u8{
     "musl/src/fenv/powerpc/fenv.S",
     //"musl/src/fenv/powerpc/fenv-sf.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/riscv32/fenv.S",
-    "musl/src/fenv/riscv32/fenv-sf.c",
+    //"musl/src/fenv/riscv32/fenv-sf.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/riscv64/fenv.S",
-    "musl/src/fenv/riscv64/fenv-sf.c",
+    //"musl/src/fenv/riscv64/fenv-sf.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/s390x/fenv.c",
     "musl/src/fenv/x32/fenv.s",
     "musl/src/fenv/x86_64/fenv.s",

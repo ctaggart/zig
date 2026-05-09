@@ -453,7 +453,7 @@ const src_files = [_][]const u8{
     "musl/src/fenv/hexagon/fenv.S",
     "musl/src/fenv/i386/fenv.s",
     "musl/src/fenv/loongarch64/fenv.S",
-    "musl/src/fenv/loongarch64/fenv-sf.c",
+    //"musl/src/fenv/loongarch64/fenv-sf.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/m68k/fenv.c",
     "musl/src/fenv/mips64/fenv.S",
     //"musl/src/fenv/mips64/fenv-sf.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
@@ -468,7 +468,7 @@ const src_files = [_][]const u8{
     //"musl/src/fenv/riscv32/fenv-sf.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/riscv64/fenv.S",
     //"musl/src/fenv/riscv64/fenv-sf.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
-    "musl/src/fenv/s390x/fenv.c",
+    //"musl/src/fenv/s390x/fenv.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/x32/fenv.s",
     "musl/src/fenv/x86_64/fenv.s",
     //"musl/src/internal/emulate_wait4.c", // migrated to lib/c/internal.zig; exports: __emulate_wait4

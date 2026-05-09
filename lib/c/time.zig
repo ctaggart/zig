@@ -1155,7 +1155,7 @@ fn __strftime_l(s: [*]u8, n: usize, f_arg: [*:0]const u8, t: *const tm, loc: loc
                 s[l] = '-';
                 l += 1;
                 width -= 1;
-            } else if (plus and d + (width - k) >= if (p[0] == 'C') 3 else 5) {
+            } else if (plus and d + (width - k) >= @as(usize, if (p[0] == 'C') 3 else 5)) {
                 s[l] = '+';
                 l += 1;
                 width -= 1;

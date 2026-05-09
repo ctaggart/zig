@@ -2083,16 +2083,15 @@ inline fn wintAsU32(c: wint_t) u32 {
     return @as(u32, @bitCast(c));
 }
 
-inline fn iswspace_local(c: wint_t) bool {
-    const wc = wintAsU32(c);
+inline fn iswspace_local(c: u32) bool {
     const spaces = [_]u32{
         ' ',    '\t',   '\n',   '\r',   11,     12,     0x0085,
         0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006,
         0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x205f, 0x3000,
     };
-    if (wc == 0) return false;
+    if (c == 0) return false;
     for (spaces) |space| {
-        if (wc == space) return true;
+        if (c == space) return true;
     }
     return false;
 }
@@ -2200,11 +2199,11 @@ fn vfwscanf_impl(f_raw: ?*FILE, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c
     while (p[0] != 0) : (p += 1) {
         var alloc = false;
 
-        if (iswspace_local(p[0])) {
-            while (iswspace_local(p[1])) p += 1;
+        if (iswspace_local(wcharAsU32(p[0]))) {
+            while (iswspace_local(wcharAsU32(p[1]))) p += 1;
             while (true) {
                 const c = vfwscanfGetwc(f);
-                if (!iswspace_local(c)) {
+                if (!iswspace_local(wintAsU32(c))) {
                     vfwscanfUngetwc(c, f);
                     break;
                 }
@@ -2218,7 +2217,7 @@ fn vfwscanf_impl(f_raw: ?*FILE, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c
                 p += 1;
                 while (true) {
                     c = vfwscanfGetwc(f);
-                    if (!iswspace_local(c)) break;
+                    if (!iswspace_local(wintAsU32(c))) break;
                     pos += 1;
                 }
             } else {
@@ -2312,7 +2311,7 @@ fn vfwscanf_impl(f_raw: ?*FILE, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c
             if (t != '[' and (t | 32) != 'c') {
                 while (true) {
                     c = vfwscanfGetwc(f);
-                    if (!iswspace_local(c)) break;
+                    if (!iswspace_local(wintAsU32(c))) break;
                     pos += 1;
                 }
             } else {

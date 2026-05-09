@@ -425,7 +425,7 @@ fn fwide_impl(f: *FILE, mode_arg: c_int) callconv(.c) c_int {
     const need_unlock = flock(f);
     if (mode != 0) {
         if (f.locale == null) {
-            f.locale = @ptrCast(if (currentLocalePtr().*.?.cat[0] == null) c_locale_obj else c_dot_utf8_locale_obj);
+            f.locale = @constCast(if (currentLocalePtr().*.?.cat[0] == null) c_locale_obj else c_dot_utf8_locale_obj);
         }
         if (f.mode == 0) f.mode = if (mode > 0) 1 else -1;
     }
@@ -532,17 +532,17 @@ fn fputwc_unlocked_impl(c_arg: wchar_t, f: *FILE) callconv(.c) wint_t {
     } else if (f.wpos != null and f.wend != null and @intFromPtr(f.wpos.?) + MB_LEN_MAX < @intFromPtr(f.wend.?)) {
         const l = wctomb_fn(f.wpos, c);
         if (l < 0) {
-            c = @intCast(WEOF);
+            c = @bitCast(WEOF);
         } else {
             f.wpos = f.wpos.? + @as(usize, @intCast(l));
         }
     } else {
         const l = wctomb_fn(&mbc, c);
-        if (l < 0 or __fwritex(&mbc, @intCast(l), f) < @as(usize, @intCast(l))) c = @intCast(WEOF);
+        if (l < 0 or __fwritex(&mbc, @intCast(l), f) < @as(usize, @intCast(l))) c = @bitCast(WEOF);
     }
-    if (@as(wint_t, @intCast(c)) == WEOF) f.flags |= F_ERR;
+    if (@as(wint_t, @bitCast(c)) == WEOF) f.flags |= F_ERR;
     ploc.* = loc;
-    return @intCast(c);
+    return @bitCast(c);
 }
 
 /// fputwc.c: wint_t fputwc(wchar_t c, FILE *f)

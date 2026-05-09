@@ -2226,8 +2226,8 @@ fn vfwscanf_impl(f_raw: ?*FILE, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c
             }
             if (wintAsU32(c) != wcharAsU32(p[0])) {
                 vfwscanfUngetwc(c, f);
-                if (c < 0) return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, true);
-                return vfwscanfFail(f, need_unlock, matches, alloc, s, wcs, false);
+                if (c < 0) return vfwscanfFail(f, need_unlock, matches, alloc, null, null, true);
+                return vfwscanfFail(f, need_unlock, matches, alloc, null, null, false);
             }
             pos += 1;
             continue;

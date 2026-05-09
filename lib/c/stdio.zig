@@ -55,6 +55,8 @@ const getdelim_fn = @extern(*const fn (?*[*]u8, ?*usize, c_int, ?*FILE) callconv
 const fread_fn = @extern(*const fn (*anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fread" });
 const fwrite_fn = @extern(*const fn (*const anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fwrite" });
 const fgetc_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "fgetc" });
+const musl_lock_fn = @extern(*const fn (*volatile c_int) callconv(.c) void, .{ .name = "__lock" });
+const musl_unlock_fn = @extern(*const fn (*volatile c_int) callconv(.c) void, .{ .name = "__unlock" });
 /// Musl FILE flag constants (from stdio_impl.h)
 const F_EOF: c_uint = 16;
 const F_ERR: c_uint = 32;
@@ -342,6 +344,12 @@ comptime {
         symbol(&fwscanf_impl, "__isoc99_fwscanf");
         symbol(&swscanf_impl, "swscanf");
         symbol(&swscanf_impl, "__isoc99_swscanf");
+
+        // Open-file linked list (ofl.c, ofl_add.c)
+        symbol(&ofl_lock_impl, "__ofl_lock");
+        symbol(&ofl_unlock_impl, "__ofl_unlock");
+        symbol(&ofl_add_impl, "__ofl_add");
+        symbol(&ofl_lockptr, "__stdio_ofl_lockptr");
 
         // Locking (__lockfile.c, flockfile.c, funlockfile.c, ftrylockfile.c)
         symbol(&lockfile_impl, "__lockfile");
@@ -1445,7 +1453,7 @@ fn fdopen_impl(fd: c_int, mode: [*:0]const u8) callconv(.c) ?*FILE {
 
     if (libc_ptr.threaded == 0) f.lock = -1;
 
-    return ofl_add_fn(f);
+    return ofl_add_impl(f);
 }
 
 fn fflush_impl(f_raw: ?*FILE) callconv(.c) c_int {
@@ -1454,14 +1462,14 @@ fn fflush_impl(f_raw: ?*FILE) callconv(.c) c_int {
         if (__stdout_used) |f| r |= fflush_impl(f);
         if (__stderr_used) |f| r |= fflush_impl(f);
 
-        const head = ofl_lock_fn();
+        const head = ofl_lock_impl();
         var f = head.*;
         while (f) |cur| : (f = cur.next) {
             const need_unlock = flock(cur);
             if (cur.wpos != cur.wbase) r |= fflush_impl(cur);
             funlock(cur, need_unlock);
         }
-        ofl_unlock_fn();
+        ofl_unlock_impl();
 
         return r;
     }
@@ -1503,11 +1511,11 @@ fn fclose_impl(f: *FILE) callconv(.c) c_int {
 
     unlist_locked_file_impl(f);
 
-    const head = ofl_lock_fn();
+    const head = ofl_lock_impl();
     if (f.prev) |prev| prev.next = f.next;
     if (f.next) |next| next.prev = f.prev;
     if (head.* == f) head.* = f.next;
-    ofl_unlock_fn();
+    ofl_unlock_impl();
 
     free_fn(f.getln_buf);
     free_fn(f);
@@ -3222,7 +3230,7 @@ fn fmemopen_impl(user_buf: ?[*]u8, size: usize, mode: [*:0]const u8) callconv(.c
 
     if (libc_ptr.threaded == 0) mf.f.lock = -1;
 
-    return ofl_add_fn(&mf.f);
+    return ofl_add_impl(&mf.f);
 }
 
 // --- open_memstream.c ---
@@ -3327,7 +3335,7 @@ fn open_memstream_impl(bufp: *?[*]u8, sizep: *usize) callconv(.c) ?*FILE {
 
     if (libc_ptr.threaded == 0) ms.f.lock = -1;
 
-    return ofl_add_fn(&ms.f);
+    return ofl_add_impl(&ms.f);
 }
 
 // --- open_wmemstream.c ---
@@ -3441,7 +3449,7 @@ fn open_wmemstream_impl(bufp: *?[*]wchar_t, sizep: *usize) callconv(.c) ?*FILE {
 
     _ = fwide_fn(&wms.f, 1);
 
-    return ofl_add_fn(&wms.f);
+    return ofl_add_impl(&wms.f);
 }
 
 // --- fopencookie.c ---
@@ -3593,7 +3601,34 @@ fn fopencookie_impl(cookie: ?*anyopaque, mode: [*:0]const u8, iofuncs: CookieIoF
     cf.f.seek_fn = &cookieseek_impl;
     cf.f.close_fn = &cookieclose_impl;
 
-    return ofl_add_fn(&cf.f);
+    return ofl_add_impl(&cf.f);
+}
+
+// --- Open-file linked list (ofl.c, ofl_add.c) ---
+
+var ofl_head: ?*FILE = null;
+var ofl_lock_storage: c_int = 0;
+var ofl_lockptr: ?*c_int = &ofl_lock_storage;
+
+/// ofl.c: FILE **__ofl_lock(void)
+fn ofl_lock_impl() callconv(.c) *?*FILE {
+    musl_lock_fn(&ofl_lock_storage);
+    return &ofl_head;
+}
+
+/// ofl.c: void __ofl_unlock(void)
+fn ofl_unlock_impl() callconv(.c) void {
+    musl_unlock_fn(&ofl_lock_storage);
+}
+
+/// ofl_add.c: FILE *__ofl_add(FILE *f)
+fn ofl_add_impl(f: *FILE) callconv(.c) ?*FILE {
+    const head = ofl_lock_impl();
+    f.next = head.*;
+    if (head.*) |old_head| old_head.prev = f;
+    head.* = f;
+    ofl_unlock_impl();
+    return f;
 }
 
 /// popen.c: FILE *popen(const char *cmd, const char *mode)
@@ -3687,6 +3722,8 @@ const free_fn = @extern(*const fn (?*anyopaque) callconv(.c) void, .{ .name = "f
 const ofl_add_fn = @extern(*const fn (*FILE) callconv(.c) ?*FILE, .{ .name = "__ofl_add" });
 const ofl_lock_fn = @extern(*const fn () callconv(.c) *?*FILE, .{ .name = "__ofl_lock" });
 const ofl_unlock_fn = @extern(*const fn () callconv(.c) void, .{ .name = "__ofl_unlock" });
+const stdout_used = @extern(*const ?*FILE, .{ .name = "__stdout_used" });
+const stderr_used = @extern(*const ?*FILE, .{ .name = "__stderr_used" });
 const randname_fn = @extern(*const fn ([*]u8) callconv(.c) [*]u8, .{ .name = "__randname" });
 const libc_ptr = @extern(*const Libc, .{ .name = "__libc" });
 const fwide_fn = @extern(*const fn (*FILE, c_int) callconv(.c) c_int, .{ .name = "fwide" });

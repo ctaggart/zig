@@ -205,7 +205,6 @@ comptime {
         symbol(&dummyLockPtr, "__locale_lockptr");
         symbol(&dummyLockPtr, "__random_lockptr");
         symbol(&dummyLockPtr, "__sem_open_lockptr");
-        symbol(&dummyLockPtr, "__stdio_ofl_lockptr");
         symbol(&dummyLockPtr, "__timezone_lockptr");
         symbol(&dummyLockPtr, "__bump_lockptr");
     }

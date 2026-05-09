@@ -144,7 +144,13 @@ extern "c" fn memset(dst: *anyopaque, c: c_int, n: usize) *anyopaque;
 extern "c" fn a_crash() noreturn;
 extern "c" fn _init() void;
 extern "c" fn exit(code: c_int) noreturn;
-extern weak const _DYNAMIC: [*]const usize;
+fn get_DYNAMIC() ?[*]const usize {
+    return @extern([*]const usize, .{
+        .name = "_DYNAMIC",
+        .linkage = .weak,
+        .visibility = .hidden,
+    });
+}
 
 const AT_PHDR = 3;
 const AT_PHENT = 4;
@@ -258,7 +264,9 @@ fn __init_tls_fn(aux: [*]usize) callconv(.c) void {
         const phdr: *elf.Phdr = @ptrCast(@alignCast(p));
         switch (phdr.p_type) {
             elf.PT_PHDR => base = aux[AT_PHDR] - phdr.p_vaddr,
-            elf.PT_DYNAMIC => if (@intFromPtr(&_DYNAMIC) != 0) base = @intFromPtr(&_DYNAMIC) - phdr.p_vaddr,
+            elf.PT_DYNAMIC => if (get_DYNAMIC()) |dyn| {
+                base = @intFromPtr(dyn) - phdr.p_vaddr;
+            },
             elf.PT_TLS => tls_phdr = phdr,
             PT_GNU_STACK => if (phdr.p_memsz > __default_stacksize) {
                 __default_stacksize = if (phdr.p_memsz < DEFAULT_STACK_MAX) @intCast(phdr.p_memsz) else DEFAULT_STACK_MAX;

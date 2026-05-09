@@ -198,7 +198,7 @@ fn __init_tp_fn(p: *anyopaque) callconv(.c) c_int {
     if (r < 0) return -1;
     if (r == 0) __libc.can_do_threads = 1;
     td.detach_state = 2; // DT_JOINABLE
-    td.tid = @bitCast(linux.syscall1(.set_tid_address, @intFromPtr(&__thread_list_lock)));
+    td.tid = @bitCast(@as(u32, @truncate(linux.syscall1(.set_tid_address, @intFromPtr(&__thread_list_lock)))));
     td.locale = &__libc.global_locale;
     td.robust_list.head = @ptrCast(&td.robust_list.head);
     td.sysinfoPtr().* = __sysinfo;
@@ -297,7 +297,7 @@ fn __init_tls_fn(aux: [*]usize) callconv(.c) void {
     __libc.tls_align = main_tls.@"align";
     __libc.tls_size = (2 * @sizeOf(?*anyopaque) + @sizeOf(PThread) +
         (if (TLS_ABOVE_TP) main_tls.offset else 0) + main_tls.size + main_tls.@"align" +
-        MIN_TLS_ALIGN - 1) & (0 -% MIN_TLS_ALIGN);
+        MIN_TLS_ALIGN - 1) & (@as(usize, 0) -% MIN_TLS_ALIGN);
 
     const mem: [*]u8 = if (__libc.tls_size > @sizeOf(@TypeOf(builtin_tls)))
         @ptrFromInt(linux.mmap(null, __libc.tls_size, .{ .READ = true, .WRITE = true }, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0))

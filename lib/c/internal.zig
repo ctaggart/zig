@@ -708,11 +708,18 @@ fn parseScannedFloat(comptime T: type, s: []const u8, saw_nonzero: bool) c_longd
     return @floatCast(parsed);
 }
 
+const longdouble_float: type = switch (@bitSizeOf(c_longdouble)) {
+    64 => f64,
+    80 => f80,
+    128 => f128,
+    else => @compileError("unsupported c_longdouble bit size"),
+};
+
 fn finishScannedFloat(s: []const u8, prec: c_int, saw_nonzero: bool) c_longdouble {
     return switch (prec) {
         0 => parseScannedFloat(f32, s, saw_nonzero),
         1 => parseScannedFloat(f64, s, saw_nonzero),
-        2 => parseScannedFloat(c_longdouble, s, saw_nonzero),
+        2 => parseScannedFloat(longdouble_float, s, saw_nonzero),
         else => 0,
     };
 }

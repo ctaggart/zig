@@ -388,7 +388,8 @@ fn __init_libc_fn(envp: [*:null]?[*:0]u8, pn: ?[*:0]u8) callconv(.c) void {
     if (aux[AT_UID] == aux[AT_EUID] and aux[AT_GID] == aux[AT_EGID] and aux[AT_SECURE] == 0) return;
 
     // Check for closed stdin/stdout/stderr and open /dev/null if needed.
-    const SYS_ppoll = linux.SYS.ppoll;
+    // RiscV32 (and a few other 32-bit archs) lack the legacy ppoll syscall and use ppoll_time64.
+    const SYS_ppoll: linux.SYS = if (@hasField(linux.SYS, "ppoll") and builtin.cpu.arch != .hexagon) .ppoll else .ppoll_time64;
     var pfd: [3]extern struct { fd: c_int, events: c_short, revents: c_short } = .{
         .{ .fd = 0, .events = 0, .revents = 0 },
         .{ .fd = 1, .events = 0, .revents = 0 },

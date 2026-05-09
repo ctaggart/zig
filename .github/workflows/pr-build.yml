@@ -11,6 +11,12 @@ name: pr-build
 #     This is the gate that prevents broken-code merges.
 #   - pr-libc-test (advisory): runs libc-test on the stage4 produced by
 #     pr-build. Will be promoted to required once #429 is fixed.
+#   - pr-cross-compile (advisory, fan-out matrix): cross-compiles a tiny
+#     hello.c against libzigc + musl libc.a for every target in the
+#     post-merge QEMU matrix. Catches arch-specific libzigc compile errors
+#     (missing syscall fields, unsupported ABI prongs, signed/unsigned
+#     mismatches) in seconds without paying for QEMU. Promote to required
+#     once stable.
 #
 # Trust model: this workflow runs PR-controlled code on a persistent
 # self-hosted runner. The `if:` guard on the build job restricts execution
@@ -323,3 +329,78 @@ jobs:
               -Dtest-filter="" \
               -j2 \
               --summary failures
+
+  cross-compile:
+    # Cross-compile a tiny program against libzigc + musl libc.a for every
+    # target in the post-merge QEMU matrix. This catches arch-specific
+    # compile errors in libzigc / lib/std (e.g. missing `linux.O.SYNC` on
+    # s390x, missing `linux.SYS.ppoll` on RiscV32, "unsupported ABI" in
+    # `pthread_mutex_t`) in seconds without paying for a full QEMU run.
+    # Promote to required via branch protection once stable.
+    name: pr-cross-compile (${{ matrix.target }})
+    needs: [trust-check, build]
+    if: needs.trust-check.outputs.trusted == 'true'
+    runs-on: [self-hosted, Linux, ARM64, nvme]
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86-linux-musl
+          - x86_64-linux-musl
+          - arm-linux-musleabi
+          - arm-linux-musleabihf
+          - armeb-linux-musleabi
+          - armeb-linux-musleabihf
+          - thumb-linux-musleabihf
+          - thumbeb-linux-musleabihf
+          - riscv32-linux-musl
+          - riscv64-linux-musl
+          - powerpc-linux-musl
+          - powerpc64-linux-musl
+          - powerpc64le-linux-musl
+          - s390x-linux-musl
+          - loongarch64-linux-musl
+          - loongarch64-linux-muslsf
+          - wasm32-wasi-musl
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare cache root
+        run: mkdir -p "$CACHE_ROOT"
+
+      - name: Locate stage4 from build job (key=${{ needs.build.outputs.stage4_key }})
+        run: |
+          set -euo pipefail
+          STAGE4="$CACHE_ROOT/stage4-${{ needs.build.outputs.stage4_key }}"
+          if [ ! -x "$STAGE4/bin/zig" ]; then
+              echo "ERROR: stage4 not found at $STAGE4 (build job should have produced it)" >&2
+              exit 1
+          fi
+          "$STAGE4/bin/zig" version
+          echo "STAGE4=$STAGE4" >> "$GITHUB_ENV"
+
+      - name: Cross-compile hello (${{ matrix.target }})
+        run: |
+          set -euo pipefail
+          if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
+          if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          # Tiny Zig program that calls into libc — forces sub-compilation of
+          # musl libc.a + libzigc.a + crt for the target. We don't run the
+          # binary; we only verify it links.
+          cat > "$tmpdir/hello.zig" <<'EOF'
+          const std = @import("std");
+          extern fn puts(s: [*:0]const u8) c_int;
+          pub fn main() void {
+              _ = puts("hello");
+          }
+          EOF
+          "$STAGE4/bin/zig" build-exe \
+              --zig-lib-dir lib \
+              -target ${{ matrix.target }} \
+              -mcpu baseline \
+              -lc \
+              -femit-bin="$tmpdir/hello" \
+              "$tmpdir/hello.zig"

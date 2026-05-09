@@ -10,8 +10,14 @@ const linux = std.os.linux;
 const c_lib = @import("../c.zig");
 
 /// O_SYNC and O_DSYNC as integer constants for the C ABI.
+/// On most archs we derive these from `linux.O`; on archs whose `O` does not
+/// expose a `SYNC` field (s390x, hexagon, or1k) we fall back to the POSIX
+/// numeric value (`O_SYNC = 04010000` per musl `bits/fcntl.h`).
 const O_DSYNC: c_int = @bitCast(@as(linux.O, .{ .DSYNC = true }));
-const O_SYNC: c_int = @bitCast(@as(linux.O, .{ .SYNC = true, .DSYNC = true }));
+const O_SYNC: c_int = if (@hasField(linux.O, "SYNC"))
+    @bitCast(@as(linux.O, .{ .SYNC = true, .DSYNC = true }))
+else
+    0o4010000;
 
 /// Wrapper for pthread_sigmask that discards the old mask (passes a dummy instead of null).
 fn sigmaskRestore(origmask: *const std.c.sigset_t) void {

@@ -146,7 +146,7 @@ fn gettimeofdayLinux(tv: ?*linux.timeval, _: ?*anyopaque) callconv(.c) c_int {
     const t = tv orelse return 0;
     var ts: linux.timespec = undefined;
     _ = linux.clock_gettime(.REALTIME, &ts);
-    t.sec = ts.sec;
+    t.sec = @intCast(ts.sec);
     t.usec = @intCast(@divTrunc(ts.nsec, 1000));
     return 0;
 }
@@ -1412,7 +1412,8 @@ fn timer_createLinux(clk: c_int, evp: ?*sigevent, res: **opaque {}) callconv(.c)
 }
 
 fn is32Bit(x: linux.time_t) bool {
-    return ((x +% 0x80000000) >> 32) == 0;
+    if (@sizeOf(linux.time_t) <= 4) return true;
+    return ((x +% @as(i64, 0x80000000)) >> 32) == 0;
 }
 
 // timer_settime.c

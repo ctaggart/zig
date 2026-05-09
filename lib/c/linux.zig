@@ -700,7 +700,7 @@ fn settimeofdayLinux(tv: ?*const linux.timeval, _: ?*const anyopaque) callconv(.
 }
 
 fn stimeLinux(t: *const linux.time_t) callconv(.c) c_int {
-    const tv = linux.timeval{ .sec = t.*, .usec = 0 };
+    const tv = linux.timeval{ .sec = @intCast(t.*), .usec = 0 };
     return settimeofdayLinux(&tv, null);
 }
 

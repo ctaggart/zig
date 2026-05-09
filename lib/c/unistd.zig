@@ -271,7 +271,21 @@ fn pipe2Linux(fd: *[2]c_int, flags: c_int) callconv(.c) c_int {
 }
 
 fn lseekLinux(fd: c_int, offset: linux.off_t, whence: c_int) callconv(.c) linux.off_t {
-    const signed: isize = @bitCast(linux.lseek(fd, offset, @intCast(@as(c_uint, @bitCast(whence)))));
+    const w: usize = @intCast(@as(c_uint, @bitCast(whence)));
+    const signed: i64 = signed: {
+        if (@sizeOf(usize) >= 8) {
+            // 64-bit: kernel `lseek` syscall takes a 64-bit offset directly
+            // and returns the new position (or a negative errno) in a single
+            // register.
+            break :signed @as(isize, @bitCast(linux.lseek(fd, offset, w)));
+        }
+        // 32-bit: kernel only has `_llseek` which takes a hi/lo offset pair
+        // and writes the new file position to a result pointer.
+        var result_off: u64 = 0;
+        const r: isize = @bitCast(linux.llseek(fd, @bitCast(@as(i64, offset)), &result_off, w));
+        if (r < 0) break :signed r;
+        break :signed @bitCast(result_off);
+    };
     if (signed < 0) {
         @branchHint(.unlikely);
         std.c._errno().* = @intCast(-signed);

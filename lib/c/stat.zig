@@ -257,7 +257,7 @@ fn fstatatImpl(fd: c_int, path: [*:0]const u8, buf: *anyopaque, flag: c_int) cal
         st.ctim32 = .{ .sec = @truncate(stx.ctime.sec), .nsec = @intCast(stx.ctime.nsec) };
     }
     if (@hasField(MuStat, "ino_truncated")) {
-        st.ino_truncated = @truncate(stx.ino);
+        st.ino_truncated = @bitCast(@as(u32, @truncate(stx.ino)));
     }
     return 0;
 }

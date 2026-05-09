@@ -150,6 +150,7 @@ const CLONE_CHILD_CLEARTID: c_int = 0x200000;
 const CLONE_DETACHED: c_int = 0x400000;
 const SIGCANCEL: usize = 33;
 const SIG_SETMASK: usize = 2;
+const PTHREAD_CANCELED: ?*anyopaque = @ptrFromInt(std.math.maxInt(usize));
 const PR_SET_NAME: usize = 15;
 const PR_GET_NAME: usize = 16;
 const AT_FDCWD: usize = @bitCast(@as(isize, -100));
@@ -243,6 +244,7 @@ const mtx_recursive: c_int = 1;
 const PTHREAD_MUTEX_NORMAL: c_int = 0;
 const PTHREAD_MUTEX_RECURSIVE: c_int = 1;
 // POSIX cancellation constants
+const PTHREAD_CANCEL_ENABLE: c_int = 0;
 const PTHREAD_CANCEL_DISABLE: c_int = 1;
 // POSIX priority protocol
 const PTHREAD_PRIO_NONE: c_int = 0;
@@ -424,7 +426,10 @@ comptime {
             symbol(&setattr_default_np_fn, "pthread_setattr_default_np");
             symbol(&getattr_default_np_fn, "pthread_getattr_default_np");
             symbol(&syscall_cp_fn, "__syscall_cp");
+            symbol(&cancel_fn, "__cancel");
+            symbol(&syscall_cp_c_fn, "__syscall_cp_c");
             symbol(&testcancel_fn, "__testcancel");
+            symbol(&pthread_cancel_fn, "pthread_cancel");
             symbol(&timedwait_cp_fn, "__timedwait_cp");
             symbol(&timedwait_fn, "__timedwait");
             symbol(&dummy_eintr_valid_flag, "__eintr_valid_flag");
@@ -3289,16 +3294,190 @@ fn unmapself_fn(base: ?*anyopaque, size: usize) callconv(.c) void {
     do_unmap();
 }
 
-// The real cancellation-point logic is in arch-specific .s files
-// (via __syscall_cp_asm). This is the C fallback: just a regular syscall.
+// The cancellation-point assembly is still arch-specific, but the common
+// cancellation state handling from pthread_cancel.c lives here.
 fn syscall_cp_fn(nr: usize, u: usize, v: usize, w: usize, x: usize, y: usize, z: usize) callconv(.c) isize {
-    const __syscall_cp_c_ext = @extern(*const fn (usize, usize, usize, usize, usize, usize, usize) callconv(.c) isize, .{ .name = "__syscall_cp_c" });
-    return __syscall_cp_c_ext(nr, u, v, w, x, y, z);
+    return syscall_cp_c_fn(nr, u, v, w, x, y, z);
 }
 
-// __testcancel is a weak symbol: if cancellation is not linked, it's a no-op.
-// The real implementation is in pthread_cancel.c.
-fn testcancel_fn() callconv(.c) void {}
+extern fn __syscall_cp_asm(cancel: *volatile c_int, nr: usize, u: usize, v: usize, w: usize, x: usize, y: usize, z: usize) callconv(.c) isize;
+extern const __cp_begin: u8;
+extern const __cp_end: u8;
+extern const __cp_cancel: u8;
+
+const MuslSigaction = extern struct {
+    handler: extern union {
+        handler: ?*align(1) const fn (c_int) callconv(.c) void,
+        sigaction: ?*const fn (c_int, *const linux.siginfo_t, ?*anyopaque) callconv(.c) void,
+    },
+    mask: [128 / @sizeOf(c_ulong)]c_ulong,
+    flags: c_int,
+    restorer: ?*const fn () callconv(.c) void,
+};
+
+extern fn __libc_sigaction(sig: c_int, act: ?*const MuslSigaction, old: ?*MuslSigaction) callconv(.c) c_int;
+
+fn cancel_field(self: usize) *volatile c_int {
+    return @ptrFromInt(self + off_cancel);
+}
+
+fn canceldisable_field(self: usize) *u8 {
+    return @ptrFromInt(self + off_canceldisable);
+}
+
+fn cancelasync_field(self: usize) *u8 {
+    return @ptrFromInt(self + off_cancelasync);
+}
+
+fn cancel_fn() callconv(.c) isize {
+    const self = pthread_self_ptr();
+    if (canceldisable_field(self).* == PTHREAD_CANCEL_ENABLE or cancelasync_field(self).* != 0) {
+        const pthread_exit = @extern(*const fn (?*anyopaque) callconv(.c) noreturn, .{ .name = "pthread_exit" });
+        pthread_exit(PTHREAD_CANCELED);
+    }
+    canceldisable_field(self).* = PTHREAD_CANCEL_DISABLE;
+    return -@as(isize, @intCast(eint(.CANCELED)));
+}
+
+fn syscall_cp_c_fn(nr: usize, u: usize, v: usize, w: usize, x: usize, y: usize, z: usize) callconv(.c) isize {
+    const self = pthread_self_ptr();
+    const st = canceldisable_field(self).*;
+    if (st != 0 and (st == PTHREAD_CANCEL_DISABLE or nr == @intFromEnum(linux.SYS.close))) {
+        return @bitCast(linux.syscall6(@enumFromInt(nr), u, v, w, x, y, z));
+    }
+
+    var r = __syscall_cp_asm(cancel_field(self), nr, u, v, w, x, y, z);
+    if (r == -@as(isize, @intCast(eint(.INTR))) and nr != @intFromEnum(linux.SYS.close) and
+        cancel_field(self).* != 0 and canceldisable_field(self).* != PTHREAD_CANCEL_DISABLE)
+    {
+        r = cancel_fn();
+    }
+    return r;
+}
+
+fn sigaddset_internal(set: *linux.sigset_t, sig: usize) void {
+    const s = sig - 1;
+    const Elem = @typeInfo(linux.sigset_t).array.child;
+    const bits_per_elem = 8 * @sizeOf(Elem);
+    set[s / bits_per_elem] |= @as(Elem, 1) << @intCast(s & (bits_per_elem - 1));
+}
+
+fn ucontext_sigmask(ctx: *anyopaque) *linux.sigset_t {
+    const addr = @intFromPtr(ctx);
+    const off = switch (arch) {
+        .arm, .armeb, .m68k, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .s390x, .x86, .x86_64 => 3 * ptr_size + @sizeOf(linux.stack_t) + mcontext_size,
+        .aarch64, .aarch64_be, .loongarch64, .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el => 3 * ptr_size + @sizeOf(linux.stack_t),
+        else => @compileError("unsupported architecture for pthread_cancel ucontext_t"),
+    };
+    return @ptrFromInt(addr + off);
+}
+
+fn ucontext_pc(ctx: *anyopaque) *usize {
+    const addr = @intFromPtr(ctx);
+    const uc_mcontext = switch (arch) {
+        .arm, .armeb, .m68k, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .s390x, .x86, .x86_64 => 3 * ptr_size + @sizeOf(linux.stack_t),
+        .aarch64, .aarch64_be, .loongarch64, .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el => 3 * ptr_size + @sizeOf(linux.stack_t) + @sizeOf(linux.sigset_t),
+        else => @compileError("unsupported architecture for pthread_cancel ucontext_t"),
+    };
+    const pc_off = switch (arch) {
+        .aarch64, .aarch64_be => 32 * ptr_size,
+        .arm, .armeb => 15 * ptr_size,
+        .x86 => 14 * @sizeOf(c_int),
+        .loongarch64 => 0,
+        .m68k => @sizeOf(c_int) + 17 * @sizeOf(c_int),
+        .mips, .mipsel => 2 * @sizeOf(c_uint),
+        .mips64, .mips64el => 32 * @sizeOf(u64) + 32 * @sizeOf(u64) + 8 * @sizeOf(u64),
+        .powerpc, .powerpcle => 32 * @sizeOf(c_long),
+        .powerpc64, .powerpc64le => 6 * @sizeOf(c_long) + 32 * @sizeOf(c_long),
+        .riscv32, .riscv64 => 0,
+        .s390x => @sizeOf(c_ulong),
+        .x86_64 => 16 * @sizeOf(i64),
+        else => @compileError("unsupported architecture for pthread_cancel ucontext_t"),
+    };
+    return @ptrFromInt(addr + uc_mcontext + pc_off);
+}
+
+const mcontext_size: usize = switch (arch) {
+    .aarch64, .aarch64_be => 34 * ptr_size + 256 * @sizeOf(c_longdouble),
+    .arm, .armeb => 21 * ptr_size,
+    .x86 => 22 * @sizeOf(c_uint),
+    .loongarch64 => 33 * ptr_size + @sizeOf(c_uint),
+    .m68k => 46 * @sizeOf(c_int),
+    .mips, .mipsel => 2 * @sizeOf(c_uint) + 65 * @sizeOf(u64) + 5 * @sizeOf(c_uint) + 2 * @sizeOf(u64) + 6 * @sizeOf(c_uint),
+    .mips64, .mips64el => 32 * @sizeOf(u64) + 32 * @sizeOf(f64) + 9 * @sizeOf(u64) + 4 * @sizeOf(c_uint),
+    .powerpc, .powerpcle => 48 * @sizeOf(c_long) + 68 * @sizeOf(c_long) + 4 * 32 * @sizeOf(c_long) + 4 * @sizeOf(c_long),
+    .powerpc64, .powerpc64le => 4 * @sizeOf(c_long) + 4 * @sizeOf(c_long) + 48 * @sizeOf(c_long) + 33 * @sizeOf(c_long) + @sizeOf(?*anyopaque) + (34 + 34 + 32 + 1) * @sizeOf(c_long),
+    .riscv32 => 32 * ptr_size + riscv_fp_state_size,
+    .riscv64 => 32 * ptr_size + riscv_fp_state_size,
+    .s390x => 18 * @sizeOf(c_ulong) + 18 * @sizeOf(c_uint) + 16 * @sizeOf(f64),
+    .x86_64 => 32 * @sizeOf(c_ulong),
+    else => @compileError("unsupported architecture for pthread_cancel ucontext_t"),
+};
+
+const riscv_fp_state_size: usize = @max(33 * @sizeOf(u64), 64 * @sizeOf(u64) + 4 * @sizeOf(c_uint));
+
+fn cancel_handler(_: c_int, _: *const linux.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
+    const self = pthread_self_ptr();
+    const uc = ctx orelse return;
+    const pc = ucontext_pc(uc);
+
+    _ = @atomicLoad(u8, canceldisable_field(self), .seq_cst);
+    if (cancel_field(self).* == 0 or canceldisable_field(self).* == PTHREAD_CANCEL_DISABLE) return;
+
+    const mask = ucontext_sigmask(uc);
+    sigaddset_internal(mask, SIGCANCEL);
+
+    if (cancelasync_field(self).* != 0) {
+        _ = pthread_sigmask_fn(@intCast(SIG_SETMASK), mask, null);
+        _ = cancel_fn();
+    }
+
+    const cp_begin = @intFromPtr(&__cp_begin);
+    const cp_end = @intFromPtr(&__cp_end);
+    if (pc.* >= cp_begin and pc.* < cp_end) {
+        pc.* = @intFromPtr(&__cp_cancel);
+        return;
+    }
+
+    const tid: c_int = @as(*const c_int, @ptrFromInt(self + off_tid)).*;
+    _ = linux.syscall2(.tkill, @intCast(tid), SIGCANCEL);
+}
+
+fn init_cancellation() void {
+    var sa: MuslSigaction = undefined;
+    sa.handler.sigaction = cancel_handler;
+    sa.mask = [_]c_ulong{std.math.maxInt(c_ulong)} ** (128 / @sizeOf(c_ulong));
+    sa.flags = linux.SA.SIGINFO | linux.SA.RESTART | linux.SA.ONSTACK;
+    sa.restorer = null;
+    _ = __libc_sigaction(@intCast(SIGCANCEL), &sa, null);
+}
+
+var cancel_init: c_int = 0;
+
+fn pthread_cancel_fn(t: std.c.pthread_t) callconv(.c) c_int {
+    if (@atomicLoad(c_int, &cancel_init, .seq_cst) == 0) {
+        init_cancellation();
+        @atomicStore(c_int, &cancel_init, 1, .seq_cst);
+    }
+
+    const t_addr = @intFromPtr(t);
+    @atomicStore(c_int, cancel_field(t_addr), 1, .seq_cst);
+    if (t == pthread_self_fn()) {
+        if (canceldisable_field(t_addr).* == PTHREAD_CANCEL_ENABLE and cancelasync_field(t_addr).* != 0) {
+            const pthread_exit = @extern(*const fn (?*anyopaque) callconv(.c) noreturn, .{ .name = "pthread_exit" });
+            pthread_exit(PTHREAD_CANCELED);
+        }
+        return 0;
+    }
+    return pthread_kill_fn(t, @intCast(SIGCANCEL));
+}
+
+fn testcancel_fn() callconv(.c) void {
+    const self = pthread_self_ptr();
+    if (cancel_field(self).* != 0 and canceldisable_field(self).* == PTHREAD_CANCEL_ENABLE) {
+        _ = cancel_fn();
+    }
+}
 
 fn do_cleanup_push_fn(_: *anyopaque) callconv(.c) void {}
 

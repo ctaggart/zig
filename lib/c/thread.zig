@@ -3155,7 +3155,7 @@ fn pthread_key_create_fn(k: *c_uint, dtor: ?*const fn (?*anyopaque) callconv(.c)
             _ = rwlock_unlock_fn(@ptrCast(&pthread_key_lock));
             return 0;
         }
-        j = (j + 1) % PTHREAD_KEYS_MAX;
+        j = (j + 1) % @as(c_uint, PTHREAD_KEYS_MAX);
         if (j == pthread_next_key) break;
     }
 

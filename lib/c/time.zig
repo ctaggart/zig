@@ -732,7 +732,7 @@ fn doTzset() void {
 
 fn scanTrans(t: c_longlong, local: c_int, alt: ?*usize) usize {
     const z = zi.?;
-    const scale: u5 = 3 - @intFromBool(trans == z + 44);
+    const scale: u5 = 3 - @as(u5, @intFromBool(trans == z + 44));
     var off: c_int = 0;
     var a: usize = 0;
     var n: usize = (@intFromPtr(index) - @intFromPtr(trans)) >> scale;
@@ -1270,7 +1270,6 @@ const T_FMT: nl_item = 0x2002A;
 const T_FMT_AMPM: nl_item = 0x2002B;
 
 extern "c" fn __nl_langinfo_l(item: nl_item, loc: locale_t) callconv(.c) [*:0]const u8;
-extern "c" fn __tm_to_tzname(t: *const tm) callconv(.c) [*:0]const u8;
 extern "c" fn pthread_self() callconv(.c) *pthread;
 extern "c" fn mbstowcs(dest: ?[*]wchar_t, src: [*:0]const u8, n: usize) callconv(.c) usize;
 

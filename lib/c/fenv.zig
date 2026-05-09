@@ -12,6 +12,15 @@ const riscv_soft_float = switch (builtin.cpu.arch) {
     else => false,
 };
 
+const m68k_hard_float = builtin.cpu.arch == .m68k and
+    std.Target.m68k.featureSetHasAny(builtin.cpu.features, .{ .isa_68881, .isa_68882 });
+
+const m68k_fenv_t = extern struct {
+    __control_register: c_uint,
+    __status_register: c_uint,
+    __instruction_address: c_uint,
+};
+
 const powerpc_soft_float = switch (builtin.abi) {
     .eabi, .gnueabi, .musleabi => switch (builtin.cpu.arch) {
         .powerpc, .powerpcle => true,
@@ -155,6 +164,14 @@ comptime {
             symbol(&riscv_sf___fesetround, "__fesetround");
             symbol(&riscv_sf_fegetenv, "fegetenv");
             symbol(&riscv_sf_fesetenv, "fesetenv");
+        } else if (m68k_hard_float) {
+            symbol(&m68k_feclearexcept, "feclearexcept");
+            symbol(&m68k_feraiseexcept, "feraiseexcept");
+            symbol(&m68k_fetestexcept, "fetestexcept");
+            symbol(&m68k_fegetround, "fegetround");
+            symbol(&m68k___fesetround, "__fesetround");
+            symbol(&m68k_fegetenv, "fegetenv");
+            symbol(&m68k_fesetenv, "fesetenv");
         } else if (powerpc_hard_float) {
             symbol(&powerpc_feclearexcept, "feclearexcept");
             symbol(&powerpc_feraiseexcept, "feraiseexcept");
@@ -191,6 +208,91 @@ comptime {
         symbol(&fesetround, "fesetround");
         symbol(&feupdateenv, "feupdateenv");
     }
+}
+
+fn m68k_getsr() c_uint {
+    return asm volatile ("fmove.l %%fpsr,$0"
+        : [_] "=dm" (-> c_uint),
+    );
+}
+
+fn m68k_setsr(v: c_uint) void {
+    asm volatile ("fmove.l $0,%%fpsr"
+        :
+        : [_] "dm" (v),
+    );
+}
+
+fn m68k_getcr() c_uint {
+    return asm volatile ("fmove.l %%fpcr,$0"
+        : [_] "=dm" (-> c_uint),
+    );
+}
+
+fn m68k_setcr(v: c_uint) void {
+    asm volatile ("fmove.l $0,%%fpcr"
+        :
+        : [_] "dm" (v),
+    );
+}
+
+fn m68k_getpiar() c_uint {
+    return asm volatile ("fmove.l %%fpiar,$0"
+        : [_] "=dm" (-> c_uint),
+    );
+}
+
+fn m68k_setpiar(v: c_uint) void {
+    asm volatile ("fmove.l $0,%%fpiar"
+        :
+        : [_] "dm" (v),
+    );
+}
+
+fn m68k_feclearexcept(mask: c_int) callconv(.c) c_int {
+    if (mask & ~FE_ALL_EXCEPT != 0) return -1;
+    m68k_setsr(m68k_getsr() & ~@as(c_uint, @bitCast(mask)));
+    return 0;
+}
+
+fn m68k_feraiseexcept(mask: c_int) callconv(.c) c_int {
+    if (mask & ~FE_ALL_EXCEPT != 0) return -1;
+    m68k_setsr(m68k_getsr() | @as(c_uint, @bitCast(mask)));
+    return 0;
+}
+
+fn m68k_fetestexcept(mask: c_int) callconv(.c) c_int {
+    return @bitCast(m68k_getsr() & @as(c_uint, @bitCast(mask)));
+}
+
+fn m68k_fegetround() callconv(.c) c_int {
+    return @bitCast(m68k_getcr() & @as(c_uint, @intCast(FE_UPWARD.?)));
+}
+
+fn m68k___fesetround(r: c_int) callconv(.c) c_int {
+    const round_mask: c_uint = @intCast(FE_UPWARD.?);
+    m68k_setcr((m68k_getcr() & ~round_mask) | @as(c_uint, @bitCast(r)));
+    return 0;
+}
+
+fn m68k_fegetenv(envp: *m68k_fenv_t) callconv(.c) c_int {
+    envp.__control_register = m68k_getcr();
+    envp.__status_register = m68k_getsr();
+    envp.__instruction_address = m68k_getpiar();
+    return 0;
+}
+
+fn m68k_fesetenv(envp_arg: *const m68k_fenv_t) callconv(.c) c_int {
+    const default_env: m68k_fenv_t = .{
+        .__control_register = 0,
+        .__status_register = 0,
+        .__instruction_address = 0,
+    };
+    const envp = if (@intFromPtr(envp_arg) == std.math.maxInt(usize)) &default_env else envp_arg;
+    m68k_setcr(envp.__control_register);
+    m68k_setsr(envp.__status_register);
+    m68k_setpiar(envp.__instruction_address);
+    return 0;
 }
 
 const POWERPC_FE_INVALID: u64 = 0x20000000;

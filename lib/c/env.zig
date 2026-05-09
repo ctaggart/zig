@@ -141,7 +141,9 @@ const LibC = extern struct {
 };
 extern "c" fn __set_thread_area(tp: *anyopaque) c_int;
 extern "c" fn memset(dst: *anyopaque, c: c_int, n: usize) *anyopaque;
-extern "c" fn a_crash() noreturn;
+fn a_crash() noreturn {
+    @trap();
+}
 extern "c" fn _init() void;
 extern "c" fn exit(code: c_int) noreturn;
 fn get_DYNAMIC() ?[*]const usize {
@@ -341,7 +343,7 @@ extern var __progname: ?[*:0]u8;
 extern var __progname_full: ?[*:0]u8;
 extern "c" fn __libc_start_init() void;
 extern var __default_stacksize: c_uint;
-extern var __thread_list_lock: c_int;
+var __thread_list_lock: c_int = 0;
 extern "c" fn __init_tls(aux: [*]usize) void;
 
 comptime {
@@ -357,6 +359,7 @@ comptime {
         symbol(&__init_tp_fn, "__init_tp");
         symbol(&__copy_tls_fn, "__copy_tls");
         symbol(&__init_tls_fn, "__init_tls");
+        @export(&__thread_list_lock, .{ .name = "__thread_list_lock", .linkage = .strong, .visibility = .hidden });
         symbol(&__reset_tls_fn, "__reset_tls");
         symbol(&dummy, "_init");
         symbol(&libc_start_init_fn, "__libc_start_init");

@@ -36,6 +36,7 @@ EXCLUDED_FILES = {
 EXCLUDED_DIRS = {"win32"}
 
 SYMBOL_RE = re.compile(r'symbol\([^)]*?"([A-Za-z_][A-Za-z0-9_]*)"')
+EXPORT_RE = re.compile(r'@export\([^)]*?\.name\s*=\s*"([A-Za-z_][A-Za-z0-9_]*)"')
 MIGRATED_RE = re.compile(
     r'^\s*//\s*"(musl/src/[^"]+\.c)"\s*,\s*//\s*migrated to\s+([^\s;]+)'
     r'(?:\s*;\s*exports:\s*([^\n]+))?'
@@ -56,6 +57,8 @@ def collect_exported_symbols() -> set[str]:
             print(f"error: cannot read {path}: {exc}", file=sys.stderr)
             continue
         for m in SYMBOL_RE.finditer(text):
+            symbols.add(m.group(1))
+        for m in EXPORT_RE.finditer(text):
             symbols.add(m.group(1))
     return symbols
 

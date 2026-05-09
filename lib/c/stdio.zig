@@ -46,6 +46,7 @@ const _IOLBF = 1;
 const _IONBF = 2;
 const BUFSIZ = 1024;
 const EOF = -1;
+const F_PERM: c_uint = 1;
 // Extern references to musl C functions that are still compiled from C sources.
 const setvbuf_fn = @extern(*const fn (?*FILE, ?[*]u8, c_int, usize) callconv(.c) c_int, .{ .name = "setvbuf" });
 const getdelim_fn = @extern(*const fn (?*[*]u8, ?*usize, c_int, ?*FILE) callconv(.c) ssize_t, .{ .name = "getdelim" });
@@ -53,8 +54,6 @@ const fgetwc_fn = @extern(*const fn (?*FILE) callconv(.c) wint_t, .{ .name = "fg
 const fputwc_fn = @extern(*const fn (wchar_t, ?*FILE) callconv(.c) wint_t, .{ .name = "fputwc" });
 const fread_fn = @extern(*const fn (*anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fread" });
 const fwrite_fn = @extern(*const fn (*const anyopaque, usize, usize, ?*FILE) callconv(.c) usize, .{ .name = "fwrite" });
-const stdin_ext = @extern(*const ?*FILE, .{ .name = "stdin" });
-const stdout_ext = @extern(*const ?*FILE, .{ .name = "stdout" });
 const fgetc_fn = @extern(*const fn (?*FILE) callconv(.c) c_int, .{ .name = "fgetc" });
 /// Musl FILE flag constants (from stdio_impl.h)
 const F_EOF: c_uint = 16;
@@ -87,7 +86,6 @@ const SwCookie = extern struct {
     ws: [*]wchar_t,
     l: usize,
 };
-const stderr_ext = @extern(*const ?*FILE, .{ .name = "stderr" });
 const strerror_fn = @extern(*const fn (c_int) callconv(.c) [*:0]const u8, .{ .name = "strerror" });
 const vfprintf_fn = @extern(*const fn (?*FILE, [*:0]const u8, VaList) callconv(.c) c_int, .{ .name = "vfprintf" });
 const vfwprintf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwprintf" });
@@ -118,8 +116,79 @@ extern "c" var __environ: [*:null]?[*:0]u8;
 const wctomb_fn = @extern(*const fn (?[*]u8, wchar_t) callconv(.c) c_int, .{ .name = "wctomb" });
 const ungetwc_fn = @extern(*const fn (wint_t, ?*FILE) callconv(.c) wint_t, .{ .name = "ungetwc" });
 
+var stdin_buf: [BUFSIZ + UNGET]u8 = undefined;
+var stdout_buf: [BUFSIZ + UNGET]u8 = undefined;
+var stderr_buf: [UNGET]u8 = undefined;
+
+var __stdin_FILE: FILE = initStdinFile();
+var __stdout_FILE: FILE = initStdoutFile();
+var __stderr_FILE: FILE = initStderrFile();
+
+const stdin: ?*FILE = &__stdin_FILE;
+const stdout: ?*FILE = &__stdout_FILE;
+const stderr: ?*FILE = &__stderr_FILE;
+
+var __stdin_used: ?*FILE = &__stdin_FILE;
+var __stdout_used: ?*FILE = &__stdout_FILE;
+var __stderr_used: ?*FILE = &__stderr_FILE;
+
+const stdin_ext: *const ?*FILE = &stdin;
+const stdout_ext: *const ?*FILE = &stdout;
+const stderr_ext: *const ?*FILE = &stderr;
+
+fn initStdinFile() FILE {
+    var f = std.mem.zeroes(FILE);
+    f.buf = stdin_buf[UNGET..].ptr;
+    f.buf_size = BUFSIZ;
+    f.fd = 0;
+    f.flags = F_PERM | F_NOWR;
+    f.read_fn = &stdio_read_impl;
+    f.seek_fn = &stdio_seek_impl;
+    f.close_fn = &stdio_close_impl;
+    f.lock = -1;
+    return f;
+}
+
+fn initStdoutFile() FILE {
+    var f = std.mem.zeroes(FILE);
+    f.buf = stdout_buf[UNGET..].ptr;
+    f.buf_size = BUFSIZ;
+    f.fd = 1;
+    f.flags = F_PERM | F_NORD;
+    f.lbf = '\n';
+    f.write_fn = &stdout_write_impl;
+    f.seek_fn = &stdio_seek_impl;
+    f.close_fn = &stdio_close_impl;
+    f.lock = -1;
+    return f;
+}
+
+fn initStderrFile() FILE {
+    var f = std.mem.zeroes(FILE);
+    f.buf = stderr_buf[UNGET..].ptr;
+    f.buf_size = 0;
+    f.fd = 2;
+    f.flags = F_PERM | F_NORD;
+    f.lbf = -1;
+    f.write_fn = &stdio_write_impl;
+    f.seek_fn = &stdio_seek_impl;
+    f.close_fn = &stdio_close_impl;
+    f.lock = -1;
+    return f;
+}
+
 comptime {
     if (builtin.link_libc and builtin.target.isMuslLibC()) {
+        @export(&__stdin_FILE, .{ .name = "__stdin_FILE", .linkage = .weak, .visibility = .hidden });
+        @export(&__stdout_FILE, .{ .name = "__stdout_FILE", .linkage = .weak, .visibility = .hidden });
+        @export(&__stderr_FILE, .{ .name = "__stderr_FILE", .linkage = .weak, .visibility = .hidden });
+        @export(&stdin, .{ .name = "stdin", .linkage = .weak });
+        @export(&stdout, .{ .name = "stdout", .linkage = .weak });
+        @export(&stderr, .{ .name = "stderr", .linkage = .weak });
+        @export(&__stdin_used, .{ .name = "__stdin_used", .linkage = .weak, .visibility = .hidden });
+        @export(&__stdout_used, .{ .name = "__stdout_used", .linkage = .weak, .visibility = .hidden });
+        @export(&__stderr_used, .{ .name = "__stderr_used", .linkage = .weak, .visibility = .hidden });
+
         symbol(&setbuf, "setbuf");
         symbol(&setbuffer, "setbuffer");
         symbol(&setlinebuf, "setlinebuf");
@@ -220,6 +289,8 @@ comptime {
         symbol(&stdio_read_impl, "__stdio_read");
         symbol(&stdio_write_impl, "__stdio_write");
         symbol(&stdout_write_impl, "__stdout_write");
+        symbol(&stdio_exit_impl, "__stdio_exit");
+        symbol(&stdio_exit_impl, "__stdio_exit_needed");
 
         symbol(&getdelim_impl, "getdelim");
 
@@ -1019,8 +1090,6 @@ fn fclose_ca_impl(f: *FILE) callconv(.c) c_int {
 
 // --- Internal helper (__fopen_rb_ca.c) ---
 
-const F_PERM: c_uint = 1;
-
 /// __fopen_rb_ca.c: FILE *__fopen_rb_ca(const char *filename, FILE *f, unsigned char *buf, size_t len)
 fn fopen_rb_ca_impl(filename: [*:0]const u8, f: *FILE, buf: [*]u8, len: usize) callconv(.c) ?*FILE {
     f.* = std.mem.zeroes(FILE);
@@ -1146,8 +1215,8 @@ fn fdopen_impl(fd: c_int, mode: [*:0]const u8) callconv(.c) ?*FILE {
 fn fflush_impl(f_raw: ?*FILE) callconv(.c) c_int {
     if (f_raw == null) {
         var r: c_int = 0;
-        if (stdout_used.*) |f| r |= fflush_impl(f);
-        if (stderr_used.*) |f| r |= fflush_impl(f);
+        if (__stdout_used) |f| r |= fflush_impl(f);
+        if (__stderr_used) |f| r |= fflush_impl(f);
 
         const head = ofl_lock_fn();
         var f = head.*;
@@ -1407,6 +1476,26 @@ fn stdout_write_impl(f: *FILE, buf: [*]const u8, len: usize) callconv(.c) usize 
         if (r != 0) f.lbf = -1;
     }
     return stdio_write_impl(f, buf, len);
+}
+
+fn closeFileForExit(f_raw: ?*FILE) void {
+    const f = f_raw orelse return;
+    _ = flock(f);
+    if (f.wpos != f.wbase) _ = f.write_fn.?(f, @ptrCast(&[0]u8{}), 0);
+    if (f.rpos != f.rend) {
+        const delta: i64 = @intCast(@as(isize, @bitCast(@intFromPtr(f.rpos.?) -% @intFromPtr(f.rend.?))));
+        _ = f.seek_fn.?(f, delta, SEEK_CUR);
+    }
+}
+
+/// __stdio_exit.c: void __stdio_exit(void)
+fn stdio_exit_impl() callconv(.c) void {
+    const head = ofl_lock_fn();
+    var f = head.*;
+    while (f) |cur| : (f = cur.next) closeFileForExit(cur);
+    closeFileForExit(__stdin_used);
+    closeFileForExit(__stdout_used);
+    closeFileForExit(__stderr_used);
 }
 
 /// vasprintf.c: int vasprintf(char **s, const char *fmt, va_list ap)
@@ -3360,8 +3449,6 @@ const free_fn = @extern(*const fn (?*anyopaque) callconv(.c) void, .{ .name = "f
 const ofl_add_fn = @extern(*const fn (*FILE) callconv(.c) ?*FILE, .{ .name = "__ofl_add" });
 const ofl_lock_fn = @extern(*const fn () callconv(.c) *?*FILE, .{ .name = "__ofl_lock" });
 const ofl_unlock_fn = @extern(*const fn () callconv(.c) void, .{ .name = "__ofl_unlock" });
-const stdout_used = @extern(*const ?*FILE, .{ .name = "__stdout_used" });
-const stderr_used = @extern(*const ?*FILE, .{ .name = "__stderr_used" });
 const randname_fn = @extern(*const fn ([*]u8) callconv(.c) [*]u8, .{ .name = "__randname" });
 const libc_ptr = @extern(*const Libc, .{ .name = "__libc" });
 const fwide_fn = @extern(*const fn (*FILE, c_int) callconv(.c) c_int, .{ .name = "fwide" });

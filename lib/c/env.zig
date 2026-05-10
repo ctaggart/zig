@@ -129,7 +129,11 @@ comptime {
         @export(&environ_var, .{ .name = "environ", .linkage = .weak, .visibility = .hidden });
         symbol(&__stack_chk_guard, "__stack_chk_guard");
         symbol(&__init_ssp, "__init_ssp");
-        symbol(&__stack_chk_fail, "__stack_chk_fail");
+        if (llvm_stack_chk_fail_buggy) {
+            symbol(&__zig_stack_chk_fail, "__zig_stack_chk_fail");
+        } else {
+            symbol(&__stack_chk_fail, "__stack_chk_fail");
+        }
         symbol(&issetugidImpl, "issetugid");
         symbol(&__reset_tls_fn, "__reset_tls");
         symbol(&dummy, "_init");
@@ -301,8 +305,43 @@ fn __init_ssp(entropy: ?*const anyopaque) callconv(.c) void {
     }
 }
 
+// LLVM 21.1.8 segfaults during codegen on most non-aarch64/non-x86_64
+// backends when a compilation unit emits an LLVM function whose name is
+// `__stack_chk_fail` (see ctaggart/zig#495). Workaround on the affected
+// backends: emit the symbol via assembler directives in the body of a
+// function with a *different* LLVM-visible name, so the IR never contains
+// a function named `__stack_chk_fail`. aarch64 and x86_64 are unaffected
+// by the LLVM bug and additionally x86_64 uses Zig's self-hosted
+// assembler which does not accept the `.weak`/`.hidden` directives, so
+// those targets keep the straightforward `@export` path.
+const llvm_stack_chk_fail_buggy = switch (builtin.cpu.arch) {
+    .aarch64, .aarch64_be, .x86_64 => false,
+    else => true,
+};
+
 fn __stack_chk_fail() callconv(.c) noreturn {
     @trap();
+}
+
+fn __zig_stack_chk_fail() callconv(.naked) noreturn {
+    asm volatile (".weak __stack_chk_fail\n" ++
+            ".hidden __stack_chk_fail\n" ++
+            "__stack_chk_fail:\n" ++
+            switch (builtin.cpu.arch) {
+                .x86 => "ud2",
+                .arm, .armeb, .thumb, .thumbeb => "udf #0",
+                .riscv32, .riscv64 => "unimp",
+                .loongarch32, .loongarch64 => "break 0",
+                .mips, .mipsel, .mips64, .mips64el => "break",
+                .powerpc, .powerpcle, .powerpc64, .powerpc64le => "trap",
+                .s390x => "j .",
+                .sparc, .sparc64 => "unimp",
+                .m68k => "illegal",
+                .hexagon => "trap0(#1)",
+                .xtensa => "ill",
+                .wasm32, .wasm64 => "unreachable",
+                else => @compileError("__stack_chk_fail: trap instruction not defined for " ++ @tagName(builtin.cpu.arch)),
+            });
 }
 
 // __pthread_self() for the current arch.

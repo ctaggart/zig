@@ -1050,9 +1050,24 @@ fn pthread_setcanceltype_fn(new: c_int, old: ?*c_int) callconv(.c) c_int {
 }
 
 fn pthread_testcancel_fn() callconv(.c) void {
+    // Inline the cancellation check rather than @extern-calling "__testcancel".
+    // LLVM would otherwise resolve that name back to libzigc's local
+    // `testcancel_fn` export and inline it. That used to silently collapse
+    // pthread_testcancel into a no-op when the local stub was empty (the bug
+    // behind libc-test regression/pthread_cancel-sem_wait). The local
+    // `testcancel_fn` now performs the real check (PR #459's pthread_cancel
+    // migration), but keeping the logic inlined here is defensive: future
+    // refactors of `testcancel_fn` cannot silently regress this entry point.
+    // `__cancel` is also exported by libzigc (cancel_fn); @extern-calling it
+    // is fine because that body does real work.
     if (builtin.link_libc) {
-        const __testcancel = @extern(*const fn () callconv(.c) void, .{ .name = "__testcancel" });
-        __testcancel();
+        const self = pthread_self_ptr();
+        const cancel_ptr: *c_int = @ptrFromInt(self + off_cancel);
+        const cd: *const u8 = @ptrFromInt(self + off_canceldisable);
+        if (@atomicLoad(c_int, cancel_ptr, .seq_cst) != 0 and cd.* == 0) {
+            const __cancel = @extern(*const fn () callconv(.c) c_long, .{ .name = "__cancel" });
+            _ = __cancel();
+        }
     }
 }
 
@@ -1118,11 +1133,23 @@ fn futex_wake(addr: *const c_int, cnt: c_int, priv: c_int) void {
 }
 
 fn do_cleanup_push_default(cb: *PtCb) callconv(.c) void {
-    _ = cb;
+    // Inline equivalent of musl's __do_cleanup_push (pthread_create.c). We do
+    // the work here rather than leave a no-op stub because LLVM resolves
+    // libzigc's @extern("__do_cleanup_push") inside _pthread_cleanup_push_fn
+    // back to this local definition and inlines its body. A no-op body silently
+    // breaks every pthread_cleanup_push/_pop pair (including sem_timedwait's
+    // waiter-count cleanup on cancellation).
+    const self = pthread_self_ptr();
+    const cancelbuf_ptr: *?*PtCb = @ptrFromInt(self + off_cancelbuf);
+    cb.next = cancelbuf_ptr.*;
+    cancelbuf_ptr.* = cb;
 }
 
 fn do_cleanup_pop_default(cb: *PtCb) callconv(.c) void {
-    _ = cb;
+    // See `do_cleanup_push_default` for why this must do real work.
+    const self = pthread_self_ptr();
+    const cancelbuf_ptr: *?*PtCb = @ptrFromInt(self + off_cancelbuf);
+    cancelbuf_ptr.* = cb.next;
 }
 
 fn _pthread_cleanup_push_fn(cb: *PtCb, f: *const fn (?*anyopaque) callconv(.c) void, x: ?*anyopaque) callconv(.c) void {

@@ -6690,6 +6690,16 @@ pub fn addCCArgs(
     // can be disabled.
     try argv.append("--no-default-config");
 
+    // Tell clang to use argv[0] (which we always pass as the absolute path to
+    // the running zig binary, see `self_exe_path` above) as its executable
+    // path, rather than canonicalizing via /proc/self/exe + dladdr. The
+    // canonicalization path can fail under some build configurations, leaving
+    // ClangExecutable empty and producing a confusing
+    // "posix_spawn failed: No such file or directory" when clang tries to
+    // spawn an out-of-process cc1 (e.g. the preprocess step for `.S` files).
+    // See ctaggart/zig#488.
+    try argv.append("-no-canonical-prefixes");
+
     // We don't ever put `-fcolor-diagnostics` or `-fno-color-diagnostics` because in passthrough mode
     // we want Clang to infer it, and in normal mode we always want it off, which will be true since
     // clang will detect stderr as a pipe rather than a terminal.

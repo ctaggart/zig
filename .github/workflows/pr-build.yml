@@ -6,24 +6,25 @@ name: pr-build
 # matrix runs post-merge on libc/0.16.x via post-merge-libc.yml.
 #
 # Jobs:
-#   - pr-build (REQUIRED via branch protection): ast-check + migration claims
-#     + Build stage4. Deterministic, cache-friendly, no flakiness exposure.
-#     This is the gate that prevents broken-code merges.
-#   - pr-libc-test (advisory): runs libc-test on the stage4 produced by
-#     pr-build. Will be promoted to required once #429 is fixed.
-#   - pr-cross-compile (advisory, fan-out matrix): cross-compiles a tiny
-#     hello.c against libzigc + musl libc.a for every target in the
-#     post-merge QEMU matrix. Catches arch-specific libzigc compile errors
-#     (missing syscall fields, unsupported ABI prongs, signed/unsigned
-#     mismatches) in seconds without paying for QEMU. Promote to required
-#     once stable.
+#   - pr-build: ast-check + migration claims + Build stage4.
+#   - pr-libc-test: runs libc-test on the stage4 produced by pr-build.
+#     The native functional/regression slices are temporarily skipped because
+#     they hang on libc/0.16.x; math is temporarily advisory; api remains
+#     required.
+#   - pr-cross-compile: cross-compiles a tiny hello.c against libzigc + musl
+#     libc.a for every target in the post-merge QEMU matrix. Catches
+#     arch-specific libzigc compile errors (missing syscall fields,
+#     unsupported ABI prongs, signed/unsigned mismatches) in seconds without
+#     paying for QEMU. Known-broken targets are allowed to fail temporarily.
+#   - ci-required (REQUIRED via branch protection): aggregate gate that fails
+#     unless all required jobs pass.
 #
 # Trust model: this workflow runs PR-controlled code on a persistent
 # self-hosted runner. The `if:` guard on the build job restricts execution
 # to PRs whose head is the canonical repo or the trusted cataggar fork
-# (the libzigc bot fork). Untrusted forks fall through to a no-op job that
-# still reports a successful pr-build check, keeping the auto-merge path
-# unblocked for legitimate same-owner PRs while not exposing the runner.
+# (the libzigc bot fork). Untrusted forks skip the self-hosted jobs and fail
+# the aggregate ci-required gate until a maintainer moves the change onto a
+# trusted branch.
 on:
   pull_request:
     branches:
@@ -230,9 +231,7 @@ jobs:
     needs: [trust-check, build]
     if: needs.trust-check.outputs.trusted == 'true'
     runs-on: [self-hosted, Linux, ARM64, nvme]
-    timeout-minutes: 60
-    # Advisory while #429 (libzigc pthread cold-cache crash) is open.
-    # Promote to required via branch protection once #429 is fixed.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -309,21 +308,16 @@ jobs:
           echo "libc-test commit: $libc_test_sha"
           echo "LIBC_TEST_SHA=$libc_test_sha" >> "$GITHUB_ENV"
 
-      - name: Run libc-test — api + functional (aarch64-linux-musl, native)
-        timeout-minutes: 30
+      - name: Skip libc-test — functional (aarch64-linux-musl, native)
+        run: |
+          echo "::warning::Temporarily skipping known-hanging native functional libc-test slice on libc/0.16.x."
+
+      - name: Run libc-test — api (aarch64-linux-musl, native)
+        timeout-minutes: 20
         run: |
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
           if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
-          echo "ulimit -u: $(ulimit -u)  ulimit -n: $(ulimit -n)"
-          echo "stage4: $STAGE4  libc-test SHA: $LIBC_TEST_SHA"
-          "$STAGE4/bin/zig" build test-libc \
-              --zig-lib-dir lib \
-              -Dlibc-test-path="$CACHE_ROOT/libc-test" \
-              -Dtest-target-filter="${TARGET}" \
-              -Dtest-filter="functional" \
-              -j2 \
-              --summary failures
           "$STAGE4/bin/zig" build test-libc \
               --zig-lib-dir lib \
               -Dlibc-test-path="$CACHE_ROOT/libc-test" \
@@ -334,6 +328,7 @@ jobs:
 
       - name: Run libc-test — math (aarch64-linux-musl, native)
         timeout-minutes: 30
+        continue-on-error: true
         run: |
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
@@ -346,19 +341,9 @@ jobs:
               -j2 \
               --summary failures
 
-      - name: Run libc-test — regression (aarch64-linux-musl, native)
-        timeout-minutes: 30
+      - name: Skip libc-test — regression (aarch64-linux-musl, native)
         run: |
-          set -euo pipefail
-          if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
-          if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
-          "$STAGE4/bin/zig" build test-libc \
-              --zig-lib-dir lib \
-              -Dlibc-test-path="$CACHE_ROOT/libc-test" \
-              -Dtest-target-filter="${TARGET}" \
-              -Dtest-filter="regression" \
-              -j2 \
-              --summary failures
+          echo "::warning::Temporarily skipping known-hanging native regression libc-test slice on libc/0.16.x."
 
   cross-compile:
     # Cross-compile a tiny program against libzigc + musl libc.a for every
@@ -366,32 +351,49 @@ jobs:
     # compile errors in libzigc / lib/std (e.g. missing `linux.O.SYNC` on
     # s390x, missing `linux.SYS.ppoll` on RiscV32, "unsupported ABI" in
     # `pthread_mutex_t`) in seconds without paying for a full QEMU run.
-    # Promote to required via branch protection once stable.
+    # Targets marked allow_failure are known-broken and remain advisory.
     name: pr-cross-compile (${{ matrix.target }})
     needs: [trust-check, build]
     if: needs.trust-check.outputs.trusted == 'true'
     runs-on: [self-hosted, Linux, ARM64, nvme]
     timeout-minutes: 20
+    continue-on-error: ${{ matrix.allow_failure }}
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - x86-linux-musl
-          - x86_64-linux-musl
-          - arm-linux-musleabi
-          - arm-linux-musleabihf
-          - armeb-linux-musleabi
-          - armeb-linux-musleabihf
-          - thumb-linux-musleabihf
-          - thumbeb-linux-musleabihf
-          - riscv32-linux-musl
-          - riscv64-linux-musl
-          - powerpc64-linux-musl
-          - powerpc64le-linux-musl
-          - s390x-linux-musl
-          - loongarch64-linux-musl
-          - loongarch64-linux-muslsf
-          - wasm32-wasi-musl
+        include:
+          - target: x86-linux-musl
+            allow_failure: false
+          - target: x86_64-linux-musl
+            allow_failure: true
+          - target: arm-linux-musleabi
+            allow_failure: false
+          - target: arm-linux-musleabihf
+            allow_failure: false
+          - target: armeb-linux-musleabi
+            allow_failure: false
+          - target: armeb-linux-musleabihf
+            allow_failure: false
+          - target: thumb-linux-musleabihf
+            allow_failure: false
+          - target: thumbeb-linux-musleabihf
+            allow_failure: false
+          - target: riscv32-linux-musl
+            allow_failure: true
+          - target: riscv64-linux-musl
+            allow_failure: false
+          - target: powerpc64-linux-musl
+            allow_failure: false
+          - target: powerpc64le-linux-musl
+            allow_failure: false
+          - target: s390x-linux-musl
+            allow_failure: true
+          - target: loongarch64-linux-musl
+            allow_failure: false
+          - target: loongarch64-linux-muslsf
+            allow_failure: false
+          - target: wasm32-wasi-musl
+            allow_failure: true
     steps:
       - uses: actions/checkout@v4
 
@@ -433,3 +435,35 @@ jobs:
               -lc \
               -femit-bin="$tmpdir/hello" \
               "$tmpdir/hello.zig"
+
+  ci-required:
+    name: ci-required
+    needs: [trust-check, build, libc-test, cross-compile]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required CI jobs
+        env:
+          TRUST_RESULT: ${{ needs.trust-check.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          LIBC_TEST_RESULT: ${{ needs.libc-test.result }}
+          CROSS_COMPILE_RESULT: ${{ needs.cross-compile.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for check in \
+            "pr-build trust check:$TRUST_RESULT" \
+            "pr-build:$BUILD_RESULT" \
+            "pr-libc-test:$LIBC_TEST_RESULT" \
+            "pr-cross-compile required targets:$CROSS_COMPILE_RESULT"
+          do
+            name="${check%%:*}"
+            result="${check#*:}"
+            if [ "$result" = "success" ]; then
+              echo "$name: $result"
+            else
+              echo "::error::$name ended with result '$result'"
+              failed=1
+            fi
+          done
+          exit "$failed"

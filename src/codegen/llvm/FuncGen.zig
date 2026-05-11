@@ -1475,8 +1475,8 @@ fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
 
         // ---- Done: phi between reg and mem addresses ----
         self.wip.cursor = .{ .block = done_block };
-        const addr_phi = try self.wip.phi(
-            .ptr,
+        const addr_phi = try self.wip.phi(.ptr, "vaarg.addr");
+        addr_phi.finish(
             &.{ reg_addr, mem_addr },
             &.{ in_reg_exit, in_mem_exit },
             &self.wip,

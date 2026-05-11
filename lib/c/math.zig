@@ -1144,6 +1144,8 @@ comptime {
     }
     symbol(&copysignl, "copysignl");
     @export(&__signgam, .{ .name = "signgam", .linkage = .weak });
+    @export(&lgamma_r, .{ .name = "lgamma_r", .linkage = .weak });
+    @export(&lgammaf_r, .{ .name = "lgammaf_r", .linkage = .weak });
 }
 
 fn acos(x: f64) callconv(.c) f64 {

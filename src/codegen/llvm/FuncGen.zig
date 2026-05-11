@@ -1348,6 +1348,147 @@ fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) TodoError!Builder.Value {
         return self.wip.load(.normal, llvm_arg_ty, addr_phi.toValue(), arg_ty.abiAlignment(zcu).toLlvm(), "vaarg.val");
     }
 
+    // s390x ELF: LLVM's SystemZ backend does not implement ISD::VAARG
+    // selection, so the `va_arg` IR instruction aborts with "Cannot select".
+    // Lower manually, mirroring clang's `SystemZABIInfo::EmitVAArg`.
+    // See ctaggart/zig#504.
+    //
+    // s390x ELF va_list layout (4 × i64):
+    //   +0:  __gpr               (i64, count of GPRs used so far)
+    //   +8:  __fpr               (i64, count of FPRs used so far)
+    //   +16: __overflow_arg_area (ptr, stack overflow area)
+    //   +24: __reg_save_area    (ptr, register save area)
+    //
+    // Every non-vector argument occupies an 8-byte slot and is passed
+    // by preference in GPRs (max 5: r2–r6) or FPRs (max 4: f0,f2,f4,f6).
+    // Vector arguments always go on the stack (not handled here — would
+    // need the vector ABI, which libzigc doesn't use in varargs).
+    //
+    // For GPR arguments (integers, pointers, indirect composites):
+    //   - RegCountField = 0 (__gpr), MaxRegs = 5, RegSaveIndex = 2
+    //   - Padding = 8 - size (values are right-aligned in low bits of GPR)
+    //
+    // For FPR arguments (f16, f32, f64):
+    //   - RegCountField = 1 (__fpr), MaxRegs = 4, RegSaveIndex = 16
+    //   - Padding = 0 (floats are left-aligned in high bits of FPR)
+    //
+    // Indirect: composites that don't fit a single register-sized slot
+    // are passed by pointer (an 8-byte GPR slot containing a pointer).
+    const is_s390x = target.cpu.arch == .s390x;
+    if (is_s390x) {
+        const arg_size = arg_ty.abiSize(zcu);
+
+        // Classify: is this an FPR type, an indirect type, or a GPR type?
+        // All @cVaArg calls in libzigc use integer/pointer types, so we only
+        // implement the GPR path. FPR support would require selecting between
+        // __fpr (offset 8) with MaxRegs=4 and RegSaveIndex=16.
+
+        // Indirect: values not 1, 2, 4, or 8 bytes are passed by pointer.
+        const is_indirect = switch (arg_size) {
+            1, 2, 4, 8 => false,
+            else => true,
+        };
+
+        const padded_size: u64 = 8;
+        const padding: u64 = if (is_indirect) 0 else padded_size - arg_size;
+
+        // For GPR arguments:
+        const max_regs: u64 = 5;
+        const reg_count_field_offset: i32 = 0; // __gpr at offset 0
+        const reg_save_index: u64 = 2; // r2 is the first vararg GPR
+
+        const ptr_align: Builder.Alignment = comptime .fromByteUnits(8);
+        const i64_ty: Builder.Type = .i64;
+
+        // Load __gpr count.
+        const reg_count_ptr = try self.wip.gep(
+            .inbounds,
+            .i8,
+            list,
+            &.{try o.builder.intValue(.i32, reg_count_field_offset)},
+            "vaarg.gpr_ptr",
+        );
+        const reg_count = try self.wip.load(.normal, i64_ty, reg_count_ptr, ptr_align, "vaarg.gpr");
+        const max_regs_v = try o.builder.intValue(i64_ty, max_regs);
+        const in_regs = try self.wip.icmp(.ult, reg_count, max_regs_v, "vaarg.in_regs");
+
+        const in_reg_block = try self.wip.block(1, "VaArgInReg");
+        const in_mem_block = try self.wip.block(1, "VaArgInMem");
+        const done_block = try self.wip.block(2, "VaArgDone");
+
+        _ = try self.wip.brCond(in_regs, in_reg_block, in_mem_block, .none);
+
+        // ---- InReg: load from register save area ----
+        self.wip.cursor = .{ .block = in_reg_block };
+
+        const padded_size_v = try o.builder.intValue(i64_ty, padded_size);
+
+        // reg_offset = reg_count * 8 + reg_save_index * 8 + padding
+        const scaled = try self.wip.bin(.mul, reg_count, padded_size_v, "vaarg.scaled");
+        const reg_base_v = try o.builder.intValue(i64_ty, reg_save_index * padded_size + padding);
+        const reg_offset = try self.wip.bin(.add, scaled, reg_base_v, "vaarg.reg_off");
+
+        // Load __reg_save_area (offset 24).
+        const reg_save_area_ptr = try self.wip.gep(
+            .inbounds,
+            .i8,
+            list,
+            &.{try o.builder.intValue(.i32, 24)},
+            "vaarg.rsa_ptr",
+        );
+        const reg_save_area = try self.wip.load(.normal, .ptr, reg_save_area_ptr, ptr_align, "vaarg.rsa");
+        const reg_addr = try self.wip.gep(.inbounds, .i8, reg_save_area, &.{reg_offset}, "vaarg.reg_addr");
+
+        // Increment __gpr.
+        const one_i64 = try o.builder.intValue(i64_ty, 1);
+        const new_count = try self.wip.bin(.add, reg_count, one_i64, "vaarg.new_gpr");
+        _ = try self.wip.store(.normal, new_count, reg_count_ptr, ptr_align);
+
+        const in_reg_exit = self.wip.cursor.block;
+        _ = try self.wip.br(done_block);
+
+        // ---- InMem: load from overflow area ----
+        self.wip.cursor = .{ .block = in_mem_block };
+
+        // Load __overflow_arg_area (offset 16).
+        const overflow_ptr = try self.wip.gep(
+            .inbounds,
+            .i8,
+            list,
+            &.{try o.builder.intValue(.i32, 16)},
+            "vaarg.oaa_ptr",
+        );
+        const overflow_area = try self.wip.load(.normal, .ptr, overflow_ptr, ptr_align, "vaarg.oaa");
+
+        // The value is at overflow_area + padding (right-aligned in 8-byte slot).
+        const mem_addr = if (padding > 0)
+            try self.wip.gep(.inbounds, .i8, overflow_area, &.{try o.builder.intValue(i64_ty, padding)}, "vaarg.mem_addr")
+        else
+            overflow_area;
+
+        // Advance overflow_arg_area by padded_size.
+        const new_overflow = try self.wip.gep(.inbounds, .i8, overflow_area, &.{padded_size_v}, "vaarg.new_oaa");
+        _ = try self.wip.store(.normal, new_overflow, overflow_ptr, ptr_align);
+
+        const in_mem_exit = self.wip.cursor.block;
+        _ = try self.wip.br(done_block);
+
+        // ---- Done: phi between reg and mem addresses ----
+        self.wip.cursor = .{ .block = done_block };
+        const addr_phi = try self.wip.phi(
+            .ptr,
+            &.{ reg_addr, mem_addr },
+            &.{ in_reg_exit, in_mem_exit },
+            &self.wip,
+        );
+
+        if (is_indirect) {
+            const real_ptr = try self.wip.load(.normal, .ptr, addr_phi.toValue(), ptr_align, "vaarg.indirect");
+            return self.wip.load(.normal, llvm_arg_ty, real_ptr, arg_ty.abiAlignment(zcu).toLlvm(), "vaarg.val");
+        }
+        return self.wip.load(.normal, llvm_arg_ty, addr_phi.toValue(), arg_ty.abiAlignment(zcu).toLlvm(), "vaarg.val");
+    }
+
     return self.wip.vaArg(list, llvm_arg_ty, "");
 }
 

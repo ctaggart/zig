@@ -2356,10 +2356,11 @@ fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
             };
             const qt = try ts.put(comp.gpa, .{ .@"struct" = record });
 
-            var fields: [3]Type.Record.Field = .{
-                .{ .name = try comp.internString("__current_saved_reg_area_pointer"), .qt = .void_pointer },
-                .{ .name = try comp.internString("__saved_reg_area_end_pointer"), .qt = .void_pointer },
-                .{ .name = try comp.internString("__overflow_area_pointer"), .qt = .void_pointer },
+            var fields: [4]Type.Record.Field = .{
+                .{ .name = try comp.internString("__gpr"), .qt = .long },
+                .{ .name = try comp.internString("__fpr"), .qt = .long },
+                .{ .name = try comp.internString("__overflow_arg_area"), .qt = .void_pointer },
+                .{ .name = try comp.internString("__reg_save_area"), .qt = .void_pointer },
             };
             record.fields = &fields;
             record.layout = record_layout.compute(&fields, qt, comp, null) catch unreachable;

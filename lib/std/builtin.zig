@@ -958,10 +958,13 @@ pub const VaListPowerPc = extern struct {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
+/// s390x ELF va_list: 4 fields, each 8 bytes (total 32 bytes).
+/// See clang's `CreateSystemZBuiltinVaListDecl` in ASTContext.cpp.
 pub const VaListS390x = extern struct {
-    __current_saved_reg_area_pointer: *anyopaque,
-    __saved_reg_area_end_pointer: *anyopaque,
-    __overflow_area_pointer: *anyopaque,
+    __gpr: c_long,
+    __fpr: c_long,
+    __overflow_arg_area: *anyopaque,
+    __reg_save_area: *anyopaque,
 };
 
 /// This data structure is used by the Zig language code generation and

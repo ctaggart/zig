@@ -230,7 +230,7 @@ jobs:
     needs: [trust-check, build]
     if: needs.trust-check.outputs.trusted == 'true'
     runs-on: [self-hosted, Linux, ARM64, nvme]
-    timeout-minutes: 45
+    timeout-minutes: 60
     # Advisory while #429 (libzigc pthread cold-cache crash) is open.
     # Promote to required via branch protection once #429 is fixed.
     steps:
@@ -309,24 +309,54 @@ jobs:
           echo "libc-test commit: $libc_test_sha"
           echo "LIBC_TEST_SHA=$libc_test_sha" >> "$GITHUB_ENV"
 
-      - name: Run libc-test (aarch64-linux-musl, native)
+      - name: Run libc-test — api + functional (aarch64-linux-musl, native)
         timeout-minutes: 30
         run: |
           set -euo pipefail
-          # Only raise nproc/nofile if current soft is below threshold. Avoids
-          # noisy "cannot modify limit" errors on GH-hosted runners and
-          # avoids lowering already-high soft caps on self-hosted runners.
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
           if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
-          echo "ulimit -u: $(ulimit -u)"
-          echo "ulimit -n: $(ulimit -n)"
-          echo "stage4: $STAGE4"
-          echo "libc-test SHA: $LIBC_TEST_SHA"
+          echo "ulimit -u: $(ulimit -u)  ulimit -n: $(ulimit -n)"
+          echo "stage4: $STAGE4  libc-test SHA: $LIBC_TEST_SHA"
           "$STAGE4/bin/zig" build test-libc \
               --zig-lib-dir lib \
               -Dlibc-test-path="$CACHE_ROOT/libc-test" \
               -Dtest-target-filter="${TARGET}" \
-              -Dtest-filter="" \
+              -Dtest-filter="functional" \
+              -j2 \
+              --summary failures
+          "$STAGE4/bin/zig" build test-libc \
+              --zig-lib-dir lib \
+              -Dlibc-test-path="$CACHE_ROOT/libc-test" \
+              -Dtest-target-filter="${TARGET}" \
+              -Dtest-filter="api" \
+              -j2 \
+              --summary failures
+
+      - name: Run libc-test — math (aarch64-linux-musl, native)
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
+          if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          "$STAGE4/bin/zig" build test-libc \
+              --zig-lib-dir lib \
+              -Dlibc-test-path="$CACHE_ROOT/libc-test" \
+              -Dtest-target-filter="${TARGET}" \
+              -Dtest-filter="math" \
+              -j2 \
+              --summary failures
+
+      - name: Run libc-test — regression (aarch64-linux-musl, native)
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
+          if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          "$STAGE4/bin/zig" build test-libc \
+              --zig-lib-dir lib \
+              -Dlibc-test-path="$CACHE_ROOT/libc-test" \
+              -Dtest-target-filter="${TARGET}" \
+              -Dtest-filter="regression" \
               -j2 \
               --summary failures
 

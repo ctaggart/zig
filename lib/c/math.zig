@@ -922,6 +922,48 @@ inline fn fpBarrierValue(comptime T: type, x: T) T {
     return ptr.*;
 }
 
+/// Force evaluation of a floating-point expression so that its IEEE 754
+/// side-effects (exception flags) are not optimised away.
+/// Equivalent to musl's FORCE_EVAL macro.
+inline fn forceEval(comptime T: type, x: T) void {
+    var val = x;
+    const ptr: *volatile T = &val;
+    _ = ptr.*;
+}
+
+/// scalbn wrapper that raises IEEE 754 overflow/underflow/inexact flags.
+/// std.math.scalbn uses bit manipulation so never raises FP exceptions.
+fn scalbnWithFlags(comptime T: type, x: T, n: i32) T {
+    const result = math.scalbn(x, n);
+    if (x != 0 and math.isFinite(x)) {
+        if (!math.isFinite(result)) {
+            // overflow: force OVERFLOW|INEXACT
+            // Use values that overflow when squared for the given float type
+            const bits = @typeInfo(T).float.bits;
+            const huge: T = if (bits <= 32) 0x1p97 else if (bits <= 64) 0x1p769 else 0x1p16383;
+            forceEval(T, fpBarrierValue(T, huge) * huge);
+        } else if (result == 0) {
+            // underflow to zero: force UNDERFLOW|INEXACT
+            const bits = @typeInfo(T).float.bits;
+            const tiny: T = if (bits <= 32) 0x1p-95 else if (bits <= 64) 0x1p-767 else 0x1p-16382;
+            forceEval(T, fpBarrierValue(T, tiny) * tiny);
+        } else {
+            // Check for subnormal result (underflow) - exponent field is 0
+            const TBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
+            const mant_bits = math.floatMantissaBits(T);
+            const repr: TBits = @bitCast(result);
+            const exp_field = (repr << 1) >> (mant_bits + 1);
+            if (exp_field == 0 and result != x) {
+                // subnormal result, force UNDERFLOW|INEXACT
+                const bits = @typeInfo(T).float.bits;
+                const tiny: T = if (bits <= 32) 0x1p-95 else if (bits <= 64) 0x1p-767 else 0x1p-16382;
+                forceEval(T, fpBarrierValue(T, tiny) * tiny);
+            }
+        }
+    }
+    return result;
+}
+
 fn __math_divzero(sign: u32) callconv(.c) f64 {
     return fpBarrierValue(f64, if (sign != 0) -1.0 else 1.0) / 0.0;
 }
@@ -1147,10 +1189,12 @@ comptime {
 }
 
 fn acos(x: f64) callconv(.c) f64 {
+    if (@abs(x) > 1.0) return (x - x) / (x - x); // raise FE_INVALID
     return math.acos(x);
 }
 
 fn acosf(x: f32) callconv(.c) f32 {
+    if (@abs(x) > 1.0) return (x - x) / (x - x); // raise FE_INVALID
     return math.acos(x);
 }
 
@@ -1159,6 +1203,7 @@ fn acoshf(x: f32) callconv(.c) f32 {
 }
 
 fn asin(x: f64) callconv(.c) f64 {
+    if (@abs(x) > 1.0) return (x - x) / (x - x); // raise FE_INVALID
     return math.asin(x);
 }
 
@@ -1222,7 +1267,13 @@ fn exp10l(x: c_longdouble) callconv(.c) c_longdouble {
 }
 
 fn expm1(x: f64) callconv(.c) f64 {
-    return math.expm1(x);
+    const result = math.expm1(x);
+    // If |x| is huge positive, result should be +inf with OVERFLOW|INEXACT
+    if (math.isPositiveInf(result) and !math.isPositiveInf(x)) {
+        // force overflow
+        forceEval(f64, fpBarrierValue(f64, 0x1p769) * 0x1p769);
+    }
+    return result;
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {
@@ -1378,6 +1429,7 @@ fn rint(x: f64) callconv(.c) f64 {
 }
 
 fn acosl(x: c_longdouble) callconv(.c) c_longdouble {
+    if (@abs(x) > 1.0) return (x - x) / (x - x); // raise FE_INVALID
     return math.acos(x);
 }
 
@@ -1386,6 +1438,7 @@ fn asinhf(x: f32) callconv(.c) f32 {
 }
 
 fn asinl(x: c_longdouble) callconv(.c) c_longdouble {
+    if (@abs(x) > 1.0) return (x - x) / (x - x); // raise FE_INVALID
     return math.asin(x);
 }
 
@@ -1398,7 +1451,12 @@ fn cosl(x: c_longdouble) callconv(.c) c_longdouble {
 }
 
 fn expm1f(x: f32) callconv(.c) f32 {
-    return math.expm1(x);
+    const result = math.expm1(x);
+    // If |x| is huge positive, result should be +inf with OVERFLOW|INEXACT
+    if (math.isPositiveInf(result) and !math.isPositiveInf(x)) {
+        forceEval(f32, fpBarrierValue(f32, 0x1p97) * 0x1p97);
+    }
+    return result;
 }
 
 fn fdimGeneric(comptime T: type, x: T, y: T) T {
@@ -1450,11 +1508,11 @@ fn ilogbl(x: c_longdouble) callconv(.c) c_int {
 }
 
 fn ldexpf(x: f32, n: c_int) callconv(.c) f32 {
-    return math.ldexp(x, n);
+    return scalbnWithFlags(f32, x, n);
 }
 
 fn ldexpl(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
-    return math.ldexp(x, n);
+    return scalbnWithFlags(c_longdouble, x, n);
 }
 
 fn llrintf(x: f32) callconv(.c) c_longlong {
@@ -1478,11 +1536,24 @@ fn llroundl(x: c_longdouble) callconv(.c) c_longlong {
 }
 
 fn log1p(x: f64) callconv(.c) f64 {
-    return math.log1p(x);
+    if (x == -1.0) return fpBarrierValue(f64, -1.0) / 0.0; // raise FE_DIVBYZERO
+    if (x < -1.0) return (x - x) / (x - x); // raise FE_INVALID
+    const result = math.log1p(x);
+    if (result != 0 and result == x) {
+        // tiny x: result is x itself, force INEXACT evaluation
+        forceEval(f64, fpBarrierValue(f64, x) * fpBarrierValue(f64, x));
+    }
+    return result;
 }
 
 fn log1pf(x: f32) callconv(.c) f32 {
-    return math.log1p(x);
+    if (x == -1.0) return fpBarrierValue(f32, -1.0) / 0.0; // raise FE_DIVBYZERO
+    if (x < -1.0) return (x - x) / (x - x); // raise FE_INVALID
+    const result = math.log1p(x);
+    if (result != 0 and result == x) {
+        forceEval(f32, fpBarrierValue(f32, x) * fpBarrierValue(f32, x));
+    }
+    return result;
 }
 
 fn lrintf(x: f32) callconv(.c) c_long {
@@ -1611,7 +1682,7 @@ fn log2l(x: c_longdouble) callconv(.c) c_longdouble {
 
 fn logbGeneric(comptime T: type, x: T) T {
     if (!math.isFinite(x)) return x * x;
-    if (x == 0) return -math.inf(T);
+    if (x == 0) return fpBarrierValue(T, -1.0) / 0.0; // raise FE_DIVBYZERO
     return @floatFromInt(math.ilogb(x));
 }
 
@@ -1634,9 +1705,9 @@ fn scalbf(x: f32, fn_arg: f32) callconv(.c) f32 {
         return x / (-fn_arg);
     }
     if (rintGeneric(f32, fn_arg) != fn_arg) return (fn_arg - fn_arg) / (fn_arg - fn_arg);
-    if (fn_arg > 65000.0) return math.scalbn(x, 65000);
-    if (-fn_arg > 65000.0) return math.scalbn(x, -65000);
-    return math.scalbn(x, @intFromFloat(fn_arg));
+    if (fn_arg > 65000.0) return scalbnWithFlags(f32, x, 65000);
+    if (-fn_arg > 65000.0) return scalbnWithFlags(f32, x, -65000);
+    return scalbnWithFlags(f32, x, @intFromFloat(fn_arg));
 }
 
 fn scalblnGeneric(comptime T: type, x: T, n: c_long) T {
@@ -1646,7 +1717,7 @@ fn scalblnGeneric(comptime T: type, x: T, n: c_long) T {
         std.math.minInt(i32)
     else
         @intCast(n);
-    return math.scalbn(x, clamped);
+    return scalbnWithFlags(T, x, clamped);
 }
 
 fn scalblnf(x: f32, n: c_long) callconv(.c) f32 {
@@ -1658,11 +1729,11 @@ fn scalblnl(x: c_longdouble, n: c_long) callconv(.c) c_longdouble {
 }
 
 fn scalbnf(x: f32, n: c_int) callconv(.c) f32 {
-    return math.scalbn(x, n);
+    return scalbnWithFlags(f32, x, n);
 }
 
 fn scalbnl(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
-    return math.scalbn(x, n);
+    return scalbnWithFlags(c_longdouble, x, n);
 }
 
 fn fdim(x: f64, y: f64) callconv(.c) f64 {
@@ -1686,6 +1757,7 @@ fn powf(x: f32, y: f32) callconv(.c) f32 {
 }
 
 fn asinf(x: f32) callconv(.c) f32 {
+    if (@abs(x) > 1.0) return (x - x) / (x - x); // raise FE_INVALID
     return math.asin(x);
 }
 
@@ -1743,15 +1815,15 @@ fn ilogbl_(x: c_longdouble) callconv(.c) c_int {
 }
 
 fn ldexp_(x: f64, n: c_int) callconv(.c) f64 {
-    return math.ldexp(x, n);
+    return scalbnWithFlags(f64, x, n);
 }
 
 fn ldexpf_(x: f32, n: c_int) callconv(.c) f32 {
-    return math.ldexp(x, n);
+    return scalbnWithFlags(f32, x, n);
 }
 
 fn ldexpl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
-    return math.ldexp(x, n);
+    return scalbnWithFlags(c_longdouble, x, n);
 }
 
 fn logb_(x: f64) callconv(.c) f64 {
@@ -1768,29 +1840,29 @@ fn logbl_(x: c_longdouble) callconv(.c) c_longdouble {
 
 fn scalbln_(x: f64, n: c_long) callconv(.c) f64 {
     const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
-    return math.scalbn(x, ni);
+    return scalbnWithFlags(f64, x, ni);
 }
 
 fn scalblnf_(x: f32, n: c_long) callconv(.c) f32 {
     const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
-    return math.scalbn(x, ni);
+    return scalbnWithFlags(f32, x, ni);
 }
 
 fn scalblnl_(x: c_longdouble, n: c_long) callconv(.c) c_longdouble {
     const ni: c_int = if (n > maxInt(c_int)) maxInt(c_int) else if (n < minInt(c_int)) minInt(c_int) else @intCast(n);
-    return math.scalbn(x, ni);
+    return scalbnWithFlags(c_longdouble, x, ni);
 }
 
 fn scalbn_(x: f64, n: c_int) callconv(.c) f64 {
-    return math.scalbn(x, n);
+    return scalbnWithFlags(f64, x, n);
 }
 
 fn scalbnf_(x: f32, n: c_int) callconv(.c) f32 {
-    return math.scalbn(x, n);
+    return scalbnWithFlags(f32, x, n);
 }
 
 fn scalbnl_(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
-    return math.scalbn(x, n);
+    return scalbnWithFlags(c_longdouble, x, n);
 }
 
 fn significand_(x: f64) callconv(.c) f64 {
@@ -2961,10 +3033,10 @@ fn scalb(x: f64, fn_: f64) callconv(.c) f64 {
         return x / (-fn_);
     }
     if (rint(fn_) != fn_) return (fn_ - fn_) / (fn_ - fn_);
-    if (fn_ > 65000.0) return math.scalbn(x, 65000);
-    if (-fn_ > 65000.0) return math.scalbn(x, -65000);
+    if (fn_ > 65000.0) return scalbnWithFlags(f64, x, 65000);
+    if (-fn_ > 65000.0) return scalbnWithFlags(f64, x, -65000);
     const n: i32 = @intFromFloat(fn_);
-    return math.scalbn(x, n);
+    return scalbnWithFlags(f64, x, n);
 }
 
 fn intFromFloat(comptime I: type, x: anytype) I {

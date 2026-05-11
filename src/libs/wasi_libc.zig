@@ -456,6 +456,10 @@ fn addLibcTopHalfIncludes(
     });
 }
 
+// All former cloudlibc C sources (dirent, fcntl, poll, select, socket, …) have
+// been migrated to Zig in lib/c/wasi_cloudlibc.zig.  The corresponding C files
+// were deleted from lib/libc/wasi/libc-bottom-half/cloudlibc/src/libc/, so this
+// list must stay empty.  See #484, #486, #506.
 const libc_bottom_half_src_files = [_][]const u8{};
 
 const libc_top_half_src_files = [_][]const u8{

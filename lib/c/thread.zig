@@ -3487,7 +3487,7 @@ fn sigaddset_internal(set: *linux.sigset_t, sig: usize) void {
 fn ucontext_sigmask(ctx: *anyopaque) *linux.sigset_t {
     const addr = @intFromPtr(ctx);
     const off = switch (arch) {
-        .arm, .armeb, .m68k, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .s390x, .x86, .x86_64 => 3 * ptr_size + @sizeOf(linux.stack_t) + mcontext_size,
+        .arm, .armeb, .thumb, .thumbeb, .m68k, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .s390x, .x86, .x86_64 => 3 * ptr_size + @sizeOf(linux.stack_t) + mcontext_size,
         .aarch64, .aarch64_be, .loongarch64, .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el => 3 * ptr_size + @sizeOf(linux.stack_t),
         else => @compileError("unsupported architecture for pthread_cancel ucontext_t"),
     };
@@ -3497,13 +3497,13 @@ fn ucontext_sigmask(ctx: *anyopaque) *linux.sigset_t {
 fn ucontext_pc(ctx: *anyopaque) *usize {
     const addr = @intFromPtr(ctx);
     const uc_mcontext = switch (arch) {
-        .arm, .armeb, .m68k, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .s390x, .x86, .x86_64 => 3 * ptr_size + @sizeOf(linux.stack_t),
+        .arm, .armeb, .thumb, .thumbeb, .m68k, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .s390x, .x86, .x86_64 => 3 * ptr_size + @sizeOf(linux.stack_t),
         .aarch64, .aarch64_be, .loongarch64, .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el => 3 * ptr_size + @sizeOf(linux.stack_t) + @sizeOf(linux.sigset_t),
         else => @compileError("unsupported architecture for pthread_cancel ucontext_t"),
     };
     const pc_off = switch (arch) {
         .aarch64, .aarch64_be => 32 * ptr_size,
-        .arm, .armeb => 15 * ptr_size,
+        .arm, .armeb, .thumb, .thumbeb => 15 * ptr_size,
         .x86 => 14 * @sizeOf(c_int),
         .loongarch64 => 0,
         .m68k => @sizeOf(c_int) + 17 * @sizeOf(c_int),
@@ -3521,7 +3521,7 @@ fn ucontext_pc(ctx: *anyopaque) *usize {
 
 const mcontext_size: usize = switch (arch) {
     .aarch64, .aarch64_be => 34 * ptr_size + 256 * @sizeOf(c_longdouble),
-    .arm, .armeb => 21 * ptr_size,
+    .arm, .armeb, .thumb, .thumbeb => 21 * ptr_size,
     .x86 => 22 * @sizeOf(c_uint),
     .loongarch64 => 33 * ptr_size + @sizeOf(c_uint),
     .m68k => 46 * @sizeOf(c_int),

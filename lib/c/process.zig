@@ -217,7 +217,10 @@ fn dummy0() callconv(.c) void {}
 
 fn pthreadSelfPtr() usize {
     const tp = switch (arch) {
-        .x86_64, .x86 => asm ("mov %%fs:0, %[ret]"
+        .x86_64 => asm ("movq %%fs:0, %[ret]"
+            : [ret] "=r" (-> usize),
+        ),
+        .x86 => asm ("movl %%gs:0, %[ret]"
             : [ret] "=r" (-> usize),
         ),
         .aarch64, .aarch64_be => asm ("mrs %[ret], tpidr_el0"

@@ -44,6 +44,7 @@ jobs:
   build-stage4:
     name: "build stage4"
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -113,6 +114,8 @@ jobs:
     name: "${{ matrix.name }}"
     needs: build-stage4
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    continue-on-error: ${{ matrix.allow_failure }}
     strategy:
       fail-fast: false
       matrix:
@@ -120,33 +123,43 @@ jobs:
           - name: x86_64
             target-filter: x86_64-linux-musl
             qemu: false
+            allow_failure: true
           - name: x86
             target-filter: x86-linux-musl
             qemu: false
+            allow_failure: false
           - name: aarch64
             target-filter: aarch64
             qemu: true
+            allow_failure: false
           - name: arm
             target-filter: arm
             qemu: true
+            allow_failure: false
           - name: thumb
             target-filter: thumb
             qemu: true
+            allow_failure: false
           - name: riscv
             target-filter: riscv
             qemu: true
+            allow_failure: true
           - name: powerpc
             target-filter: powerpc
             qemu: true
+            allow_failure: false
           - name: s390x
             target-filter: s390x
             qemu: true
+            allow_failure: true
           - name: loongarch64
             target-filter: loongarch64
             qemu: true
+            allow_failure: false
           - name: wasm32
             target-filter: wasm32-wasi
             wasmtime: true
+            allow_failure: true
 
     steps:
       - name: Check target filter

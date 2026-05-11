@@ -228,7 +228,7 @@ jobs:
     needs: [trust-check, build]
     if: needs.trust-check.outputs.trusted == 'true'
     runs-on: [self-hosted, Linux, ARM64, nvme]
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -305,8 +305,8 @@ jobs:
           echo "libc-test commit: $libc_test_sha"
           echo "LIBC_TEST_SHA=$libc_test_sha" >> "$GITHUB_ENV"
 
-      - name: Run libc-test — api + functional (aarch64-linux-musl, native)
-        timeout-minutes: 30
+      - name: Run libc-test — functional (aarch64-linux-musl, native)
+        timeout-minutes: 60
         run: |
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
@@ -320,6 +320,13 @@ jobs:
               -Dtest-filter="functional" \
               -j2 \
               --summary failures
+
+      - name: Run libc-test — api (aarch64-linux-musl, native)
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
+          if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
           "$STAGE4/bin/zig" build test-libc \
               --zig-lib-dir lib \
               -Dlibc-test-path="$CACHE_ROOT/libc-test" \

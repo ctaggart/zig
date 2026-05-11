@@ -356,7 +356,6 @@ jobs:
           - thumbeb-linux-musleabihf
           - riscv32-linux-musl
           - riscv64-linux-musl
-          - powerpc-linux-musl
           - powerpc64-linux-musl
           - powerpc64le-linux-musl
           - s390x-linux-musl

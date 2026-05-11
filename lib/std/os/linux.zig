@@ -2593,7 +2593,11 @@ pub fn sched_getattr(pid: pid_t, attr: *sched_attr, size: usize, flags: usize) u
 }
 
 pub fn sched_rr_get_interval(pid: pid_t, tp: *timespec) usize {
-    return syscall2(.sched_rr_get_interval, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(tp));
+    return syscall2(
+        if (@hasField(SYS, "sched_rr_get_interval")) .sched_rr_get_interval else .sched_rr_get_interval_time64,
+        @as(usize, @bitCast(@as(isize, pid))),
+        @intFromPtr(tp),
+    );
 }
 
 pub fn sched_yield() usize {

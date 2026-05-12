@@ -398,9 +398,66 @@ jobs:
               -j2 \
               --summary failures
 
-      - name: Skip libc-test — regression (aarch64-linux-musl, native)
+      - name: Run libc-test — regression subset (aarch64-linux-musl, native)
+        timeout-minutes: 30
+        continue-on-error: true
         run: |
-          echo "::warning::Temporarily skipping known-hanging native regression libc-test slice on libc/0.16.x."
+          set -euo pipefail
+          if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
+          if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          # Curated subset of regression libc-test sources mirroring the
+          # functional-subset exclusion list (pthread/sem/tls/raise-race).
+          # Each filter is a substring match (see test/src/Libc.zig).
+          filters=(
+            regression.daemon-failure
+            regression.dn_expand-
+            regression.execle-env
+            regression.fflush-exit
+            regression.fgets-eof
+            regression.fgetwc-buffering
+            regression.flockfile-list
+            regression.fpclassify-invalid-ld80
+            regression.ftello-unflushed-append
+            regression.getpwnam_r-
+            regression.iconv-roundtrips
+            regression.inet_
+            regression.iswspace-null
+            regression.lrand48-signextend
+            regression.lseek-large
+            regression.malloc-
+            regression.mbsrtowcs-overflow
+            regression.memmem-
+            regression.mkdtemp-failure
+            regression.mkstemp-failure
+            regression.printf-
+            regression.putenv-doublefree
+            regression.regex-
+            regression.regexec-nosub
+            regression.rewind-clear-error
+            regression.rlimit-open-files
+            regression.scanf-
+            regression.setenv-oom
+            regression.setvbuf-unget
+            regression.sigaltstack
+            regression.sigprocmask-internal
+            regression.sigreturn
+            regression.sscanf-eof
+            regression.statvfs
+            regression.strverscmp
+            regression.syscall-sign-extend
+            regression.uselocale-0
+            regression.wcsncpy-read-overflow
+            regression.wcsstr-false-negative
+          )
+          args=()
+          for f in "${filters[@]}"; do args+=("-Dtest-filter=$f"); done
+          "$STAGE4/bin/zig" build test-libc \
+              --zig-lib-dir lib \
+              -Dlibc-test-path="$CACHE_ROOT/libc-test" \
+              -Dtest-target-filter="${TARGET}" \
+              "${args[@]}" \
+              -j2 \
+              --summary failures
 
   cross-compile:
     # Cross-compile a tiny program against libzigc + musl libc.a for every

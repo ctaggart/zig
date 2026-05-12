@@ -1999,7 +1999,7 @@ fn barrier_wait_fn(b: *anyopaque) callconv(.c) c_int {
         // Wait until woken by last exiting thread
         while (@atomicLoad(c_int, &new_inst.finished, .seq_cst) == 1) {
             const rc: isize = @bitCast(linux.syscall4(
-                .futex,
+                SYS_FUTEX,
                 @intFromPtr(&new_inst.finished),
                 FUTEX_WAIT | FUTEX_PRIVATE,
                 1,
@@ -2007,7 +2007,7 @@ fn barrier_wait_fn(b: *anyopaque) callconv(.c) c_int {
             ));
             if (rc == -@as(isize, @intCast(@intFromEnum(E.NOSYS)))) {
                 _ = linux.syscall4(
-                    .futex,
+                    SYS_FUTEX,
                     @intFromPtr(&new_inst.finished),
                     FUTEX_WAIT,
                     1,

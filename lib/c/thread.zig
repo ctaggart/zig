@@ -939,9 +939,14 @@ fn mtx_unlock(mtx: ?*anyopaque) callconv(.c) c_int {
 /// Read the architecture-specific thread pointer register.
 fn get_tp() usize {
     return switch (arch) {
-        .x86_64 => asm ("mov %%fs:0, %[ret]"
-            : [ret] "=r" (-> usize),
-        ),
+        .x86_64 => if (builtin.target.abi == .muslx32 or builtin.target.abi == .gnux32)
+            asm ("movl %%fs:0, %[ret]"
+                : [ret] "=r" (-> usize),
+            )
+        else
+            asm ("movq %%fs:0, %[ret]"
+                : [ret] "=r" (-> usize),
+            ),
         .x86 => asm ("movl %%gs:0, %[ret]"
             : [ret] "=r" (-> usize),
         ),

@@ -347,9 +347,14 @@ fn __zig_stack_chk_fail() callconv(.naked) noreturn {
 // __pthread_self() for the current arch.
 inline fn get_tp() usize {
     return switch (builtin.cpu.arch) {
-        .x86_64 => asm volatile ("mov %%fs:0, %[ret]"
-            : [ret] "=r" (-> usize),
-        ),
+        .x86_64 => if (builtin.target.abi == .muslx32 or builtin.target.abi == .gnux32)
+            asm volatile ("movl %%fs:0, %[ret]"
+                : [ret] "=r" (-> usize),
+            )
+        else
+            asm volatile ("movq %%fs:0, %[ret]"
+                : [ret] "=r" (-> usize),
+            ),
         .x86 => asm volatile ("movl %%gs:0, %[ret]"
             : [ret] "=r" (-> usize),
         ),

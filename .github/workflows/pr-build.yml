@@ -240,6 +240,20 @@ jobs:
       - name: Prepare cache root
         run: mkdir -p "$CACHE_ROOT"
 
+      - name: Reclaim space from stale /tmp/zig-core-* dumps
+        # The runner's /proc/sys/kernel/core_pattern is `/tmp/zig-core-%p`, and
+        # /tmp is a 32G tmpfs (RAM-backed). Crashed processes (including from
+        # other runners or past runs) leak core dumps there which can fill
+        # tmpfs and break subsequent jobs with "No space left on device".
+        # Clean owned dumps and report disk state for forensics.
+        run: |
+          set -euo pipefail
+          before=$(df --output=avail /tmp | tail -1)
+          find /tmp -maxdepth 1 -type f -name 'zig-core-*' -user "$(id -un)" -delete 2>/dev/null || true
+          after=$(df --output=avail /tmp | tail -1)
+          echo "/tmp avail KB: before=$before, after=$after"
+          df -h /tmp
+
       - name: Setup release Zig (aarch64) + LLVM prefix (cached, atomic)
         run: |
           set -euo pipefail
@@ -315,6 +329,7 @@ jobs:
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
           if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          ulimit -c 0 2>/dev/null || true
           # Curated subset of functional libc-test sources to avoid known-hanging
           # areas while libzigc migration is in flight. Excluded by category:
           #   - pthread_*    (mutex/cond/cancel/rwlock/tsd/robust still in flux)
@@ -375,6 +390,7 @@ jobs:
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
           if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          ulimit -c 0 2>/dev/null || true
           "$STAGE4/bin/zig" build test-libc \
               --zig-lib-dir lib \
               -Dlibc-test-path="$CACHE_ROOT/libc-test" \
@@ -390,6 +406,7 @@ jobs:
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
           if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          ulimit -c 0 2>/dev/null || true
           "$STAGE4/bin/zig" build test-libc \
               --zig-lib-dir lib \
               -Dlibc-test-path="$CACHE_ROOT/libc-test" \
@@ -405,6 +422,7 @@ jobs:
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
           if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          ulimit -c 0 2>/dev/null || true
           # Curated subset of regression libc-test sources mirroring the
           # functional-subset exclusion list (pthread/sem/tls/raise-race).
           # Each filter is a substring match (see test/src/Libc.zig).
@@ -514,6 +532,15 @@ jobs:
       - name: Prepare cache root
         run: mkdir -p "$CACHE_ROOT"
 
+      - name: Reclaim space from stale /tmp/zig-core-* dumps
+        run: |
+          set -euo pipefail
+          before=$(df --output=avail /tmp | tail -1)
+          find /tmp -maxdepth 1 -type f -name 'zig-core-*' -user "$(id -un)" -delete 2>/dev/null || true
+          after=$(df --output=avail /tmp | tail -1)
+          echo "/tmp avail KB: before=$before, after=$after"
+          df -h /tmp
+
       - name: Locate stage4 from build job (key=${{ needs.build.outputs.stage4_key }})
         run: |
           set -euo pipefail
@@ -530,6 +557,7 @@ jobs:
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
           if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          ulimit -c 0 2>/dev/null || true
           tmpdir="$(mktemp -d)"
           trap 'rm -rf "$tmpdir"' EXIT
           # Tiny Zig program that calls into libc — forces sub-compilation of

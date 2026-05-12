@@ -86,8 +86,7 @@ comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&swab, "swab");
     }
-    if (builtin.target.isWasiLibC()) {
-    }
+    if (builtin.target.isWasiLibC()) {}
 }
 
 fn _exit(exit_code: c_int) callconv(.c) noreturn {
@@ -255,9 +254,6 @@ fn fchownLinux(fd: c_int, owner: linux.uid_t, group: linux.gid_t) callconv(.c) c
     return errno(linux.fchown(fd, owner, group));
 }
 
-
-
-
 fn isattyLinux(fd: c_int) callconv(.c) c_int {
     var wsz: std.posix.winsize = undefined;
     if (errno(linux.ioctl(fd, linux.T.IOCGWINSZ, @intFromPtr(&wsz))) == 0) return 1;
@@ -273,10 +269,10 @@ fn pipe2Linux(fd: *[2]c_int, flags: c_int) callconv(.c) c_int {
 fn lseekLinux(fd: c_int, offset: linux.off_t, whence: c_int) callconv(.c) linux.off_t {
     const w: usize = @intCast(@as(c_uint, @bitCast(whence)));
     const signed: i64 = signed: {
-        if (@sizeOf(usize) >= 8) {
-            // 64-bit: kernel `lseek` syscall takes a 64-bit offset directly
-            // and returns the new position (or a negative errno) in a single
-            // register.
+        if (@sizeOf(usize) >= 8 or !@hasField(linux.SYS, "llseek")) {
+            // 64-bit and x32-style ABIs: kernel `lseek` syscall takes a 64-bit
+            // offset directly and returns the new position (or a negative
+            // errno) in a single register.
             break :signed @as(isize, @bitCast(linux.lseek(fd, offset, w)));
         }
         // 32-bit: kernel only has `_llseek` which takes a hi/lo offset pair

@@ -5,6 +5,9 @@ const linux = std.os.linux;
 const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
 
+const SYS_statfs: linux.SYS = if (@hasField(linux.SYS, "statfs")) .statfs else .statfs64;
+const SYS_fstatfs: linux.SYS = if (@hasField(linux.SYS, "fstatfs")) .fstatfs else .fstatfs64;
+
 comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&mkdirLinux, "mkdir");
@@ -26,7 +29,7 @@ comptime {
             symbol(&statLinux, "stat");
             symbol(&lstatLinux, "lstat");
             symbol(&fstatLinux, "__fstat");
-        symbol(&fstatLinux, "fstat");
+            symbol(&fstatLinux, "fstat");
             symbol(&futimensLinux, "futimens");
             symbol(&lchmodLinux, "lchmod");
             symbol(&__futimesat, "__futimesat");
@@ -113,8 +116,7 @@ fn kstatMatchesStat() bool {
     const abi = builtin.target.abi;
     if (abi == .muslx32) return true;
     return switch (builtin.cpu.arch) {
-        .x86_64, .aarch64, .aarch64_be, .riscv64, .loongarch64,
-        .powerpc64, .powerpc64le, .s390x => true,
+        .x86_64, .aarch64, .aarch64_be, .riscv64, .loongarch64, .powerpc64, .powerpc64le, .s390x => true,
         else => false,
     };
 }
@@ -131,72 +133,177 @@ fn muStatType() type {
     return switch (arch) {
         // Generic layout: aarch64, hexagon, loongarch64, riscv32, riscv64
         .aarch64, .aarch64_be, .hexagon, .loongarch64, .riscv32, .riscv64 => extern struct {
-            dev: u64, ino: u64, mode: u32, nlink: u32, uid: u32, gid: u32,
-            rdev: u64, __pad: u64 = 0, size: i64, blksize: i32, __pad2: i32 = 0,
-            blocks: i64, atim: Ts, mtim: Ts, ctim: Ts, __unused: [2]u32 = .{ 0, 0 },
+            dev: u64,
+            ino: u64,
+            mode: u32,
+            nlink: u32,
+            uid: u32,
+            gid: u32,
+            rdev: u64,
+            __pad: u64 = 0,
+            size: i64,
+            blksize: i32,
+            __pad2: i32 = 0,
+            blocks: i64,
+            atim: Ts,
+            mtim: Ts,
+            ctim: Ts,
+            __unused: [2]u32 = .{ 0, 0 },
         },
         .x86_64 => extern struct {
-            dev: u64, ino: u64, nlink: u64, mode: u32, uid: u32, gid: u32,
-            __pad0: u32 = 0, rdev: u64, size: i64, blksize: i64, blocks: i64,
-            atim: Ts, mtim: Ts, ctim: Ts, __unused: [3]i64 = .{ 0, 0, 0 },
+            dev: u64,
+            ino: u64,
+            nlink: u64,
+            mode: u32,
+            uid: u32,
+            gid: u32,
+            __pad0: u32 = 0,
+            rdev: u64,
+            size: i64,
+            blksize: i64,
+            blocks: i64,
+            atim: Ts,
+            mtim: Ts,
+            ctim: Ts,
+            __unused: [3]i64 = .{ 0, 0, 0 },
         },
         .powerpc64, .powerpc64le => extern struct {
-            dev: u64, ino: u64, nlink: u64, mode: u32, uid: u32, gid: u32,
-            __pad0: u32 = 0, rdev: u64, size: i64, blksize: i64, blocks: i64,
-            atim: Ts, mtim: Ts, ctim: Ts, __unused: [3]u64 = .{ 0, 0, 0 },
+            dev: u64,
+            ino: u64,
+            nlink: u64,
+            mode: u32,
+            uid: u32,
+            gid: u32,
+            __pad0: u32 = 0,
+            rdev: u64,
+            size: i64,
+            blksize: i64,
+            blocks: i64,
+            atim: Ts,
+            mtim: Ts,
+            ctim: Ts,
+            __unused: [3]u64 = .{ 0, 0, 0 },
         },
         .s390x => extern struct {
-            dev: u64, ino: u64, nlink: u64, mode: u32, uid: u32, gid: u32,
-            __pad0: u32 = 0, rdev: u64, size: i64,
-            atim: Ts, mtim: Ts, ctim: Ts,
-            blksize: i64, blocks: i64, __unused: [3]u64 = .{ 0, 0, 0 },
+            dev: u64,
+            ino: u64,
+            nlink: u64,
+            mode: u32,
+            uid: u32,
+            gid: u32,
+            __pad0: u32 = 0,
+            rdev: u64,
+            size: i64,
+            atim: Ts,
+            mtim: Ts,
+            ctim: Ts,
+            blksize: i64,
+            blocks: i64,
+            __unused: [3]u64 = .{ 0, 0, 0 },
         },
         .mips64, .mips64el => extern struct {
-            dev: u64, __pad1: [3]i32 = .{ 0, 0, 0 },
-            ino: u64, mode: u32, nlink: u32, uid: u32, gid: u32,
-            rdev: u64, __pad2: [2]u32 = .{ 0, 0 }, size: i64, __pad3: i32 = 0,
-            atim: Ts, mtim: Ts, ctim: Ts,
-            blksize: i64, __pad4: u32 = 0, blocks: i64, __pad5: [14]i32 = .{0} ** 14,
+            dev: u64,
+            __pad1: [3]i32 = .{ 0, 0, 0 },
+            ino: u64,
+            mode: u32,
+            nlink: u32,
+            uid: u32,
+            gid: u32,
+            rdev: u64,
+            __pad2: [2]u32 = .{ 0, 0 },
+            size: i64,
+            __pad3: i32 = 0,
+            atim: Ts,
+            mtim: Ts,
+            ctim: Ts,
+            blksize: i64,
+            __pad4: u32 = 0,
+            blocks: i64,
+            __pad5: [14]i32 = .{0} ** 14,
         },
         .arm, .armeb, .thumb, .thumbeb, .x86 => extern struct {
-            dev: u64, __dev_pad: i32 = 0, ino_truncated: i32 = 0,
-            mode: u32, nlink: u32, uid: u32, gid: u32,
-            rdev: u64, __rdev_pad: i32 = 0,
-            size: i64, blksize: i32, blocks: i64,
+            dev: u64,
+            __dev_pad: i32 = 0,
+            ino_truncated: i32 = 0,
+            mode: u32,
+            nlink: u32,
+            uid: u32,
+            gid: u32,
+            rdev: u64,
+            __rdev_pad: i32 = 0,
+            size: i64,
+            blksize: i32,
+            blocks: i64,
             atim32: Ts32 = .{ .sec = 0, .nsec = 0 },
             mtim32: Ts32 = .{ .sec = 0, .nsec = 0 },
             ctim32: Ts32 = .{ .sec = 0, .nsec = 0 },
-            ino: u64, atim: Ts, mtim: Ts, ctim: Ts,
+            ino: u64,
+            atim: Ts,
+            mtim: Ts,
+            ctim: Ts,
         },
         .m68k => extern struct {
-            dev: u64, __dev_pad: i16 = 0, ino_truncated: i32 = 0,
-            mode: u32, nlink: u32, uid: u32, gid: u32,
-            rdev: u64, __rdev_pad: i16 = 0,
-            size: i64, blksize: i32, blocks: i64,
+            dev: u64,
+            __dev_pad: i16 = 0,
+            ino_truncated: i32 = 0,
+            mode: u32,
+            nlink: u32,
+            uid: u32,
+            gid: u32,
+            rdev: u64,
+            __rdev_pad: i16 = 0,
+            size: i64,
+            blksize: i32,
+            blocks: i64,
             atim32: Ts32 = .{ .sec = 0, .nsec = 0 },
             mtim32: Ts32 = .{ .sec = 0, .nsec = 0 },
             ctim32: Ts32 = .{ .sec = 0, .nsec = 0 },
-            ino: u64, atim: Ts, mtim: Ts, ctim: Ts,
+            ino: u64,
+            atim: Ts,
+            mtim: Ts,
+            ctim: Ts,
         },
         .mips, .mipsel => extern struct {
-            dev: u64, __pad1: [2]i32 = .{ 0, 0 },
-            ino: u64, mode: u32, nlink: u32, uid: u32, gid: u32,
-            rdev: u64, __pad2: [2]i32 = .{ 0, 0 }, size: i64,
+            dev: u64,
+            __pad1: [2]i32 = .{ 0, 0 },
+            ino: u64,
+            mode: u32,
+            nlink: u32,
+            uid: u32,
+            gid: u32,
+            rdev: u64,
+            __pad2: [2]i32 = .{ 0, 0 },
+            size: i64,
             atim32: Ts32 = .{ .sec = 0, .nsec = 0 },
             mtim32: Ts32 = .{ .sec = 0, .nsec = 0 },
             ctim32: Ts32 = .{ .sec = 0, .nsec = 0 },
-            blksize: i32, __pad3: i32 = 0, blocks: i64,
-            atim: Ts, mtim: Ts, ctim: Ts, __pad4: [2]i32 = .{ 0, 0 },
+            blksize: i32,
+            __pad3: i32 = 0,
+            blocks: i64,
+            atim: Ts,
+            mtim: Ts,
+            ctim: Ts,
+            __pad4: [2]i32 = .{ 0, 0 },
         },
         .powerpc, .powerpcle => extern struct {
-            dev: u64, ino: u64, mode: u32, nlink: u32, uid: u32, gid: u32,
-            rdev: u64, __rdev_pad: i16 = 0,
-            size: i64, blksize: i32, blocks: i64,
+            dev: u64,
+            ino: u64,
+            mode: u32,
+            nlink: u32,
+            uid: u32,
+            gid: u32,
+            rdev: u64,
+            __rdev_pad: i16 = 0,
+            size: i64,
+            blksize: i32,
+            blocks: i64,
             atim32: Ts32 = .{ .sec = 0, .nsec = 0 },
             mtim32: Ts32 = .{ .sec = 0, .nsec = 0 },
             ctim32: Ts32 = .{ .sec = 0, .nsec = 0 },
             __unused: [2]u32 = .{ 0, 0 },
-            atim: Ts, mtim: Ts, ctim: Ts,
+            atim: Ts,
+            mtim: Ts,
+            ctim: Ts,
         },
         else => @compileError("unsupported architecture for musl stat"),
     };
@@ -204,14 +311,26 @@ fn muStatType() type {
 
 /// mipsn32: mips64 arch with .muslabin32 ABI (32-bit address, 64-bit regs)
 const MuStatMipsN32 = extern struct {
-    dev: u64, __pad1: [2]i32 = .{ 0, 0 },
-    ino: u64, mode: u32, nlink: u32, uid: u32, gid: u32,
-    rdev: u64, __pad2: [2]i32 = .{ 0, 0 }, size: i64,
+    dev: u64,
+    __pad1: [2]i32 = .{ 0, 0 },
+    ino: u64,
+    mode: u32,
+    nlink: u32,
+    uid: u32,
+    gid: u32,
+    rdev: u64,
+    __pad2: [2]i32 = .{ 0, 0 },
+    size: i64,
     atim32: Ts32 = .{ .sec = 0, .nsec = 0 },
     mtim32: Ts32 = .{ .sec = 0, .nsec = 0 },
     ctim32: Ts32 = .{ .sec = 0, .nsec = 0 },
-    blksize: i32, __pad3: i32 = 0, blocks: i64,
-    atim: Ts, mtim: Ts, ctim: Ts, __pad4: [2]i32 = .{ 0, 0 },
+    blksize: i32,
+    __pad3: i32 = 0,
+    blocks: i64,
+    atim: Ts,
+    mtim: Ts,
+    ctim: Ts,
+    __pad4: [2]i32 = .{ 0, 0 },
 };
 
 fn fstatatImpl(fd: c_int, path: [*:0]const u8, buf: *anyopaque, flag: c_int) callconv(.c) c_int {
@@ -228,9 +347,11 @@ fn fstatatImpl(fd: c_int, path: [*:0]const u8, buf: *anyopaque, flag: c_int) cal
     // Use statx and convert to the arch-specific musl stat struct.
     var stx: linux.Statx = undefined;
     const stx_rc: isize = @bitCast(linux.statx(
-        fd, path,
+        fd,
+        path,
         @as(u32, @bitCast(flag)) | linux.AT.NO_AUTOMOUNT,
-        linux.STATX.BASIC_STATS, &stx,
+        linux.STATX.BASIC_STATS,
+        &stx,
     ));
     if (stx_rc < 0) {
         std.c._errno().* = @intCast(-stx_rc);
@@ -273,7 +394,10 @@ fn lstatLinux(noalias path: [*:0]const u8, noalias buf: *anyopaque) callconv(.c)
     return fstatat(linux.AT.FDCWD, path, buf, linux.AT.SYMLINK_NOFOLLOW);
 }
 fn fstatLinux(fd: c_int, buf: *anyopaque) callconv(.c) c_int {
-    if (fd < 0) { std.c._errno().* = @intFromEnum(linux.E.BADF); return -1; }
+    if (fd < 0) {
+        std.c._errno().* = @intFromEnum(linux.E.BADF);
+        return -1;
+    }
     return fstatat(fd, "", buf, linux.AT.EMPTY_PATH);
 }
 fn futimensLinux(fd: c_int, times: ?*const [2]linux.timespec) callconv(.c) c_int {
@@ -288,7 +412,8 @@ const timeval = extern struct { tv_sec: isize, tv_usec: isize };
 fn __futimesat(dirfd: c_int, pathname: ?[*:0]const u8, times: ?*const [2]timeval) callconv(.c) c_int {
     if (times) |tv| {
         if (tv[0].tv_usec >= 1000000 or tv[1].tv_usec >= 1000000) {
-            std.c._errno().* = @intFromEnum(linux.E.INVAL); return -1;
+            std.c._errno().* = @intFromEnum(linux.E.INVAL);
+            return -1;
         }
         const ts = [2]linux.timespec{
             .{ .sec = tv[0].tv_sec, .nsec = tv[0].tv_usec * 1000 },
@@ -303,23 +428,31 @@ fn __futimesat(dirfd: c_int, pathname: ?[*:0]const u8, times: ?*const [2]timeval
 
 fn __fxstat(ver: c_int, fd: c_int, buf: *anyopaque) callconv(.c) c_int {
     _ = ver;
-    if (fd < 0) { std.c._errno().* = @intFromEnum(linux.E.BADF); return -1; }
+    if (fd < 0) {
+        std.c._errno().* = @intFromEnum(linux.E.BADF);
+        return -1;
+    }
     return fstatat(fd, "", buf, linux.AT.EMPTY_PATH);
 }
 fn __fxstatat(ver: c_int, fd: c_int, path: [*:0]const u8, buf: *anyopaque, flag: c_int) callconv(.c) c_int {
-    _ = ver; return fstatat(fd, path, buf, flag);
+    _ = ver;
+    return fstatat(fd, path, buf, flag);
 }
 fn __lxstat(ver: c_int, path: [*:0]const u8, buf: *anyopaque) callconv(.c) c_int {
-    _ = ver; return fstatat(linux.AT.FDCWD, path, buf, linux.AT.SYMLINK_NOFOLLOW);
+    _ = ver;
+    return fstatat(linux.AT.FDCWD, path, buf, linux.AT.SYMLINK_NOFOLLOW);
 }
 fn __xstat_fn(ver: c_int, path: [*:0]const u8, buf: *anyopaque) callconv(.c) c_int {
-    _ = ver; return fstatat(linux.AT.FDCWD, path, buf, 0);
+    _ = ver;
+    return fstatat(linux.AT.FDCWD, path, buf, 0);
 }
 fn __xmknod(ver: c_int, path: [*:0]const u8, mode: linux.mode_t, dev: *const linux.dev_t) callconv(.c) c_int {
-    _ = ver; return mknodLinux(path, mode, dev.*);
+    _ = ver;
+    return mknodLinux(path, mode, dev.*);
 }
 fn __xmknodat(ver: c_int, fd: c_int, path: [*:0]const u8, mode: linux.mode_t, dev: *const linux.dev_t) callconv(.c) c_int {
-    _ = ver; return mknodatLinux(fd, path, mode, dev.*);
+    _ = ver;
+    return mknodatLinux(fd, path, mode, dev.*);
 }
 
 // --- fchmodat with AT_SYMLINK_NOFOLLOW fallback ---
@@ -343,10 +476,16 @@ fn fchmodatLinux(fd: c_int, path: [*:0]const u8, mode: linux.mode_t, flag: c_int
     // Check if target is a symlink using statx
     var stx: linux.Statx = undefined;
     const stx_rc: isize = @bitCast(linux.statx(
-        fd, path, linux.AT.SYMLINK_NOFOLLOW | linux.AT.NO_AUTOMOUNT,
-        .{ .MODE = true }, &stx,
+        fd,
+        path,
+        linux.AT.SYMLINK_NOFOLLOW | linux.AT.NO_AUTOMOUNT,
+        .{ .MODE = true },
+        &stx,
     ));
-    if (stx_rc < 0) { std.c._errno().* = @intCast(-stx_rc); return -1; }
+    if (stx_rc < 0) {
+        std.c._errno().* = @intCast(-stx_rc);
+        return -1;
+    }
     if (linux.S.ISLNK(@as(linux.mode_t, stx.mode))) {
         std.c._errno().* = @intFromEnum(linux.E.OPNOTSUPP);
         return -1;
@@ -354,11 +493,17 @@ fn fchmodatLinux(fd: c_int, path: [*:0]const u8, mode: linux.mode_t, flag: c_int
 
     // Open with O_PATH|O_NOFOLLOW, chmod via /proc/self/fd/N
     const fd2: isize = @bitCast(linux.openat(fd, path, .{
-        .ACCMODE = .RDONLY, .PATH = true, .NOFOLLOW = true, .NOCTTY = true, .CLOEXEC = true,
+        .ACCMODE = .RDONLY,
+        .PATH = true,
+        .NOFOLLOW = true,
+        .NOCTTY = true,
+        .CLOEXEC = true,
     }, 0));
     if (fd2 < 0) {
         std.c._errno().* = @intCast(if (fd2 == -@as(isize, @intFromEnum(linux.E.LOOP)))
-            @intFromEnum(linux.E.OPNOTSUPP) else -fd2);
+            @intFromEnum(linux.E.OPNOTSUPP)
+        else
+            -fd2);
         return -1;
     }
 
@@ -371,7 +516,11 @@ fn fchmodatLinux(fd: c_int, path: [*:0]const u8, mode: linux.mode_t, flag: c_int
     // Verify not a symlink via statx on proc path, then chmod
     var stx2: linux.Statx = undefined;
     const stx2_rc: isize = @bitCast(linux.statx(
-        linux.AT.FDCWD, @ptrCast(proc.ptr), linux.AT.NO_AUTOMOUNT, .{ .MODE = true }, &stx2,
+        linux.AT.FDCWD,
+        @ptrCast(proc.ptr),
+        linux.AT.NO_AUTOMOUNT,
+        .{ .MODE = true },
+        &stx2,
     ));
     const result: c_int = if (stx2_rc < 0) blk: {
         std.c._errno().* = @intCast(-stx2_rc);
@@ -420,12 +569,12 @@ const Statvfs = extern struct {
 
 fn statfsLinux(path: [*:0]const u8, buf: *Statfs) callconv(.c) c_int {
     buf.* = std.mem.zeroes(Statfs);
-    return errno(linux.syscall2(.statfs, @intFromPtr(path), @intFromPtr(buf)));
+    return errno(linux.syscall2(SYS_statfs, @intFromPtr(path), @intFromPtr(buf)));
 }
 
 fn fstatfsLinux(fd: c_int, buf: *Statfs) callconv(.c) c_int {
     buf.* = std.mem.zeroes(Statfs);
-    return errno(linux.syscall2(.fstatfs, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(buf)));
+    return errno(linux.syscall2(SYS_fstatfs, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(buf)));
 }
 
 fn fixup(out: *Statvfs, in_buf: *const Statfs) void {

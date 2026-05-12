@@ -5,6 +5,8 @@ const linux = std.os.linux;
 const symbol = @import("../../c.zig").symbol;
 const errno = @import("../../c.zig").errno;
 
+const SYS_pselect6: linux.SYS = if (@hasField(linux.SYS, "pselect6")) .pselect6 else .pselect6_time64;
+
 comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&pollLinux, "poll");
@@ -32,7 +34,7 @@ fn pselectLinux(
 ) callconv(.c) c_int {
     const data = [2]usize{ @intFromPtr(sigmask), linux.NSIG / 8 };
     return errno(linux.syscall6(
-        .pselect6,
+        SYS_pselect6,
         @as(usize, @intCast(@as(c_uint, @bitCast(nfds)))),
         @intFromPtr(readfds),
         @intFromPtr(writefds),
@@ -60,7 +62,7 @@ fn selectLinux(
         };
         const data = [2]usize{ 0, linux.NSIG / 8 };
         return errno(linux.syscall6(
-            .pselect6,
+            SYS_pselect6,
             @as(usize, @intCast(@as(c_uint, @bitCast(nfds)))),
             @intFromPtr(readfds),
             @intFromPtr(writefds),
@@ -71,7 +73,7 @@ fn selectLinux(
     } else {
         const data = [2]usize{ 0, linux.NSIG / 8 };
         return errno(linux.syscall6(
-            .pselect6,
+            SYS_pselect6,
             @as(usize, @intCast(@as(c_uint, @bitCast(nfds)))),
             @intFromPtr(readfds),
             @intFromPtr(writefds),

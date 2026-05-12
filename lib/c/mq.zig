@@ -3,6 +3,9 @@ const std = @import("std");
 const linux = std.os.linux;
 const c = @import("../c.zig");
 
+const SYS_mq_timedsend: linux.SYS = if (@hasField(linux.SYS, "mq_timedsend")) .mq_timedsend else .mq_timedsend_time64;
+const SYS_mq_timedreceive: linux.SYS = if (@hasField(linux.SYS, "mq_timedreceive")) .mq_timedreceive else .mq_timedreceive_time64;
+
 comptime {
     if (builtin.target.isMuslLibC()) {
         c.symbol(&mq_closeLinux, "mq_close");
@@ -60,7 +63,7 @@ fn mq_receiveLinux(mqdes: c_int, msg: [*]u8, len: usize, prio: ?*c_uint) callcon
 
 fn mq_timedsendLinux(mqdes: c_int, msg: [*]const u8, len: usize, prio: c_uint, at: ?*const linux.timespec) callconv(.c) c_int {
     return c.errno(linux.syscall5(
-        .mq_timedsend,
+        SYS_mq_timedsend,
         iarg(mqdes),
         @intFromPtr(msg),
         len,
@@ -71,7 +74,7 @@ fn mq_timedsendLinux(mqdes: c_int, msg: [*]const u8, len: usize, prio: c_uint, a
 
 fn mq_timedreceiveLinux(mqdes: c_int, msg: [*]u8, len: usize, prio: ?*c_uint, at: ?*const linux.timespec) callconv(.c) isize {
     const ret = linux.syscall5(
-        .mq_timedreceive,
+        SYS_mq_timedreceive,
         iarg(mqdes),
         @intFromPtr(msg),
         len,

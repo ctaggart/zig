@@ -386,13 +386,9 @@ fn waitLinux(status: ?*c_int) callconv(.c) linux.pid_t {
 }
 
 fn waitpidLinux(pid: linux.pid_t, status: ?*c_int, options: c_int) callconv(.c) linux.pid_t {
-    return errnoP(linux.syscall4(
-        .wait4,
-        @as(usize, @bitCast(@as(isize, pid))),
-        @intFromPtr(status),
-        @as(usize, @bitCast(@as(isize, options))),
-        0,
-    ));
+    var status_buf: u32 = undefined;
+    const status_ptr: *u32 = if (status) |p| @ptrCast(p) else &status_buf;
+    return errnoP(linux.wait4(pid, status_ptr, @bitCast(options), null));
 }
 
 fn waitidLinux(idtype: c_uint, id: c_uint, info: ?*linux.siginfo_t, options: c_int) callconv(.c) c_int {

@@ -178,6 +178,7 @@ const FUTEX_REQUEUE: usize = 3;
 const FUTEX_PRIVATE: usize = 128;
 const SYS_futex_time64: usize = if (@hasField(linux.SYS, "futex_time64")) @intFromEnum(linux.SYS.futex_time64) else 0;
 const SYS_futex: usize = if (@hasField(linux.SYS, "futex")) @intFromEnum(linux.SYS.futex) else SYS_futex_time64;
+const SYS_FUTEX: linux.SYS = if (@hasField(linux.SYS, "futex")) .futex else .futex_time64;
 var dummy_eintr_valid_flag: c_int = 0;
 var unmap_base: ?*anyopaque = null;
 var unmap_size: usize = 0;
@@ -1126,9 +1127,9 @@ fn futex_wake(addr: *const c_int, cnt: c_int, priv: c_int) void {
     const p: usize = if (priv != 0) FUTEX_PRIVATE else 0;
     const max_int: c_int = std.math.maxInt(c_int);
     const c: usize = @intCast(if (cnt < 0) max_int else cnt);
-    const rc: isize = @bitCast(std.os.linux.syscall4(.futex, @intFromPtr(addr), FUTEX_WAKE | p, c, 0));
+    const rc: isize = @bitCast(std.os.linux.syscall4(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAKE | p, c, 0));
     if (rc == -@as(isize, @intFromEnum(E.NOSYS))) {
-        _ = std.os.linux.syscall4(.futex, @intFromPtr(addr), FUTEX_WAKE, c, 0);
+        _ = std.os.linux.syscall4(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAKE, c, 0);
     }
 }
 
@@ -1464,7 +1465,7 @@ fn pthread_sigmask_fn(how: c_int, set: ?*const anyopaque, old: ?*anyopaque) call
 fn wake(addr: *anyopaque, cnt: c_int, priv_val: c_int) void {
     const p: usize = if (priv_val != 0) FUTEX_PRIVATE else 0;
     const n: usize = if (cnt < 0) @as(usize, @intCast(std.math.maxInt(c_int))) else @as(usize, @intCast(cnt));
-    _ = linux.syscall3(.futex, @intFromPtr(addr), FUTEX_WAKE | p, n);
+    _ = linux.syscall3(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAKE | p, n);
 }
 
 fn pthread_mutexattr_setprotocol_fn(a: *c_uint, protocol: c_int) callconv(.c) c_int {
@@ -1475,7 +1476,7 @@ fn pthread_mutexattr_setprotocol_fn(a: *c_uint, protocol: c_int) callconv(.c) c_
         var r = @atomicLoad(c_int, &check_pi_result, .monotonic);
         if (r < 0) {
             var lk: c_int = 0;
-            const rc: isize = @bitCast(linux.syscall4(.futex, @intFromPtr(&lk), FUTEX_LOCK_PI, 0, 0));
+            const rc: isize = @bitCast(linux.syscall4(SYS_FUTEX, @intFromPtr(&lk), FUTEX_LOCK_PI, 0, 0));
             r = @as(c_int, @intCast(-rc));
             @atomicStore(c_int, &check_pi_result, r, .release);
         }
@@ -1603,10 +1604,10 @@ fn __wait_fn(addr: *anyopaque, waiters_opt: ?*anyopaque, val: c_int, priv_arg: c
     // Futex wait loop
     while (@atomicLoad(c_int, addr_ptr, .monotonic) == val) {
         const val_u: usize = @as(usize, @bitCast(@as(isize, val)));
-        const rc: isize = @bitCast(linux.syscall4(.futex, @intFromPtr(addr), FUTEX_WAIT | priv, val_u, 0));
+        const rc: isize = @bitCast(linux.syscall4(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAIT | priv, val_u, 0));
         // Fall back to shared futex if private not supported
         if (rc == -@as(isize, @intCast(@intFromEnum(E.NOSYS)))) {
-            _ = linux.syscall4(.futex, @intFromPtr(addr), FUTEX_WAIT, val_u, 0);
+            _ = linux.syscall4(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAIT, val_u, 0);
         }
     }
 
@@ -1639,18 +1640,18 @@ fn vm_unlock_fn() callconv(.c) void {
 fn futexWait(addr: *volatile c_int, val: c_int, priv_flag: bool) void {
     const priv: usize = if (priv_flag) FUTEX_PRIVATE else 0;
     const val_u: usize = @bitCast(@as(isize, val));
-    const rc: isize = @bitCast(linux.syscall4(.futex, @intFromPtr(addr), FUTEX_WAIT | priv, val_u, 0));
+    const rc: isize = @bitCast(linux.syscall4(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAIT | priv, val_u, 0));
     if (rc == -@as(isize, @intCast(@intFromEnum(E.NOSYS)))) {
-        _ = linux.syscall4(.futex, @intFromPtr(addr), FUTEX_WAIT, val_u, 0);
+        _ = linux.syscall4(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAIT, val_u, 0);
     }
 }
 
 fn futexWake(addr: *volatile c_int, cnt: c_int, priv_flag: bool) void {
     const priv: usize = if (priv_flag) FUTEX_PRIVATE else 0;
     const n: usize = if (cnt < 0) @intCast(std.math.maxInt(c_int)) else @intCast(cnt);
-    const rc: isize = @bitCast(linux.syscall3(.futex, @intFromPtr(addr), FUTEX_WAKE | priv, n));
+    const rc: isize = @bitCast(linux.syscall3(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAKE | priv, n));
     if (rc == -@as(isize, @intCast(@intFromEnum(E.NOSYS)))) {
-        _ = linux.syscall3(.futex, @intFromPtr(addr), FUTEX_WAKE, n);
+        _ = linux.syscall3(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAKE, n);
     }
 }
 
@@ -2149,9 +2150,9 @@ fn condUnlockRequeue(l: *c_int, r: *c_int, w: c_int) void {
     if (w != 0) {
         wake(@ptrCast(l), 1, 1);
     } else {
-        const rc1: isize = @bitCast(linux.syscall5(.futex, @intFromPtr(l), FUTEX_REQUEUE | FUTEX_PRIVATE, 0, 1, @intFromPtr(r)));
+        const rc1: isize = @bitCast(linux.syscall5(SYS_FUTEX, @intFromPtr(l), FUTEX_REQUEUE | FUTEX_PRIVATE, 0, 1, @intFromPtr(r)));
         if (rc1 == -@as(isize, @intCast(eint(.NOSYS)))) {
-            _ = linux.syscall5(.futex, @intFromPtr(l), FUTEX_REQUEUE, 0, 1, @intFromPtr(r));
+            _ = linux.syscall5(SYS_FUTEX, @intFromPtr(l), FUTEX_REQUEUE, 0, 1, @intFromPtr(r));
         }
     }
 }
@@ -2474,7 +2475,7 @@ fn mutex_trylock_owner_fn(m: *anyopaque) callconv(.c) c_int {
     // success path
     if ((@"type" & 8) != 0 and m_i[2] != 0) { // PI + waiters
         const priv: usize = (@as(usize, @intCast(@"type" & 128)) ^ 128);
-        _ = linux.syscall2(.futex, @intFromPtr(&m_i[1]), FUTEX_UNLOCK_PI | priv);
+        _ = linux.syscall2(SYS_FUTEX, @intFromPtr(&m_i[1]), FUTEX_UNLOCK_PI | priv);
         robustPending(self_a).* = 0;
         return if ((@"type" & 4) != 0) eint(.NOTRECOVERABLE) else eint(.BUSY);
     }
@@ -2524,7 +2525,7 @@ fn mutex_timedlock_pi(m: *anyopaque, at: ?*const anyopaque) c_int {
     var e: c_int = undefined;
     while (true) {
         const at_addr: usize = if (at) |p| @intFromPtr(p) else 0;
-        const rc: isize = @bitCast(linux.syscall4(.futex, @intFromPtr(&m_i[1]), FUTEX_LOCK_PI | priv, 0, at_addr));
+        const rc: isize = @bitCast(linux.syscall4(SYS_FUTEX, @intFromPtr(&m_i[1]), FUTEX_LOCK_PI | priv, 0, at_addr));
         e = -@as(c_int, @intCast(@as(i32, @truncate(rc))));
         if (e != eint(.INTR)) break;
     }
@@ -2537,7 +2538,7 @@ fn mutex_timedlock_pi(m: *anyopaque, at: ?*const anyopaque) c_int {
             // Catch spurious success for non-robust mutexes
             if ((@"type" & 4) == 0 and ((@atomicLoad(c_int, &m_i[1], .monotonic) & 0x40000000) != 0 or m_i[2] != 0)) {
                 @atomicStore(c_int, &m_i[2], -1, .seq_cst);
-                _ = linux.syscall2(.futex, @intFromPtr(&m_i[1]), FUTEX_UNLOCK_PI | priv);
+                _ = linux.syscall2(SYS_FUTEX, @intFromPtr(&m_i[1]), FUTEX_UNLOCK_PI | priv);
                 robustPending(self_a).* = 0;
             } else {
                 m_i[5] = -1; // _m_count = -1
@@ -2641,7 +2642,7 @@ fn mutex_unlock_fn(m: *anyopaque) callconv(.c) c_int {
     if ((m_i[0] & 8) != 0) { // PI mutex
         if (old < 0 or @cmpxchgStrong(c_int, &m_i[1], old, new, .seq_cst, .seq_cst) != null) {
             if (new != 0) @atomicStore(c_int, &m_i[2], -1, .seq_cst);
-            _ = linux.syscall2(.futex, @intFromPtr(&m_i[1]), FUTEX_UNLOCK_PI | priv);
+            _ = linux.syscall2(SYS_FUTEX, @intFromPtr(&m_i[1]), FUTEX_UNLOCK_PI | priv);
         }
         cont = 0;
     } else {
@@ -2900,7 +2901,7 @@ fn mutexattr_setprotocol_fn(a: *c_uint, protocol: c_int) callconv(.c) c_int {
             var r = @atomicLoad(c_int, &check_pi_result, .seq_cst);
             if (r < 0) {
                 var lk: c_int = 0;
-                const rc: isize = @bitCast(linux.syscall4(.futex, @intFromPtr(&lk), 6, 0, 0)); // FUTEX_LOCK_PI=6
+                const rc: isize = @bitCast(linux.syscall4(SYS_FUTEX, @intFromPtr(&lk), 6, 0, 0)); // FUTEX_LOCK_PI=6
                 r = -@as(c_int, @truncate(rc));
                 @atomicStore(c_int, &check_pi_result, r, .seq_cst);
             }
@@ -3332,9 +3333,9 @@ fn wait_fn(addr: *volatile c_int, waiters: ?*volatile c_int, val: c_int, priv_ar
     }
     while (addr.* == val) {
         const val_u: usize = @bitCast(@as(isize, val));
-        const rc: isize = @bitCast(linux.syscall4(.futex, @intFromPtr(addr), FUTEX_WAIT | priv, val_u, 0));
+        const rc: isize = @bitCast(linux.syscall4(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAIT | priv, val_u, 0));
         if (rc == -@as(isize, @intCast(@intFromEnum(E.NOSYS)))) {
-            _ = linux.syscall4(.futex, @intFromPtr(addr), FUTEX_WAIT, val_u, 0);
+            _ = linux.syscall4(SYS_FUTEX, @intFromPtr(addr), FUTEX_WAIT, val_u, 0);
         }
     }
     if (waiters) |w| {

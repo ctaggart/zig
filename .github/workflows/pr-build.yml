@@ -308,9 +308,66 @@ jobs:
           echo "libc-test commit: $libc_test_sha"
           echo "LIBC_TEST_SHA=$libc_test_sha" >> "$GITHUB_ENV"
 
-      - name: Skip libc-test — functional (aarch64-linux-musl, native)
+      - name: Run libc-test — functional subset (aarch64-linux-musl, native)
+        timeout-minutes: 30
+        continue-on-error: true
         run: |
-          echo "::warning::Temporarily skipping known-hanging native functional libc-test slice on libc/0.16.x."
+          set -euo pipefail
+          if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
+          if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
+          # Curated subset of functional libc-test sources to avoid known-hanging
+          # areas while libzigc migration is in flight. Excluded by category:
+          #   - pthread_*    (mutex/cond/cancel/rwlock/tsd/robust still in flux)
+          #   - sem_*        (POSIX semaphores depend on pthread internals)
+          #   - ipc_*        (SysV msg/sem/shm need kernel + cleanup)
+          #   - dlopen*      (dynamic linking not exercised by static link)
+          #   - tls_*        (TLS migration tracked in #491)
+          #   - spawn, popen, vfork (fork/exec/vfork)
+          # Each filter is a substring match (see test/src/Libc.zig).
+          filters=(
+            functional.argv
+            functional.basename
+            functional.clocale_mbfuncs
+            functional.clock_gettime
+            functional.crypt
+            functional.dirent
+            functional.dirname
+            functional.env
+            functional.fcntl
+            functional.fdopen
+            functional.fnmatch
+            functional.iconv_open
+            functional.inet_pton
+            functional.mbc
+            functional.memstream
+            functional.mntent
+            functional.qsort
+            functional.random
+            functional.search
+            functional.scanf
+            functional.setjmp
+            functional.snprintf
+            functional.socket
+            functional.stat
+            functional.str
+            functional.swprintf
+            functional.tgmath
+            functional.time
+            functional.udiv
+            functional.ungetc
+            functional.utime
+            functional.wcsstr
+            functional.wcstol
+          )
+          args=()
+          for f in "${filters[@]}"; do args+=("-Dtest-filter=$f"); done
+          "$STAGE4/bin/zig" build test-libc \
+              --zig-lib-dir lib \
+              -Dlibc-test-path="$CACHE_ROOT/libc-test" \
+              -Dtest-target-filter="${TARGET}" \
+              "${args[@]}" \
+              -j2 \
+              --summary failures
 
       - name: Run libc-test — api (aarch64-linux-musl, native)
         timeout-minutes: 20

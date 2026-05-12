@@ -115,7 +115,7 @@ jobs:
     needs: build-stage4
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    continue-on-error: ${{ matrix.allow_failure }}
+    continue-on-error: ${{ matrix.allow_failure && inputs.test-filter != 'api' }}
     strategy:
       fail-fast: false
       matrix:

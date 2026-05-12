@@ -1987,7 +1987,7 @@ fn store_int(dest: ?*anyopaque, size: c_int, i: c_ulonglong) void {
     }
 }
 
-fn arg_n(ap: VaList, n: c_uint) ?*anyopaque {
+fn arg_n(ap: VaList, n: c_uint) callconv(.c) ?*anyopaque {
     var ap_src = ap;
     var ap2 = @cVaCopy(&ap_src);
     defer @cVaEnd(&ap2);
@@ -2464,7 +2464,7 @@ fn vfwscanfStoreInt(dest: ?*anyopaque, size: VfwscanfSize, i: c_ulonglong) void 
     }
 }
 
-fn vfwscanfArgN(ap: VaList, n: c_uint) ?*anyopaque {
+fn vfwscanfArgN(ap: VaList, n: c_uint) callconv(.c) ?*anyopaque {
     var ap_src = ap;
     var ap2 = @cVaCopy(&ap_src);
     defer @cVaEnd(&ap2);

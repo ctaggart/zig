@@ -144,8 +144,8 @@ comptime {
             symbol(&sync_file_rangeLinux, "sync_file_range")
         else if (@hasField(linux.SYS, "sync_file_range2"))
 
-        // sysinfo
-        symbol(&sysinfoLinux, "__lsysinfo");
+            // sysinfo
+            symbol(&sysinfoLinux, "__lsysinfo");
 
         // timerfd
         symbol(&timerfd_createLinux, "timerfd_create");
@@ -610,7 +610,10 @@ fn wait3Linux(status: ?*c_int, options: c_int, usage: ?*anyopaque) callconv(.c) 
 }
 
 fn wait4Linux(pid: linux.pid_t, status: ?*c_int, options: c_int, ru: ?*anyopaque) callconv(.c) linux.pid_t {
-    return errno(linux.syscall4(.wait4, arg(pid), arg(status), arg(options), arg(ru)));
+    var status_buf: u32 = undefined;
+    const status_ptr: *u32 = if (status) |p| @ptrCast(p) else &status_buf;
+    const usage: ?*linux.rusage = if (ru) |p| @ptrCast(@alignCast(p)) else null;
+    return errno(linux.wait4(pid, status_ptr, @bitCast(options), usage));
 }
 
 // ─── xattr ──────────────────────────────────────────────────────────────────

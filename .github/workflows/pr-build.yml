@@ -365,7 +365,7 @@ jobs:
           - target: x86-linux-musl
             allow_failure: false
           - target: x86_64-linux-musl
-            allow_failure: true
+            allow_failure: false
           - target: arm-linux-musleabi
             allow_failure: false
           - target: arm-linux-musleabihf
@@ -379,7 +379,7 @@ jobs:
           - target: thumbeb-linux-musleabihf
             allow_failure: false
           - target: riscv32-linux-musl
-            allow_failure: true
+            allow_failure: false
           - target: riscv64-linux-musl
             allow_failure: false
           - target: powerpc64-linux-musl
@@ -393,7 +393,7 @@ jobs:
           - target: loongarch64-linux-muslsf
             allow_failure: false
           - target: wasm32-wasi-musl
-            allow_failure: true
+            allow_failure: false
     steps:
       - uses: actions/checkout@v4
 

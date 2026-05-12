@@ -30,6 +30,7 @@ extern fn clearenv() c_int;
 extern fn getentropy(buf: [*]u8, len: usize) c_int;
 
 extern fn _Exit(status: c_int) noreturn;
+extern fn __stdio_exit() void;
 
 // cloudlibc nocwd functions
 extern fn __wasilibc_nocwd_openat_nomode(dirfd: c_int, path: [*:0]const u8, oflag: c_int) c_int;
@@ -875,49 +876,70 @@ fn openImpl(path: [*:0]const u8, oflag: c_int) callconv(.c) c_int {
 fn accessImpl(path: [*:0]const u8, amode: c_int) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_faccessat(dirfd, relative_path, amode, 0);
 }
 
 fn readlinkImpl(path: [*:0]const u8, buf: [*]u8, bufsiz: usize) callconv(.c) isize {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_readlinkat(dirfd, relative_path, buf, bufsiz);
 }
 
 fn statImpl(path: [*:0]const u8, buf: *Stat) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_fstatat(dirfd, relative_path, buf, 0);
 }
 
 fn lstatImpl(path: [*:0]const u8, buf: *Stat) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_fstatat(dirfd, relative_path, buf, AT_SYMLINK_NOFOLLOW);
 }
 
 fn unlinkImpl(path: [*:0]const u8) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return wasilibcNocwdUnlinkatImpl(dirfd, relative_path);
 }
 
 fn rmdirImpl(path: [*:0]const u8) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return wasilibcNocwdRmdiratImpl(dirfd, relative_path);
 }
 
 fn removeImpl(path: [*:0]const u8) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     var r = wasilibcNocwdUnlinkatImpl(dirfd, relative_path);
     if (r != 0 and (std.c._errno().* == EISDIR or std.c._errno().* == ENOENT)) {
         r = wasilibcNocwdRmdiratImpl(dirfd, relative_path);
@@ -929,28 +951,40 @@ fn removeImpl(path: [*:0]const u8) callconv(.c) c_int {
 fn mkdirImpl(path: [*:0]const u8, _: c_uint) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_mkdirat_nomode(dirfd, relative_path);
 }
 
 fn opendirImpl(dirname: [*:0]const u8) callconv(.c) ?*anyopaque {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(dirname, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return null; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return null;
+    }
     return __wasilibc_nocwd_opendirat(dirfd, relative_path);
 }
 
 fn scandirImpl(dir: [*:0]const u8, namelist: *?*anyopaque, filter: ?*const anyopaque, compar: ?*const anyopaque) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(dir, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_scandirat(dirfd, relative_path, namelist, filter, compar);
 }
 
 fn symlinkImpl(target: [*:0]const u8, linkpath: [*:0]const u8) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(linkpath, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_symlinkat(target, dirfd, relative_path);
 }
 
@@ -1002,21 +1036,30 @@ fn fstatvfsImpl(_: c_int, _: *anyopaque) callconv(.c) c_int {
 fn wasilibcAccessImpl(path: [*:0]const u8, mode: c_int, flags: c_int) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_faccessat(dirfd, relative_path, mode, flags);
 }
 
 fn wasilibcUtimensImpl(path: [*:0]const u8, times: ?*const anyopaque, flags: c_int) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_utimensat(dirfd, relative_path, times, flags);
 }
 
 fn wasilibcStatImpl(path: [*:0]const u8, st: *Stat, flags: c_int) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_fstatat(dirfd, relative_path, st, flags);
 }
 
@@ -1025,35 +1068,50 @@ fn wasilibcLinkImpl(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: c_int
     var new_relative: [*:0]u8 = undefined;
     const old_dirfd = findRelpath(oldpath, &old_relative);
     const new_dirfd = findRelpath(newpath, &new_relative);
-    if (old_dirfd == -1 or new_dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (old_dirfd == -1 or new_dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_linkat(old_dirfd, old_relative, new_dirfd, new_relative, flags);
 }
 
 fn wasilibcLinkOldatImpl(olddirfd: c_int, oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: c_int) callconv(.c) c_int {
     var new_relative: [*:0]u8 = undefined;
     const new_dirfd = findRelpath(newpath, &new_relative);
-    if (new_dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (new_dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_linkat(olddirfd, oldpath, new_dirfd, new_relative, flags);
 }
 
 fn wasilibcLinkNewatImpl(oldpath: [*:0]const u8, newdirfd: c_int, newpath: [*:0]const u8, flags: c_int) callconv(.c) c_int {
     var old_relative: [*:0]u8 = undefined;
     const old_dirfd = findRelpath(oldpath, &old_relative);
-    if (old_dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (old_dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_linkat(old_dirfd, old_relative, newdirfd, newpath, flags);
 }
 
 fn wasilibcRenameOldatImpl(fromdirfd: c_int, from: [*:0]const u8, to: [*:0]const u8) callconv(.c) c_int {
     var to_relative: [*:0]u8 = undefined;
     const to_dirfd = findRelpath(to, &to_relative);
-    if (to_dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (to_dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_renameat(fromdirfd, from, to_dirfd, to_relative);
 }
 
 fn wasilibcRenameNewatImpl(from: [*:0]const u8, todirfd: c_int, to: [*:0]const u8) callconv(.c) c_int {
     var from_relative: [*:0]u8 = undefined;
     const from_dirfd = findRelpath(from, &from_relative);
-    if (from_dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (from_dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     return __wasilibc_nocwd_renameat(from_dirfd, from_relative, todirfd, to);
 }
 
@@ -1207,12 +1265,21 @@ fn wasilibcMaybeReinitializeEnvironEagerlyStrong() callconv(.c) void {
     wasilibcInitializeEnvironImpl();
 }
 
+fn funcsOnExitImpl() callconv(.c) void {}
+
+fn wasmCallDtorsImpl() callconv(.c) void {
+    funcsOnExitImpl();
+    __stdio_exit();
+}
+
 // =========================================================================
 // __main_void.c (WASIP1 path)
 // =========================================================================
 extern fn __main_argc_argv(argc: usize, argv: [*:null]?[*:0]u8) c_int;
 
 fn mainVoidImpl() callconv(.c) c_int {
+    wasilibcInitializeEnvironEagerly();
+
     var argv_buf_size: usize = 0;
     var argc: usize = 0;
     var err = wasi.args_sizes_get(&argc, &argv_buf_size);
@@ -1379,7 +1446,10 @@ const Timespec = extern struct { tv_sec: i64, tv_nsec: i64 };
 fn utimeImpl(path: [*:0]const u8, times: ?*const Utimbuf) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     if (times) |t| {
         var ts: [2]Timespec = .{
             .{ .tv_sec = t.actime, .tv_nsec = 0 },
@@ -1393,7 +1463,10 @@ fn utimeImpl(path: [*:0]const u8, times: ?*const Utimbuf) callconv(.c) c_int {
 fn utimesImpl(path: [*:0]const u8, times: ?*const [2]Timeval) callconv(.c) c_int {
     var relative_path: [*:0]u8 = undefined;
     const dirfd = findRelpath(path, &relative_path);
-    if (dirfd == -1) { std.c._errno().* = ENOENT; return -1; }
+    if (dirfd == -1) {
+        std.c._errno().* = ENOENT;
+        return -1;
+    }
     if (times) |t| {
         var ts: [2]Timespec = .{
             .{ .tv_sec = t[0].tv_sec, .tv_nsec = t[0].tv_usec * 1000 },
@@ -1554,6 +1627,11 @@ comptime {
         symbol(&wasilibcMaybeReinitializeEnvironEagerlyImpl, "__wasilibc_maybe_reinitialize_environ_eagerly");
         symbol(&wasilibcInitializeEnvironEagerly, "__wasilibc_initialize_environ_eagerly");
         symbol(&wasilibc_environ_storage, "__wasilibc_environ");
+        symbol(&wasilibc_environ_storage, "__environ");
+        symbol(&wasilibc_environ_storage, "_environ");
+        symbol(&wasilibc_environ_storage, "environ");
+        symbol(&funcsOnExitImpl, "__funcs_on_exit");
+        symbol(&wasmCallDtorsImpl, "__wasm_call_dtors");
 
         // __main_void.c
         symbol(&mainVoidImpl, "__main_void");

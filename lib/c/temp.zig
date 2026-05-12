@@ -29,7 +29,9 @@ const L_tmpnam = 20;
 fn __randname(template: [*]u8) callconv(.c) [*]u8 {
     var ts: linux.timespec = undefined;
     _ = linux.clock_gettime(.REALTIME, &ts);
-    var r: usize = @bitCast(ts.sec +% ts.nsec +% @as(isize, linux.gettid()) *% 65537);
+    const seed: i64 = ts.sec +% ts.nsec +% @as(i64, linux.gettid()) *% 65537;
+    const bits: u64 = @bitCast(seed);
+    var r: usize = @intCast(bits & @as(u64, std.math.maxInt(usize)));
     for (0..6) |i| {
         template[i] = @intCast(@as(u8, 'A') + (@as(u8, @truncate(r & 15))) + (@as(u8, @truncate(r & 16)) * 2));
         r >>= 5;

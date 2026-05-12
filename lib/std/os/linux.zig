@@ -1805,10 +1805,11 @@ pub fn unlinkat(dirfd: i32, path: [*:0]const u8, flags: u32) usize {
 }
 
 pub fn waitpid(pid: pid_t, status: *u32, flags: u32) usize {
-    return syscall4(.wait4, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(status), flags, 0);
+    return wait4(pid, status, flags, null);
 }
 
 pub fn wait4(pid: pid_t, status: *u32, flags: u32, usage: ?*rusage) usize {
+    if (comptime !@hasField(SYS, "wait4")) return wait4Emulate(pid, status, flags, usage);
     return syscall4(
         .wait4,
         @as(usize, @bitCast(@as(isize, pid))),
@@ -1816,6 +1817,45 @@ pub fn wait4(pid: pid_t, status: *u32, flags: u32, usage: ?*rusage) usize {
         flags,
         @intFromPtr(usage),
     );
+}
+
+fn wait4Emulate(pid: pid_t, status: ?*u32, flags: u32, usage: ?*rusage) usize {
+    const WEXITED = 4;
+    var info: siginfo_t = undefined;
+    info.fields.common.first.piduid.pid = 0;
+
+    var id: pid_t = pid;
+    const id_type: P = if (pid < -1) blk: {
+        id = -pid;
+        break :blk .PGID;
+    } else if (pid == -1) .ALL else if (pid == 0) .PGID else .PID;
+
+    const rc = syscall5(
+        .waitid,
+        @intFromEnum(id_type),
+        @as(usize, @bitCast(@as(isize, id))),
+        @intFromPtr(&info),
+        flags | WEXITED,
+        @intFromPtr(usage),
+    );
+    const signed: isize = @bitCast(rc);
+    if (signed < 0) return rc;
+
+    const si_pid = info.fields.common.first.piduid.pid;
+    if (si_pid != 0) if (status) |sp| {
+        const si_status = info.fields.common.second.sigchld.status;
+        const code: CLD = @enumFromInt(info.code);
+        sp.* = switch (code) {
+            .CONTINUED => 0xffff,
+            .DUMPED => @as(u32, @intCast(si_status & 0x7f)) | 0x80,
+            .EXITED => @as(u32, @intCast(si_status & 0xff)) << 8,
+            .KILLED => @as(u32, @intCast(si_status & 0x7f)),
+            .STOPPED, .TRAPPED => (@as(u32, @bitCast(si_status)) << 8) + 0x7f,
+            else => 0,
+        };
+    };
+
+    return @intCast(si_pid);
 }
 
 pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32, usage: ?*rusage) usize {
@@ -2000,6 +2040,15 @@ pub fn settimeofday(tv: *const timeval, tz: *const timezone) usize {
 }
 
 pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
+    if (comptime !@hasField(SYS, "nanosleep")) {
+        return syscall4(
+            if (@hasField(SYS, "clock_nanosleep") and native_arch != .hexagon) .clock_nanosleep else .clock_nanosleep_time64,
+            @intFromEnum(CLOCK.REALTIME),
+            0,
+            @intFromPtr(req),
+            @intFromPtr(rem),
+        );
+    }
     return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
 }
 

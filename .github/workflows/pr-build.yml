@@ -387,7 +387,7 @@ jobs:
           - target: powerpc64le-linux-musl
             allow_failure: false
           - target: s390x-linux-musl
-            allow_failure: true
+            allow_failure: false
           - target: loongarch64-linux-musl
             allow_failure: false
           - target: loongarch64-linux-muslsf

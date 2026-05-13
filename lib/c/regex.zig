@@ -2655,8 +2655,21 @@ fn treTnfaRunParallel(
 
     const num_tags: c_int = if (match_tags != null) tnfa.num_tags else 0;
 
-    if (tnfa.num_states == 0 or num_tags > @as(c_int, @intCast(std.math.maxInt(usize) / (8 * @sizeOf(regoff_t)) / @as(usize, @intCast(tnfa.num_states)))))
-        if (tnfa.num_states > 0) return REG_ESPACE;
+    // Overflow guard mirroring musl tre regexec: bail if num_tags is so
+    // large that allocating the per-state work area would overflow size_t.
+    // The original C compares `num_tags > SIZE_MAX / ... / num_states` with
+    // implicit unsigned promotion. The previous Zig port wrapped the right
+    // side in @intCast(c_int, ...), which truncated to a negative value for
+    // typical (small) num_states and caused regexec to return REG_ESPACE
+    // for every regex.
+    if (tnfa.num_states > 0) {
+        const max_per_state = std.math.maxInt(usize) / (8 * @sizeOf(regoff_t)) /
+            @as(usize, @intCast(tnfa.num_states));
+        if (num_tags < 0 or @as(usize, @intCast(num_tags)) > max_per_state)
+            return REG_ESPACE;
+    }
+    // If num_states == 0 (or somehow negative), fall through; the allocation
+    // sizes below evaluate to zero/small and the run loop is a no-op.
 
     const tbytes = @sizeOf(regoff_t) * @as(usize, @intCast(num_tags));
     const rbytes = @sizeOf(TreReach) * @as(usize, @intCast(tnfa.num_states + 1));

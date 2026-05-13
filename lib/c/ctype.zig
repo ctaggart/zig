@@ -1494,10 +1494,19 @@ fn casemap(c_arg: c_uint, dir: u1) c_uint {
 }
 
 fn towupper_fn(wc: wint_t) callconv(.c) wint_t {
+    // ASCII fast path mirrors musl's towupper().
+    // casemap()'s tables are designed for non-ASCII (Unicode general
+    // category rules) and do not produce correct results for ASCII letters.
+    if (wc < 128) {
+        return if (wc -% 'a' < 26) wc - 32 else wc;
+    }
     return casemap(wc, 1);
 }
 
 fn towlower_fn(wc: wint_t) callconv(.c) wint_t {
+    if (wc < 128) {
+        return if (wc -% 'A' < 26) wc + 32 else wc;
+    }
     return casemap(wc, 0);
 }
 

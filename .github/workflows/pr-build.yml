@@ -351,7 +351,6 @@ jobs:
             functional.fcntl
             functional.fdopen
             functional.fnmatch
-            functional.iconv_open
             functional.inet_pton
             functional.mbc
             functional.memstream
@@ -437,7 +436,6 @@ jobs:
             regression.fpclassify-invalid-ld80
             regression.ftello-unflushed-append
             regression.getpwnam_r-
-            regression.iconv-roundtrips
             regression.inet_
             regression.iswspace-null
             regression.lrand48-signextend

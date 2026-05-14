@@ -220,7 +220,19 @@ fn localeconv() callconv(.c) *c_lconv {
     return &posix_lconv;
 }
 
-fn newlocale(_: c_int, _: [*:0]const c_char, base: ?*anyopaque) callconv(.c) ?*anyopaque {
+fn newlocale(_: c_int, name: ?[*:0]const c_char, base: ?*anyopaque) callconv(.c) ?*anyopaque {
+    // The C and POSIX locales always resolve to the same global C-locale
+    // object; any other locale name is unknown and falls back to `base`
+    // (the musl behaviour for unsupported names with a non-null base).
+    if (name) |n_raw| {
+        const n = std.mem.span(@as([*:0]const u8, @ptrCast(n_raw)));
+        if (n.len == 0 or std.mem.eql(u8, n, "C") or std.mem.eql(u8, n, "POSIX")) {
+            return @ptrCast(&__c_locale_obj);
+        }
+        if (std.mem.eql(u8, n, "C.UTF-8")) {
+            return @ptrCast(&__c_dot_utf8_locale_obj);
+        }
+    }
     return base;
 }
 
@@ -266,8 +278,23 @@ fn textdomain(_: ?[*:0]const c_char) callconv(.c) [*:0]const c_char {
     return @ptrCast(@constCast("messages"));
 }
 
-fn uselocale(_: ?*anyopaque) callconv(.c) ?*anyopaque {
-    return null;
+// `LC_GLOBAL_LOCALE` is `(locale_t)-1` (langinfo.h / locale.h). It is the
+// initial value of every thread's locale (i.e. the per-thread locale is
+// not set and the process-wide global locale is used) and is also the
+// value used by `uselocale` to mean "restore the global locale".
+fn lcGlobalLocale() *anyopaque {
+    return @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
+}
+
+threadlocal var thread_locale: ?*anyopaque = null;
+
+fn uselocale(new_loc: ?*anyopaque) callconv(.c) ?*anyopaque {
+    const global = lcGlobalLocale();
+    const old: ?*anyopaque = thread_locale orelse global;
+    if (new_loc) |loc| {
+        thread_locale = if (loc == global) null else loc;
+    }
+    return old;
 }
 
 fn wcscoll(ws1: [*]const u32, ws2: [*]const u32) callconv(.c) c_int {

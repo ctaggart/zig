@@ -1337,7 +1337,15 @@ const casemap_exceptions = [_][2]u8{
 };
 
 fn tableLookup(table: []const u8, wc: c_uint) bool {
-    return (table[table[wc >> 8] *% 32 +% ((wc & 255) >> 3)] >> @intCast(wc & 7)) & 1 != 0;
+    // `table[b]` is a u8 page index that must be widened before
+    // multiplication: musl's two-level lookup uses pages of 32 bytes,
+    // so page_index * 32 routinely overflows u8 (e.g. page index 18
+    // for ASCII characters yields 18 * 32 = 576). The previous version
+    // used `*%` and `+%`, which wrapped to u8 and produced incorrect
+    // bit positions for any page index >= 8.
+    const page: c_uint = table[wc >> 8];
+    const idx: c_uint = page * 32 + ((wc & 255) >> 3);
+    return (table[idx] >> @intCast(wc & 7)) & 1 != 0;
 }
 
 fn iswalpha_fn(wc: wint_t) callconv(.c) c_int {

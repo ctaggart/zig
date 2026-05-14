@@ -3478,7 +3478,7 @@ fn patNext(pat: [*]const u8, m: usize, step: *usize, flags: c_int) c_int {
     }
     step.* = 1;
     if (pat[0] == '\\' and pat[1] != 0 and flags & FNM_NOESCAPE == 0) {
-        step.* = 2;
+        esc = 1;
         return patNextEscaped(pat + 1, m - 1, step, &esc);
     }
     if (pat[0] == '[') {
@@ -3724,10 +3724,7 @@ fn fnmatchInternal(
                 break :comp_loop;
             }
             k = strNext(s, @intFromPtr(endstr2) - @intFromPtr(s), &sinc);
-            if (k == 0) {
-                // failed
-                break :comp_loop;
-            }
+            if (k == 0) return FNM_NOMATCH;
             const kfold2: c_int = if (flags & FNM_CASEFOLD != 0) casefold(k) else k;
             if (c == FNM_BRACKET) {
                 if (matchBracket(p - pinc, k, kfold2) == 0) break :comp_loop;

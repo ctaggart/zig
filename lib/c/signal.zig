@@ -194,7 +194,7 @@ fn sigpendingLinux(set: *linux.sigset_t) callconv(.c) c_int {
 
 fn sigaltstackLinux(ss: ?*const linux.stack_t, old: ?*linux.stack_t) callconv(.c) c_int {
     if (ss) |s| {
-        if (s.flags & linux.SS.DISABLE == 0 and s.size < linux.MINSIGSTKSZ) {
+        if (s.flags & linux.SS.DISABLE == 0 and s.size < MINSIGSTKSZ) {
             std.c._errno().* = @intFromEnum(linux.E.NOMEM);
             return -1;
         }
@@ -205,6 +205,19 @@ fn sigaltstackLinux(ss: ?*const linux.stack_t, old: ?*linux.stack_t) callconv(.c
     }
     return errno(linux.sigaltstack(ss, old));
 }
+
+// musl-userspace `MINSIGSTKSZ` (from `arch/<arch>/bits/signal.h`). These
+// values intentionally differ from `std.os.linux.MINSIGSTKSZ`, which is
+// the kernel UAPI minimum; the userspace value is generally larger
+// because it includes space for libc bookkeeping. `sigaltstack` must
+// reject sub-userspace-minimum stacks with `ENOMEM` so that musl-built
+// libc-test cases (e.g. `regression.sigaltstack`) see the same
+// behaviour they see against musl.
+const MINSIGSTKSZ: usize = switch (builtin.cpu.arch) {
+    .aarch64, .aarch64_be => 6144,
+    .loongarch32, .loongarch64, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .s390x => 4096,
+    else => 2048,
+};
 
 fn sigprocmaskLinux(how: c_int, noalias set: ?*const linux.sigset_t, noalias old: ?*linux.sigset_t) callconv(.c) c_int {
     const rc = linux.sigprocmask(@bitCast(@as(u32, @bitCast(how))), set, old);

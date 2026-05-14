@@ -764,8 +764,16 @@ fn inet_pton_impl(af: c_int, s0: [*:0]const u8, a0: *anyopaque) callconv(.c) c_i
     var out: [*]u8 = a;
     var j: usize = 0;
     while (j < 8) : (j += 1) {
-        out[0] = @intCast(ip[j] >> 8);
-        out[1] = @intCast(ip[j]);
+        // musl `out[0] = ip[j]>>8; out[1] = ip[j];` — both rely on the
+        // implicit C truncation from unsigned short to unsigned char.
+        // `@intCast(ip[j])` is undefined behaviour whenever `ip[j] > 0xff`,
+        // which LLVM exploits in optimised builds to assume `ip[j] < 256`
+        // and propagate that back through the parsing loop, silently
+        // dropping the high byte of every group (so `ffff` decodes as
+        // `00 ff`). Use `@truncate` to make the byte truncation explicit
+        // and well-defined.
+        out[0] = @truncate(ip[j] >> 8);
+        out[1] = @truncate(ip[j]);
         out += 2;
     }
     if (need_v4 and inet_pton_impl(linux.AF.INET, s, a + 12) <= 0) return 0;

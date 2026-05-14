@@ -217,12 +217,17 @@ jobs:
           fi
           echo "STAGE4=$STAGE4" >> "$GITHUB_ENV"
 
-      - name: Prune old stage4 caches (keep 4 most recent)
+      - name: Prune old stage4 caches (keep 24 most recent)
         if: always()
         run: |
           set -euo pipefail
           cd "$CACHE_ROOT"
-          ls -1dt stage4-* 2>/dev/null | tail -n +5 | xargs -r rm -rf || true
+          # Keep enough caches that downstream jobs (pr-libc-test,
+          # pr-cross-compile) of older in-flight PRs can still find
+          # their stage4 even after several newer pr-build jobs
+          # have completed and pruned. Each stage4 is ~150MB; 24
+          # entries fit comfortably on the runner's NVMe.
+          ls -1dt stage4-* 2>/dev/null | tail -n +25 | xargs -r rm -rf || true
           echo "stage4 caches retained:"
           ls -1dt stage4-* 2>/dev/null || true
 
@@ -306,6 +311,10 @@ jobs:
               exit 1
           fi
           "$STAGE4/bin/zig" version
+          # Bump mtime so concurrent pr-build prune steps (which sort
+          # by mtime) treat this stage4 as recently-used and don't
+          # evict it while this job is still running.
+          touch "$STAGE4" || true
           echo "STAGE4=$STAGE4" >> "$GITHUB_ENV"
 
       - name: Update libc-test checkout (log SHA for forensics)
@@ -548,6 +557,10 @@ jobs:
               exit 1
           fi
           "$STAGE4/bin/zig" version
+          # Bump mtime so concurrent pr-build prune steps (which sort
+          # by mtime) treat this stage4 as recently-used and don't
+          # evict it while this job is still running.
+          touch "$STAGE4" || true
           echo "STAGE4=$STAGE4" >> "$GITHUB_ENV"
 
       - name: Cross-compile hello (${{ matrix.target }})

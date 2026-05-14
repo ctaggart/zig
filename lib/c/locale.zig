@@ -166,12 +166,90 @@ fn iconv_close(_: ?*anyopaque) callconv(.c) c_int {
 
 const c_locale_str: [:0]const u8 = "C";
 
-fn nl_langinfo(_: c_int) callconv(.c) [*:0]const c_char {
-    return @ptrCast(c_locale_str.ptr);
+// C-locale langinfo data (mirrors musl src/locale/langinfo.c).
+// Items within a category are stored back-to-back, separated by NULs.
+// nl_langinfo walks past `idx` NULs to find the requested item.
+const c_time: [:0]const u8 =
+    "Sun\x00Mon\x00Tue\x00Wed\x00Thu\x00Fri\x00Sat\x00" ++
+    "Sunday\x00Monday\x00Tuesday\x00Wednesday\x00" ++
+    "Thursday\x00Friday\x00Saturday\x00" ++
+    "Jan\x00Feb\x00Mar\x00Apr\x00May\x00Jun\x00" ++
+    "Jul\x00Aug\x00Sep\x00Oct\x00Nov\x00Dec\x00" ++
+    "January\x00February\x00March\x00April\x00" ++
+    "May\x00June\x00July\x00August\x00" ++
+    "September\x00October\x00November\x00December\x00" ++
+    "AM\x00PM\x00" ++
+    "%a %b %e %T %Y\x00" ++
+    "%m/%d/%y\x00" ++
+    "%H:%M:%S\x00" ++
+    "%I:%M:%S %p\x00" ++
+    "\x00" ++
+    "\x00" ++
+    "%m/%d/%y\x00" ++
+    "0123456789\x00" ++
+    "%a %b %e %T %Y\x00" ++
+    "%H:%M:%S";
+
+const c_messages: [:0]const u8 = "^[yY]\x00^[nN]\x00yes\x00no";
+const c_numeric: [:0]const u8 = ".\x00";
+
+// nl_item category codes (musl convention: item >> 16).
+const NL_CAT_LC_CTYPE: u32 = 0;
+const NL_CAT_LC_NUMERIC: u32 = 1;
+const NL_CAT_LC_TIME: u32 = 2;
+const NL_CAT_LC_MONETARY: u32 = 4;
+const NL_CAT_LC_MESSAGES: u32 = 5;
+const NL_CAT_LC_ALL: u32 = 6;
+
+// CODESET item value (musl, langinfo.h).
+const NL_ITEM_CODESET: c_int = 14;
+
+fn nlLangInfoImpl(item: c_int) [*:0]const u8 {
+    if (item == NL_ITEM_CODESET) {
+        // C locale uses ASCII; the C.UTF-8 locale is not tracked here.
+        return "ASCII";
+    }
+    const u_item = @as(u32, @bitCast(item));
+    const cat = u_item >> 16;
+    var idx = u_item & 0xffff;
+
+    // _NL_LOCALE_NAME(cat) = (cat << 16) | 0xffff — return locale name.
+    if (idx == 0xffff and cat < NL_CAT_LC_ALL) return "C";
+
+    const data: [*:0]const u8 = switch (cat) {
+        NL_CAT_LC_NUMERIC => blk: {
+            if (idx > 1) return "";
+            break :blk c_numeric.ptr;
+        },
+        NL_CAT_LC_TIME => blk: {
+            if (idx > 0x31) return "";
+            break :blk c_time.ptr;
+        },
+        NL_CAT_LC_MONETARY => blk: {
+            if (idx > 0) return "";
+            break :blk "";
+        },
+        NL_CAT_LC_MESSAGES => blk: {
+            if (idx > 3) return "";
+            break :blk c_messages.ptr;
+        },
+        else => return "",
+    };
+
+    var p: [*:0]const u8 = data;
+    while (idx > 0) : (idx -= 1) {
+        while (p[0] != 0) p += 1;
+        p += 1;
+    }
+    return p;
 }
 
-fn nl_langinfo_l(_: c_int, _: ?*anyopaque) callconv(.c) [*:0]const c_char {
-    return @ptrCast(c_locale_str.ptr);
+fn nl_langinfo(item: c_int) callconv(.c) [*:0]const c_char {
+    return @ptrCast(nlLangInfoImpl(item));
+}
+
+fn nl_langinfo_l(item: c_int, _: ?*anyopaque) callconv(.c) [*:0]const c_char {
+    return @ptrCast(nlLangInfoImpl(item));
 }
 
 fn __nl_langinfo_l(item: c_int, loc: ?*anyopaque) callconv(.c) [*:0]const c_char {

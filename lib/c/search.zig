@@ -357,13 +357,17 @@ fn resize(tab: *Tab, nel: usize) bool {
 
 fn hcreate_rImpl(nel: usize, htab: *HSearchData) callconv(.c) c_int {
     const tab_ptr: ?*Tab = @ptrCast(@alignCast(std.c.malloc(@sizeOf(Tab))));
-    if (tab_ptr == null) return 0;
+    if (tab_ptr == null) {
+        std.c._errno().* = @intFromEnum(std.os.linux.E.NOMEM);
+        return 0;
+    }
     const tab = tab_ptr.?;
     tab.entries = null;
     tab.mask = 0;
     tab.used = 0;
     if (!resize(tab, nel)) {
         std.c.free(@ptrCast(tab));
+        std.c._errno().* = @intFromEnum(std.os.linux.E.NOMEM);
         return 0;
     }
     htab.tab = tab;

@@ -428,8 +428,9 @@ fn __tm_to_secs(t: *const tm) callconv(.c) c_longlong {
         }
         year += adj;
     }
-    var result = __year_to_secs(year, null);
-    result += __month_to_secs(month, @intFromBool(false));
+    var is_leap: c_int = undefined;
+    var result = __year_to_secs(year, &is_leap);
+    result += __month_to_secs(month, is_leap);
     result += @as(c_longlong, 86400) * (t.tm_mday - 1);
     result += @as(c_longlong, 3600) * t.tm_hour;
     result += @as(c_longlong, 60) * t.tm_min;

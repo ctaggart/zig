@@ -205,10 +205,15 @@ fn tdeleteImpl(key: ?*const anyopaque, rootp: ?*?*anyopaque, cmp: ComparFn) call
     std.c.free(@ptrCast(node));
     i -= 1;
     a[i].* = child;
-    while (i > 0) {
+    // Walk the ancestor chain rebalancing each node. Mirrors musl's
+    // `while (--i && __tsearch_balance(a[i]));`: pre-decrement, exit
+    // when i reaches 0 (i.e. don't call balance on the rootp slot
+    // a[0]; `*a[0]` may have just been set to null when the tree
+    // becomes empty, which would segfault inside `balance`).
+    while (true) {
         i -= 1;
-        if (balance(a[i]) == 0) break;
         if (i == 0) break;
+        if (balance(a[i]) == 0) break;
     }
     return @ptrCast(parent);
 }

@@ -165,6 +165,46 @@ fn iconv_close(_: ?*anyopaque) callconv(.c) c_int {
 }
 
 const c_locale_str: [:0]const u8 = "C";
+const c_utf8_locale_str: [:0]const u8 = "C.UTF-8";
+
+/// Tracks whether the global LC_CTYPE category currently uses UTF-8.
+/// Updated by `setlocale(LC_CTYPE, …)`; read by `isLcCtypeUtf8` (which
+/// also honours the per-thread `uselocale` override) and through that
+/// by `nl_langinfo(CODESET)`, `__ctype_get_mb_cur_max`, and every
+/// multibyte / wide-char helper in libzigc.
+var lc_ctype_global_utf8: bool = false;
+
+/// Returns `true` iff the LC_CTYPE category of the active locale uses
+/// UTF-8 encoding. The active locale is the per-thread override set by
+/// `uselocale` if one is installed, otherwise the process-global locale
+/// set by `setlocale`.
+///
+/// Callers in libzigc (multibyte decode/encode, ctype helpers,
+/// `nl_langinfo`, the wide-char stdio paths, regex parsing) use this
+/// to switch between the single-byte C/POSIX behaviour and UTF-8.
+pub fn isLcCtypeUtf8() bool {
+    if (thread_locale) |tl| {
+        return tl == @as(*anyopaque, @ptrCast(&__c_dot_utf8_locale_obj));
+    }
+    return lc_ctype_global_utf8;
+}
+
+/// Returns `true` for any locale name whose codeset is UTF-8 — including
+/// `C.UTF-8`, `POSIX.UTF-8`, `en_US.UTF-8`, plain `UTF-8`, and case
+/// variants like `.utf8`. Permissive matching mirrors what libc-test's
+/// `t_setutf8` helper expects: applications try several names in
+/// sequence (`||`-chained `setlocale` calls) and the first non-NULL
+/// return wins.
+fn isUtf8LocaleName(name: []const u8) bool {
+    if (std.ascii.eqlIgnoreCase(name, "UTF-8")) return true;
+    if (std.ascii.eqlIgnoreCase(name, "utf8")) return true;
+    if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| {
+        const suffix = name[dot + 1 ..];
+        if (std.ascii.eqlIgnoreCase(suffix, "UTF-8")) return true;
+        if (std.ascii.eqlIgnoreCase(suffix, "utf8")) return true;
+    }
+    return false;
+}
 
 // C-locale langinfo data (mirrors musl src/locale/langinfo.c).
 // Items within a category are stored back-to-back, separated by NULs.
@@ -206,8 +246,7 @@ const NL_ITEM_CODESET: c_int = 14;
 
 fn nlLangInfoImpl(item: c_int) [*:0]const u8 {
     if (item == NL_ITEM_CODESET) {
-        // C locale uses ASCII; the C.UTF-8 locale is not tracked here.
-        return "ASCII";
+        return if (isLcCtypeUtf8()) "UTF-8" else "ASCII";
     }
     const u_item = @as(u32, @bitCast(item));
     const cat = u_item >> 16;
@@ -300,14 +339,16 @@ fn localeconv() callconv(.c) *c_lconv {
 
 fn newlocale(_: c_int, name: ?[*:0]const c_char, base: ?*anyopaque) callconv(.c) ?*anyopaque {
     // The C and POSIX locales always resolve to the same global C-locale
-    // object; any other locale name is unknown and falls back to `base`
-    // (the musl behaviour for unsupported names with a non-null base).
+    // object; any UTF-8 codeset name (`C.UTF-8`, `en_US.UTF-8`, …)
+    // resolves to the C.UTF-8 locale object. Anything else is unknown
+    // and falls back to `base` (matches musl's behaviour for unsupported
+    // names with a non-null base).
     if (name) |n_raw| {
         const n = std.mem.span(@as([*:0]const u8, @ptrCast(n_raw)));
         if (n.len == 0 or std.mem.eql(u8, n, "C") or std.mem.eql(u8, n, "POSIX")) {
             return @ptrCast(&__c_locale_obj);
         }
-        if (std.mem.eql(u8, n, "C.UTF-8")) {
+        if (isUtf8LocaleName(n)) {
             return @ptrCast(&__c_dot_utf8_locale_obj);
         }
     }
@@ -321,12 +362,23 @@ fn __pleval(_: [*:0]const c_char, _: c_ulong) callconv(.c) c_ulong {
 fn setlocale(_: c_int, locale: ?[*:0]const c_char) callconv(.c) ?[*:0]const c_char {
     if (locale) |loc| {
         const l = std.mem.span(@as([*:0]const u8, @ptrCast(loc)));
-        if (l.len == 0 or std.mem.eql(u8, l, "C") or std.mem.eql(u8, l, "POSIX")) {
+        // Empty string means "use environment variables" (POSIX). We
+        // don't read the env yet, so leave the current LC_CTYPE state
+        // alone and return whatever it is.
+        if (l.len == 0) {
+            return @ptrCast(if (lc_ctype_global_utf8) c_utf8_locale_str.ptr else c_locale_str.ptr);
+        }
+        if (std.mem.eql(u8, l, "C") or std.mem.eql(u8, l, "POSIX")) {
+            lc_ctype_global_utf8 = false;
             return @ptrCast(c_locale_str.ptr);
+        }
+        if (isUtf8LocaleName(l)) {
+            lc_ctype_global_utf8 = true;
+            return @ptrCast(c_utf8_locale_str.ptr);
         }
         return null;
     }
-    return @ptrCast(c_locale_str.ptr);
+    return @ptrCast(if (lc_ctype_global_utf8) c_utf8_locale_str.ptr else c_locale_str.ptr);
 }
 
 fn strfmon(_: [*]c_char, _: usize, _: [*:0]const c_char) callconv(.c) isize {

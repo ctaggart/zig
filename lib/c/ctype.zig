@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const symbol = @import("../c.zig").symbol;
+const lc_state = @import("locale.zig");
 
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
@@ -1718,7 +1719,10 @@ fn __ctype_b_loc() callconv(.c) *const [*]const u16 {
 }
 
 fn __ctype_get_mb_cur_max() callconv(.c) usize {
-    return 4;
+    // `MB_CUR_MAX` is locale-dependent: 1 in the C / POSIX locale,
+    // 4 in any UTF-8 locale. Read the active LC_CTYPE from
+    // `lib/c/locale.zig` (honours `uselocale`) rather than a constant.
+    return if (lc_state.isLcCtypeUtf8()) 4 else 1;
 }
 
 // glibc compat: __ctype_tolower_loc

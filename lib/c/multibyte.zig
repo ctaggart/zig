@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const symbol = @import("../c.zig").symbol;
+const lc_state = @import("locale.zig");
 
 comptime {
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
@@ -33,17 +34,14 @@ const MB_LEN_MAX = 4;
 const SA: u8 = 0xc2;
 const SB: u8 = 0xf4;
 
-extern "c" fn setlocale(category: c_int, locale: ?[*:0]const u8) ?[*:0]const u8;
-
-/// Check if the current locale uses UTF-8 encoding (MB_CUR_MAX > 1).
-/// In the C locale (default), MB_CUR_MAX is 1 and bytes 0x80-0xFF are
-/// valid single-byte characters.
+/// Returns `true` iff the active LC_CTYPE locale uses UTF-8 encoding.
+/// Single source of truth lives in `lib/c/locale.zig`; it honours both
+/// the per-thread `uselocale` override and the process-global state
+/// last set by `setlocale(LC_CTYPE, …)`. In the C / POSIX locale,
+/// `MB_CUR_MAX == 1` and bytes 0x80–0xFF are valid single-byte
+/// characters.
 fn currentUtf8() bool {
-    const loc = setlocale(0, null) orelse return false; // LC_CTYPE = 0
-    // C locale returns "C", POSIX returns "POSIX" — both are single-byte
-    if (loc[0] == 'C' and loc[1] == 0) return false;
-    if (loc[0] == 'P') return false; // "POSIX"
-    return true;
+    return lc_state.isLcCtypeUtf8();
 }
 
 /// Interval [a,b). Either a must be 0x80 or b must be 0xc0, lower 3 bits clear.

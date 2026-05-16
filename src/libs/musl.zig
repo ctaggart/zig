@@ -866,13 +866,13 @@ const src_files = [_][]const u8{
     //"musl/src/mman/mremap.c", // migrated to lib/c/sys/mman.zig
     //"musl/src/process/_Fork.c", // migrated to lib/c/process.zig
     //"musl/src/process/fork.c", // migrated to lib/c/process.zig
-    "musl/src/stdio/fputc.c",
+    //"musl/src/stdio/fputc.c", // migrated to lib/c/stdio.zig
     //"musl/src/stdio/fwide.c", // migrated to lib/c/stdio.zig
-    "musl/src/stdio/getc.c",
-    "musl/src/stdio/putc.c",
-    "musl/src/stdio/putc_unlocked.c",
-    "musl/src/stdio/putchar.c",
-    "musl/src/stdio/putchar_unlocked.c",
+    //"musl/src/stdio/getc.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/putc.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/putc_unlocked.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/putchar.c", // migrated to lib/c/stdio.zig
+    //"musl/src/stdio/putchar_unlocked.c", // migrated to lib/c/stdio.zig
     //"musl/src/thread/pthread_cancel.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_cond_timedwait.c", // migrated to lib/c/thread.zig
     "musl/src/thread/pthread_create.c",

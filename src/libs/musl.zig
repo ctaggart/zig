@@ -556,13 +556,13 @@ const src_files = [_][]const u8{
     //"musl/src/network/gethostbyname_r.c", // migrated to lib/c/network.zig
     //"musl/src/network/getifaddrs.c", // migrated to lib/c/network.zig
     //"musl/src/network/getnameinfo.c", // migrated to lib/c/network.zig
-    "musl/src/network/getpeername.c",
+    //"musl/src/network/getpeername.c", // migrated to lib/c/network.zig
     //"musl/src/network/getservbyname.c", // migrated to lib/c/network.zig
     //"musl/src/network/getservbyname_r.c", // migrated to lib/c/network.zig
     //"musl/src/network/getservbyport.c", // migrated to lib/c/network.zig
     //"musl/src/network/getservbyport_r.c", // migrated to lib/c/network.zig
-    "musl/src/network/getsockname.c",
-    "musl/src/network/getsockopt.c",
+    //"musl/src/network/getsockname.c", // migrated to lib/c/network.zig
+    //"musl/src/network/getsockopt.c", // migrated to lib/c/network.zig
     //"musl/src/network/h_errno.c", // migrated to lib/c/network.zig
     //"musl/src/network/herror.c", // migrated to lib/c/network.zig
     //"musl/src/network/hstrerror.c", // migrated to lib/c/network.zig
@@ -607,9 +607,9 @@ const src_files = [_][]const u8{
     "musl/src/network/sendmsg.c",
     "musl/src/network/sendto.c",
     //"musl/src/network/serv.c", // migrated to lib/c/network.zig; exports: endservent,setservent,getservent
-    "musl/src/network/setsockopt.c",
+    //"musl/src/network/setsockopt.c", // migrated to lib/c/network.zig
     //"musl/src/network/shutdown.c", // migrated to lib/c/network.zig
-    "musl/src/network/sockatmark.c",
+    //"musl/src/network/sockatmark.c", // migrated to lib/c/network.zig
     //"musl/src/network/socket.c", // migrated to lib/c/network.zig
     //"musl/src/network/socketpair.c", // migrated to lib/c/network.zig
     "musl/src/process/posix_spawn.c",

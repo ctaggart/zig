@@ -278,6 +278,16 @@ const c = if (builtin.link_libc) struct {
 
 comptime {
     if (builtin.target.isMuslLibC()) {
+        // socket.c / bind.c / listen.c / accept.c / accept4.c / connect.c / shutdown.c / socketpair.c
+        symbol(&socket_impl, "socket");
+        symbol(&bind_impl, "bind");
+        symbol(&listen_impl, "listen");
+        symbol(&accept_impl, "accept");
+        symbol(&accept4_impl, "accept4");
+        symbol(&connect_impl, "connect");
+        symbol(&shutdown_impl, "shutdown");
+        symbol(&socketpair_impl, "socketpair");
+
         // htonl.c / htons.c / ntohl.c / ntohs.c
         symbol(&htonl_impl, "htonl");
         symbol(&htons_impl, "htons");
@@ -363,6 +373,107 @@ fn ntohl_impl(n: u32) callconv(.c) u32 {
 
 fn ntohs_impl(n: u16) callconv(.c) u16 {
     return networkEndian(u16, n);
+}
+
+// ============================================================
+// Socket syscall wrappers (socket, bind, listen, accept, accept4,
+// connect, shutdown, socketpair). Mirrors musl/src/network/*.c —
+// these are thin wrappers around the corresponding Linux syscalls
+// (or `socketcall(2)` on legacy archs, handled by std.os.linux).
+// ============================================================
+
+const SOCK_CLOEXEC: c_int = linux.SOCK.CLOEXEC;
+const SOCK_NONBLOCK: c_int = linux.SOCK.NONBLOCK;
+const SOCK_EXTRA_FLAGS: c_int = SOCK_CLOEXEC | SOCK_NONBLOCK;
+const O_NONBLOCK_U: usize = @as(u32, @bitCast(linux.O{ .NONBLOCK = true }));
+
+fn socket_impl(domain: c_int, socket_type: c_int, protocol: c_int) callconv(.c) c_int {
+    var raw = linux.socket(@bitCast(domain), @bitCast(socket_type), @bitCast(protocol));
+    var signed: isize = @bitCast(raw);
+    if ((signed == -@as(isize, @intFromEnum(linux.E.INVAL)) or
+        signed == -@as(isize, @intFromEnum(linux.E.PROTONOSUPPORT))) and
+        (socket_type & SOCK_EXTRA_FLAGS) != 0)
+    {
+        raw = linux.socket(
+            @bitCast(domain),
+            @bitCast(socket_type & ~SOCK_EXTRA_FLAGS),
+            @bitCast(protocol),
+        );
+        signed = @bitCast(raw);
+        if (signed < 0) return errno(raw);
+        const fd: i32 = @intCast(signed);
+        if ((socket_type & SOCK_CLOEXEC) != 0)
+            _ = linux.fcntl(fd, linux.F.SETFD, @as(usize, linux.FD_CLOEXEC));
+        if ((socket_type & SOCK_NONBLOCK) != 0)
+            _ = linux.fcntl(fd, linux.F.SETFL, O_NONBLOCK_U);
+    }
+    return errno(raw);
+}
+
+fn bind_impl(fd: c_int, addr: *const linux.sockaddr, len: linux.socklen_t) callconv(.c) c_int {
+    return errno(linux.bind(fd, addr, len));
+}
+
+fn listen_impl(fd: c_int, backlog: c_int) callconv(.c) c_int {
+    return errno(linux.listen(fd, @bitCast(backlog)));
+}
+
+fn accept_impl(fd: c_int, addr: ?*linux.sockaddr, len: ?*linux.socklen_t) callconv(.c) c_int {
+    return errno(linux.accept(fd, addr, len));
+}
+
+fn accept4_impl(fd: c_int, addr: ?*linux.sockaddr, len: ?*linux.socklen_t, flags: c_int) callconv(.c) c_int {
+    if (flags == 0) return accept_impl(fd, addr, len);
+    var ret = errno(linux.accept4(fd, addr, len, @bitCast(flags)));
+    if (ret >= 0) return ret;
+    const e = std.c._errno().*;
+    if (e != @intFromEnum(linux.E.NOSYS) and e != @intFromEnum(linux.E.INVAL)) return ret;
+    if ((flags & ~SOCK_EXTRA_FLAGS) != 0) {
+        std.c._errno().* = @intFromEnum(linux.E.INVAL);
+        return -1;
+    }
+    ret = accept_impl(fd, addr, len);
+    if (ret < 0) return ret;
+    if ((flags & SOCK_CLOEXEC) != 0)
+        _ = linux.fcntl(ret, linux.F.SETFD, @as(usize, linux.FD_CLOEXEC));
+    if ((flags & SOCK_NONBLOCK) != 0)
+        _ = linux.fcntl(ret, linux.F.SETFL, O_NONBLOCK_U);
+    return ret;
+}
+
+fn connect_impl(fd: c_int, addr: *const linux.sockaddr, len: linux.socklen_t) callconv(.c) c_int {
+    return errno(linux.connect(fd, addr, len));
+}
+
+fn shutdown_impl(fd: c_int, how: c_int) callconv(.c) c_int {
+    return errno(linux.shutdown(fd, how));
+}
+
+fn socketpair_impl(domain: c_int, socket_type: c_int, protocol: c_int, fds: *[2]c_int) callconv(.c) c_int {
+    var ret = errno(linux.socketpair(@bitCast(domain), @bitCast(socket_type), @bitCast(protocol), fds));
+    if (ret < 0) {
+        const e = std.c._errno().*;
+        if ((e == @intFromEnum(linux.E.INVAL) or e == @intFromEnum(linux.E.PROTONOSUPPORT)) and
+            (socket_type & SOCK_EXTRA_FLAGS) != 0)
+        {
+            ret = errno(linux.socketpair(
+                @bitCast(domain),
+                @bitCast(socket_type & ~SOCK_EXTRA_FLAGS),
+                @bitCast(protocol),
+                fds,
+            ));
+            if (ret < 0) return ret;
+            if ((socket_type & SOCK_CLOEXEC) != 0) {
+                _ = linux.fcntl(fds[0], linux.F.SETFD, @as(usize, linux.FD_CLOEXEC));
+                _ = linux.fcntl(fds[1], linux.F.SETFD, @as(usize, linux.FD_CLOEXEC));
+            }
+            if ((socket_type & SOCK_NONBLOCK) != 0) {
+                _ = linux.fcntl(fds[0], linux.F.SETFL, O_NONBLOCK_U);
+                _ = linux.fcntl(fds[1], linux.F.SETFL, O_NONBLOCK_U);
+            }
+        }
+    }
+    return ret;
 }
 
 fn if_freenameindex_impl(idx: ?*if_nameindex_t) callconv(.c) void {

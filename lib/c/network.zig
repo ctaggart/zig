@@ -6,6 +6,7 @@ const linux = std.os.linux;
 
 const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
+const errnoSize = @import("../c.zig").errnoSize;
 
 const in_addr_t = u32;
 
@@ -380,6 +381,27 @@ comptime {
         symbol(&dn_expand_impl, "dn_expand");
         symbol(&dn_skipname_impl, "dn_skipname");
         symbol(&dns_parse_impl, "__dns_parse");
+
+        // send.c / sendto.c / sendmsg.c / sendmmsg.c
+        // recv.c / recvfrom.c / recvmsg.c / recvmmsg.c
+        symbol(&send_impl, "send");
+        symbol(&sendto_impl, "sendto");
+        symbol(&sendmsg_impl, "sendmsg");
+        symbol(&sendmmsg_impl, "sendmmsg");
+        symbol(&recv_impl, "recv");
+        symbol(&recvfrom_impl, "recvfrom");
+        symbol(&recvmsg_impl, "recvmsg");
+        // On `_REDIR_TIME64` ABIs (the LP32 musl archs in the time32 compat
+        // list) <sys/socket.h> redirects user calls to `recvmmsg` so they
+        // resolve against the symbol `__recvmmsg_time64`. Musl's
+        // `src/network/recvmmsg.c` itself ends up emitting that exact
+        // symbol because the redirect is processed when the file is
+        // compiled. We mirror that behaviour here.
+        if (is_redir_time64) {
+            symbol(&recvmmsg_impl, "__recvmmsg_time64");
+        } else {
+            symbol(&recvmmsg_impl, "recvmmsg");
+        }
     }
 
     // Subdirectory modules with real implementations
@@ -1577,4 +1599,553 @@ fn gai_strerror_impl(ecode: c_int) callconv(.c) [*:0]const u8 {
     }
     if (s[0] == 0) s += 1;
     return @ptrCast(s);
+}
+
+// ============================================================
+// send.c / sendto.c / sendmsg.c / sendmmsg.c
+// recv.c / recvfrom.c / recvmsg.c / recvmmsg.c
+// ============================================================
+//
+// musl exposes a user-visible `struct msghdr` whose `msg_iovlen` and
+// `msg_controllen` are `int`/`socklen_t` plus matching `__pad1`/`__pad2`
+// fields on LP64 ABIs (so the 8-byte slot fed to the kernel's `size_t`
+// fields matches up after the pad halves are zeroed). On LP32 ABIs the
+// layout matches the kernel directly and no fixup is needed. See
+// `lib/libc/musl/include/sys/socket.h`.
+
+const native_arch = builtin.cpu.arch;
+const is_le = native_arch.endian() == .little;
+const lp64 = @sizeOf(c_long) > @sizeOf(c_int);
+const is_x32 = builtin.target.abi == .muslx32 or builtin.target.abi == .gnux32;
+
+// `_REDIR_TIME64` is set on the LP32 Linux archs that musl includes in
+// its time32 compat list. On these targets the user-visible <sys/socket.h>
+// `__REDIR(recvmmsg, __recvmmsg_time64)` makes the legacy 32-bit time_t
+// `recvmmsg` symbol coexist with a new 64-bit time_t `__recvmmsg_time64`
+// (defined by `src/network/recvmmsg.c`, which is what we are migrating).
+const is_redir_time64 = switch (native_arch) {
+    .arm, .armeb, .thumb, .thumbeb => true,
+    .x86 => true,
+    .m68k => true,
+    .mips, .mipsel => true,
+    .powerpc, .powerpcle => true,
+    .mips64, .mips64el => switch (builtin.target.abi) {
+        .gnuabin32, .muslabin32 => true,
+        else => false,
+    },
+    else => false,
+};
+
+// musl's user-visible `struct timespec` post time64 conversion. On LP64
+// (and x32) `tv_sec`/`tv_nsec` are both `long` (8 bytes). On LP32 archs
+// the kernel-time64 transition kept `time_t` 64-bit while `long` stayed
+// 32-bit, so `tv_nsec` is packed against a 32-bit pad. Either way the
+// struct is 16 bytes and `tv_sec` is the leading i64.
+const musl_timespec = extern struct {
+    sec: i64,
+    nsec_raw: i64,
+};
+
+fn muslTsNsec(ts: musl_timespec) i64 {
+    if (lp64) return ts.nsec_raw;
+    // LP32: tv_nsec is the natively-aligned `long` slot, which is the
+    // low 32 bits of `nsec_raw` on both little and big endian (BE stores
+    // the 4-byte pad first, so the long is still at the low bits when
+    // we view the 8-byte slot as an i64).
+    const lo: i32 = @truncate(ts.nsec_raw);
+    return lo;
+}
+
+// musl `struct msghdr` exact layout (matches <sys/socket.h>). On LP64 the
+// pad fields make the 8-byte slots line up with the kernel's `size_t`
+// `msg_iovlen`/`msg_controllen`; on LP32 there are no pads.
+const c_msghdr = if (lp64 and is_le) extern struct {
+    msg_name: ?*anyopaque,
+    msg_namelen: linux.socklen_t,
+    msg_iov: ?*anyopaque,
+    msg_iovlen: c_int,
+    __pad1: c_int,
+    msg_control: ?*anyopaque,
+    msg_controllen: linux.socklen_t,
+    __pad2: linux.socklen_t,
+    msg_flags: c_int,
+} else if (lp64) extern struct {
+    msg_name: ?*anyopaque,
+    msg_namelen: linux.socklen_t,
+    msg_iov: ?*anyopaque,
+    __pad1: c_int,
+    msg_iovlen: c_int,
+    msg_control: ?*anyopaque,
+    __pad2: linux.socklen_t,
+    msg_controllen: linux.socklen_t,
+    msg_flags: c_int,
+} else extern struct {
+    msg_name: ?*anyopaque,
+    msg_namelen: linux.socklen_t,
+    msg_iov: ?*anyopaque,
+    msg_iovlen: c_int,
+    msg_control: ?*anyopaque,
+    msg_controllen: linux.socklen_t,
+    msg_flags: c_int,
+};
+
+const c_cmsghdr = if (lp64 and is_le) extern struct {
+    cmsg_len: linux.socklen_t,
+    __pad1: c_int,
+    cmsg_level: c_int,
+    cmsg_type: c_int,
+} else if (lp64) extern struct {
+    __pad1: c_int,
+    cmsg_len: linux.socklen_t,
+    cmsg_level: c_int,
+    cmsg_type: c_int,
+} else extern struct {
+    cmsg_len: linux.socklen_t,
+    cmsg_level: c_int,
+    cmsg_type: c_int,
+};
+
+const c_mmsghdr = extern struct {
+    msg_hdr: c_msghdr,
+    msg_len: c_uint,
+};
+
+// SCM_TIMESTAMP / SCM_TIMESTAMPNS values per musl <sys/socket.h>.
+// On LP64 (and on x32, which overrides via bits/socket.h) SCM_TIMESTAMP
+// already equals SCM_TIMESTAMP_OLD, so musl's `__convert_scm_timestamps`
+// returns immediately. Only non-x32 LP32 builds need the conversion.
+// SOL_SOCKET / SO_TIMESTAMP* are defined earlier in this file (see
+// the getsockopt/setsockopt block).
+const SCM_TIMESTAMP = SO_TIMESTAMP;
+const SCM_TIMESTAMP_OLD = SO_TIMESTAMP_OLD;
+const SCM_TIMESTAMPNS = SO_TIMESTAMPNS;
+const SCM_TIMESTAMPNS_OLD = SO_TIMESTAMPNS_OLD;
+const need_convert_scm_timestamps = SCM_TIMESTAMP != SCM_TIMESTAMP_OLD;
+const MSG_CTRUNC: u32 = 0x0008;
+
+// musl <sys/socket.h> CMSG macros expressed against the kernel-style
+// `struct cmsghdr` view (`cmsg_len` field is 8 bytes on LP64 once the
+// pad bits are zeroed, 4 bytes on LP32).
+fn cmsgAlign(len: usize) usize {
+    return (len + @sizeOf(usize) - 1) & ~@as(usize, @sizeOf(usize) - 1);
+}
+
+fn cmsgLenAlign(len: usize) usize {
+    return (len + @sizeOf(c_long) - 1) & ~@as(usize, @sizeOf(c_long) - 1);
+}
+
+fn cmsgFirstHdr(msg: *linux.msghdr) ?*linux.cmsghdr {
+    if (msg.controllen < @sizeOf(linux.cmsghdr)) return null;
+    return @ptrCast(@alignCast(msg.control));
+}
+
+fn cmsgNxtHdr(msg: *linux.msghdr, cmsg: *linux.cmsghdr) ?*linux.cmsghdr {
+    if (cmsg.len < @sizeOf(linux.cmsghdr)) return null;
+    const aligned = cmsgLenAlign(cmsg.len);
+    const cmsg_addr = @intFromPtr(cmsg);
+    const mhdr_end = @intFromPtr(msg.control) + msg.controllen;
+    if (aligned + @sizeOf(linux.cmsghdr) >= mhdr_end - cmsg_addr) return null;
+    return @ptrFromInt(cmsg_addr + aligned);
+}
+
+// Translate `recvmsg` results coming from a kernel that reports
+// SCM_TIMESTAMP_OLD/SCM_TIMESTAMPNS_OLD (long-based) timestamps into the
+// SCM_TIMESTAMP/SCM_TIMESTAMPNS (long-long-based) layout that LP32 musl
+// userspace expects. No-op on every ABI where the two constants coincide.
+fn convertScmTimestamps(msg: *linux.msghdr, csize: linux.socklen_t) void {
+    if (!need_convert_scm_timestamps) return;
+    if (msg.control == null or msg.controllen == 0) return;
+
+    var last: ?*linux.cmsghdr = null;
+    var tvts: [2]i64 = .{ 0, 0 };
+    var ttype: c_int = 0;
+
+    var cur: ?*linux.cmsghdr = cmsgFirstHdr(msg);
+    while (cur) |cmsg| : (cur = cmsgNxtHdr(msg, cmsg)) {
+        if (cmsg.level == SOL_SOCKET) {
+            switch (cmsg.type) {
+                SO_TIMESTAMP_OLD => {
+                    if (ttype == 0) {
+                        ttype = SCM_TIMESTAMP;
+                        const data: [*]const u8 = @ptrFromInt(@intFromPtr(cmsg) + @sizeOf(linux.cmsghdr));
+                        var tmp: c_long = 0;
+                        @memcpy(@as([*]u8, @ptrCast(&tmp))[0..@sizeOf(c_long)], data[0..@sizeOf(c_long)]);
+                        tvts[0] = tmp;
+                        @memcpy(@as([*]u8, @ptrCast(&tmp))[0..@sizeOf(c_long)], data[@sizeOf(c_long) .. 2 * @sizeOf(c_long)]);
+                        tvts[1] = tmp;
+                    }
+                },
+                SO_TIMESTAMPNS_OLD => {
+                    ttype = SCM_TIMESTAMPNS;
+                    const data: [*]const u8 = @ptrFromInt(@intFromPtr(cmsg) + @sizeOf(linux.cmsghdr));
+                    var tmp: c_long = 0;
+                    @memcpy(@as([*]u8, @ptrCast(&tmp))[0..@sizeOf(c_long)], data[0..@sizeOf(c_long)]);
+                    tvts[0] = tmp;
+                    @memcpy(@as([*]u8, @ptrCast(&tmp))[0..@sizeOf(c_long)], data[@sizeOf(c_long) .. 2 * @sizeOf(c_long)]);
+                    tvts[1] = tmp;
+                },
+                else => {},
+            }
+        }
+        last = cmsg;
+    }
+
+    const last_cmsg = last orelse return;
+    if (ttype == 0) return;
+
+    const cmsg_len = cmsgAlign(@sizeOf(linux.cmsghdr)) + @sizeOf(@TypeOf(tvts));
+    const cmsg_space = cmsgAlign(@sizeOf(linux.cmsghdr)) + cmsgAlign(@sizeOf(@TypeOf(tvts)));
+    if (cmsg_space > csize - msg.controllen) {
+        msg.flags |= MSG_CTRUNC;
+        return;
+    }
+    msg.controllen += cmsg_space;
+    const new_cmsg = cmsgNxtHdr(msg, last_cmsg) orelse return;
+    new_cmsg.level = SOL_SOCKET;
+    new_cmsg.type = ttype;
+    new_cmsg.len = cmsg_len;
+    const dst: [*]u8 = @ptrFromInt(@intFromPtr(new_cmsg) + @sizeOf(linux.cmsghdr));
+    @memcpy(dst[0..@sizeOf(@TypeOf(tvts))], @as([*]const u8, @ptrCast(&tvts))[0..@sizeOf(@TypeOf(tvts))]);
+}
+
+inline fn fdAsUsize(fd: c_int) usize {
+    return @bitCast(@as(isize, fd));
+}
+
+inline fn intAsUsize(x: c_int) usize {
+    return @bitCast(@as(isize, x));
+}
+
+// sendto.c
+fn sendto_impl(
+    fd: c_int,
+    buf: ?*const anyopaque,
+    len: usize,
+    flags: c_int,
+    addr: ?*const linux.sockaddr,
+    alen: linux.socklen_t,
+) callconv(.c) isize {
+    const fd_u = fdAsUsize(fd);
+    const flags_u = intAsUsize(flags);
+    const buf_u = @intFromPtr(buf);
+    const addr_u = @intFromPtr(addr);
+    const alen_u: usize = @intCast(alen);
+    const r = if (native_arch == .x86)
+        linux.socketcall(linux.SC.sendto, @ptrCast(&[6]usize{ fd_u, buf_u, len, flags_u, addr_u, alen_u }))
+    else
+        linux.syscall6(.sendto, fd_u, buf_u, len, flags_u, addr_u, alen_u);
+    return errnoSize(r);
+}
+
+// send.c
+fn send_impl(fd: c_int, buf: ?*const anyopaque, len: usize, flags: c_int) callconv(.c) isize {
+    return sendto_impl(fd, buf, len, flags, null, 0);
+}
+
+// recvfrom.c
+fn recvfrom_impl(
+    fd: c_int,
+    buf: ?*anyopaque,
+    len: usize,
+    flags: c_int,
+    addr: ?*linux.sockaddr,
+    alen: ?*linux.socklen_t,
+) callconv(.c) isize {
+    const fd_u = fdAsUsize(fd);
+    const flags_u = intAsUsize(flags);
+    const buf_u = @intFromPtr(buf);
+    const addr_u = @intFromPtr(addr);
+    const alen_u = @intFromPtr(alen);
+    const r = if (native_arch == .x86)
+        linux.socketcall(linux.SC.recvfrom, @ptrCast(&[6]usize{ fd_u, buf_u, len, flags_u, addr_u, alen_u }))
+    else
+        linux.syscall6(.recvfrom, fd_u, buf_u, len, flags_u, addr_u, alen_u);
+    return errnoSize(r);
+}
+
+// recv.c
+fn recv_impl(fd: c_int, buf: ?*anyopaque, len: usize, flags: c_int) callconv(.c) isize {
+    return recvfrom_impl(fd, buf, len, flags, null, null);
+}
+
+// Maximum cmsg-buffer size used by sendmsg's local copy. Mirrors musl:
+// 255 SCM_RIGHTS file descriptors plus the cmsghdr itself.
+const CHBUF_BYTES = cmsgAlign(255 * @sizeOf(c_int)) + cmsgAlign(@sizeOf(linux.cmsghdr));
+
+fn sendmsgSyscall(fd: c_int, msg_ptr: usize, flags: c_int) usize {
+    const fd_u = fdAsUsize(fd);
+    const flags_u = intAsUsize(flags);
+    if (native_arch == .x86) {
+        return linux.socketcall(linux.SC.sendmsg, @ptrCast(&[3]usize{ fd_u, msg_ptr, flags_u }));
+    }
+    return linux.syscall3(.sendmsg, fd_u, msg_ptr, flags_u);
+}
+
+// sendmsg.c
+fn sendmsg_impl(fd: c_int, msg: ?*const c_msghdr, flags: c_int) callconv(.c) isize {
+    if (!lp64 or msg == null) {
+        return errnoSize(sendmsgSyscall(fd, @intFromPtr(msg), flags));
+    }
+
+    // LP64: clone the caller's msghdr with the pad halves zeroed so the
+    // kernel reads the right size_t for msg_iovlen/msg_controllen, then
+    // do the same for each cmsghdr in a private stack-allocated buffer.
+    var h: linux.msghdr = undefined;
+    const src_bytes: [*]const u8 = @ptrCast(msg.?);
+    const dst_bytes: [*]u8 = @ptrCast(&h);
+    @memcpy(dst_bytes[0..@sizeOf(linux.msghdr)], src_bytes[0..@sizeOf(linux.msghdr)]);
+    h.iovlen &= 0xFFFFFFFF;
+    h.controllen &= 0xFFFFFFFF;
+
+    var chbuf: [CHBUF_BYTES]u8 align(@alignOf(linux.cmsghdr)) = undefined;
+    if (h.controllen != 0) {
+        if (h.controllen > chbuf.len) {
+            std.c._errno().* = @intFromEnum(linux.E.NOMEM);
+            return -1;
+        }
+        const src: [*]const u8 = @ptrCast(h.control);
+        @memcpy(chbuf[0..h.controllen], src[0..h.controllen]);
+        h.control = @ptrCast(&chbuf);
+        var cur: ?*linux.cmsghdr = cmsgFirstHdr(&h);
+        while (cur) |cmsg| : (cur = cmsgNxtHdr(&h, cmsg)) {
+            // Zero the cmsg_len's pad half (high 32 bits of the
+            // size_t-shaped slot) without disturbing the user's
+            // socklen_t portion.
+            cmsg.len &= 0xFFFFFFFF;
+        }
+    }
+
+    return errnoSize(sendmsgSyscall(fd, @intFromPtr(&h), flags));
+}
+
+fn recvmsgSyscall(fd: c_int, msg_ptr: usize, flags: c_int) usize {
+    const fd_u = fdAsUsize(fd);
+    const flags_u = intAsUsize(flags);
+    if (native_arch == .x86) {
+        return linux.socketcall(linux.SC.recvmsg, @ptrCast(&[3]usize{ fd_u, msg_ptr, flags_u }));
+    }
+    return linux.syscall3(.recvmsg, fd_u, msg_ptr, flags_u);
+}
+
+// recvmsg.c
+fn recvmsg_impl(fd: c_int, msg: ?*c_msghdr, flags: c_int) callconv(.c) isize {
+    const m = msg orelse {
+        // Match musl: dereferences `msg->msg_controllen` unconditionally;
+        // a NULL pointer would already segfault inside the C version.
+        // Skip the deref and just hand the NULL to the kernel which
+        // returns -EFAULT.
+        return errnoSize(recvmsgSyscall(fd, 0, flags));
+    };
+
+    // `orig_controllen` is the user's pre-syscall socklen_t (low 32 bits).
+    const orig_controllen: linux.socklen_t = blk: {
+        const raw: usize = @as(*const linux.msghdr, @ptrCast(@alignCast(m))).controllen;
+        break :blk @intCast(raw & 0xFFFFFFFF);
+    };
+
+    if (!lp64) {
+        const r_raw = recvmsgSyscall(fd, @intFromPtr(m), flags);
+        const signed: isize = @bitCast(r_raw);
+        if (signed >= 0) {
+            convertScmTimestamps(@ptrCast(@alignCast(m)), orig_controllen);
+        }
+        return errnoSize(r_raw);
+    }
+
+    var h: linux.msghdr = undefined;
+    const src_bytes: [*]const u8 = @ptrCast(m);
+    const dst_bytes: [*]u8 = @ptrCast(&h);
+    @memcpy(dst_bytes[0..@sizeOf(linux.msghdr)], src_bytes[0..@sizeOf(linux.msghdr)]);
+    h.iovlen &= 0xFFFFFFFF;
+    h.controllen &= 0xFFFFFFFF;
+
+    const r_raw = recvmsgSyscall(fd, @intFromPtr(&h), flags);
+    const signed: isize = @bitCast(r_raw);
+    if (signed >= 0) convertScmTimestamps(&h, orig_controllen);
+
+    // Copy the (possibly mutated) kernel-side msghdr back into the user's
+    // struct. The user's pad halves are restored to zero by the bytewise
+    // copy because `h` had them zeroed before the syscall.
+    @memcpy(src_bytes_mut(m)[0..@sizeOf(linux.msghdr)], dst_bytes[0..@sizeOf(linux.msghdr)]);
+
+    return errnoSize(r_raw);
+}
+
+inline fn src_bytes_mut(p: *c_msghdr) [*]u8 {
+    return @ptrCast(p);
+}
+
+// sendmmsg.c
+fn sendmmsg_impl(fd: c_int, msgvec: ?[*]c_mmsghdr, vlen_in: c_uint, flags: c_uint) callconv(.c) c_int {
+    if (!lp64) {
+        const fd_u = fdAsUsize(fd);
+        const r = linux.syscall4(.sendmmsg, fd_u, @intFromPtr(msgvec), vlen_in, flags);
+        return errno(r);
+    }
+
+    // LP64: the kernel's mmsghdr has size_t iovlen/controllen while musl's
+    // user-facing layout uses int/socklen_t plus pad halves, and the cmsg
+    // chain cannot be patched in place. Walk the array and call sendmsg
+    // individually (matching musl's behaviour).
+    var vlen = vlen_in;
+    if (vlen > linux.IOV_MAX) vlen = linux.IOV_MAX;
+    if (vlen == 0) return 0;
+    const mv = msgvec orelse {
+        std.c._errno().* = @intFromEnum(linux.E.FAULT);
+        return -1;
+    };
+
+    var i: c_uint = 0;
+    while (i < vlen) : (i += 1) {
+        const r = sendmsg_impl(fd, &mv[i].msg_hdr, @bitCast(flags));
+        if (r < 0) break;
+        mv[i].msg_len = @intCast(r);
+    }
+    return if (i != 0) @intCast(i) else -1;
+}
+
+// recvmmsg.c
+fn recvmmsg_impl(
+    fd: c_int,
+    msgvec: ?[*]c_mmsghdr,
+    vlen_in: c_uint,
+    flags: c_uint,
+    timeout: ?*musl_timespec,
+) callconv(.c) c_int {
+    var vlen = vlen_in;
+
+    // Zero the per-msghdr pad fields up-front on LP64 so the kernel sees
+    // valid size_t fields for every msghdr in the vector.
+    if (lp64) {
+        if (msgvec) |mv| {
+            var i: c_uint = 0;
+            while (i < vlen) : (i += 1) {
+                const h: *linux.msghdr = @ptrCast(@alignCast(&mv[i].msg_hdr));
+                h.iovlen &= 0xFFFFFFFF;
+                h.controllen &= 0xFFFFFFFF;
+            }
+        }
+    }
+
+    const fd_u = fdAsUsize(fd);
+
+    if (comptime @hasField(linux.SYS, "recvmmsg_time64")) {
+        // Two-step path used by musl on archs that have both
+        // `recvmmsg` and `recvmmsg_time64`: try the time64 syscall
+        // first (with the 64-bit timespec it expects), and fall back
+        // to the legacy `recvmmsg` with a CLAMP'd long-sized timespec
+        // if the kernel doesn't know `recvmmsg_time64`.
+        const has_legacy = comptime @hasField(linux.SYS, "recvmmsg");
+        var ts64: [2]i64 = .{ 0, 0 };
+        if (timeout) |t| {
+            ts64[0] = t.sec;
+            ts64[1] = muslTsNsec(t.*);
+        }
+        const ts64_arg: usize = if (timeout != null) @intFromPtr(&ts64) else 0;
+        const r_time64 = linux.syscall5(
+            .recvmmsg_time64,
+            fd_u,
+            @intFromPtr(msgvec),
+            vlen,
+            flags,
+            ts64_arg,
+        );
+
+        const same_syscall = comptime blk: {
+            if (!has_legacy) break :blk true;
+            const a: usize = @intFromEnum(@field(linux.SYS, "recvmmsg"));
+            const b: usize = @intFromEnum(@field(linux.SYS, "recvmmsg_time64"));
+            break :blk a == b;
+        };
+
+        const signed_r: isize = @bitCast(r_time64);
+        if (same_syscall or -signed_r != @intFromEnum(linux.E.NOSYS)) {
+            if (signed_r >= 0) convertScmTimestampsFromVec(msgvec, signed_r);
+            return errno(r_time64);
+        }
+
+        if (!has_legacy) return errno(r_time64);
+
+        // Legacy path: needs `(long[]){CLAMP(s), ns}` timespec and the
+        // per-msghdr cmsg-timestamp fixup after the syscall returns.
+        if (vlen > linux.IOV_MAX) vlen = linux.IOV_MAX;
+        var csize_buf: [linux.IOV_MAX]linux.socklen_t = undefined;
+        if (msgvec) |mv| {
+            var i: c_uint = 0;
+            while (i < vlen) : (i += 1) {
+                const cl: usize = @as(*const linux.msghdr, @ptrCast(@alignCast(&mv[i].msg_hdr))).controllen;
+                csize_buf[i] = @intCast(cl & 0xFFFFFFFF);
+            }
+        }
+        var tslong: [2]c_long = .{ 0, 0 };
+        if (timeout) |t| {
+            // CLAMP(x): if x fits in i32 use it, else saturate to INT_MAX
+            // (or INT_MIN if negative). Mirrors musl's `IS32BIT`.
+            const s = t.sec;
+            const ns = muslTsNsec(t.*);
+            const lo: i64 = std.math.minInt(i32);
+            const hi: i64 = std.math.maxInt(i32);
+            tslong[0] = @intCast(if (s < lo) lo else if (s > hi) hi else s);
+            tslong[1] = @intCast(ns);
+        }
+        const tslong_arg: usize = if (timeout != null) @intFromPtr(&tslong) else 0;
+        if (comptime @hasField(linux.SYS, "recvmmsg")) {
+            const r_legacy = linux.syscall5(
+                .recvmmsg,
+                fd_u,
+                @intFromPtr(msgvec),
+                vlen,
+                flags,
+                tslong_arg,
+            );
+            const r_legacy_signed: isize = @bitCast(r_legacy);
+            if (r_legacy_signed > 0) convertScmTimestampsFromVecLegacy(msgvec, r_legacy_signed, &csize_buf);
+            return errno(r_legacy);
+        }
+        unreachable;
+    }
+
+    if (comptime @hasField(linux.SYS, "recvmmsg")) {
+        // No time64 variant: pass the timespec straight through. On LP64
+        // archs `musl_timespec` already matches the kernel struct
+        // (`{long sec; long nsec;}`); on LP32 archs without a time64
+        // syscall the kernel takes a `__kernel_old_timespec`-style struct
+        // we don't support here.
+        const r = linux.syscall5(
+            .recvmmsg,
+            fd_u,
+            @intFromPtr(msgvec),
+            vlen,
+            flags,
+            @intFromPtr(timeout),
+        );
+        return errno(r);
+    }
+    std.c._errno().* = @intFromEnum(linux.E.NOSYS);
+    return -1;
+}
+
+fn convertScmTimestampsFromVec(msgvec: ?[*]c_mmsghdr, count: isize) void {
+    if (!need_convert_scm_timestamps) return;
+    const mv = msgvec orelse return;
+    var i: isize = 0;
+    while (i < count) : (i += 1) {
+        const h: *linux.msghdr = @ptrCast(@alignCast(&mv[@intCast(i)].msg_hdr));
+        const cl: linux.socklen_t = @intCast(h.controllen & 0xFFFFFFFF);
+        convertScmTimestamps(h, cl);
+    }
+}
+
+fn convertScmTimestampsFromVecLegacy(
+    msgvec: ?[*]c_mmsghdr,
+    count: isize,
+    csize: *const [linux.IOV_MAX]linux.socklen_t,
+) void {
+    if (!need_convert_scm_timestamps) return;
+    const mv = msgvec orelse return;
+    var i: isize = 0;
+    while (i < count) : (i += 1) {
+        const h: *linux.msghdr = @ptrCast(@alignCast(&mv[@intCast(i)].msg_hdr));
+        convertScmTimestamps(h, csize[@intCast(i)]);
+    }
 }

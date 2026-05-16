@@ -44,6 +44,13 @@ env:
   TARGET: aarch64-linux-musl
   MCPU: baseline
   CACHE_ROOT: /runner/_cache/pr-build
+  # Per-workspace Zig caches so concurrent pr-build jobs on the same
+  # self-hosted runner host can't clobber each other's `~/.cache/zig/`.
+  # `${GITHUB_WORKSPACE}` is unique per runner work-slot (e.g.
+  # `/runner/runner-3/_work/zig/zig`), so two jobs running on different
+  # runner slots get fully isolated caches.
+  ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/.zig-global-cache
+  ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/.zig-cache
 
 jobs:
   trust-check:

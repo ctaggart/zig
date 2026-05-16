@@ -27,10 +27,27 @@ const c_sigaction = extern struct {
     flags: c_int,
     restorer: ?*const fn () callconv(.c) void,
 };
-// Functions provided by the C library (sigaction.c remains as C)
+// Resolved via the symbols exported below from `__libc_sigactionImpl` and friends.
 extern "c" fn sigaction(sig: c_int, act: ?*const c_sigaction, oact: ?*c_sigaction) callconv(.c) c_int;
 extern "c" fn __sigaction(sig: c_int, act: ?*const c_sigaction, oact: ?*c_sigaction) callconv(.c) c_int;
 const SA_RESTART = 0x10000000;
+const SA_SIGINFO_NONMIPS: c_int = 4;
+const SA_SIGINFO_MIPS: c_int = 8;
+const SA_SIGINFO: c_int = if (builtin.cpu.arch.isMIPS()) SA_SIGINFO_MIPS else SA_SIGINFO_NONMIPS;
+const SA_RESTORER: c_int = 0x04000000;
+// Minimal view of musl's `struct __libc` (from src/internal/libc.h), enough
+// to read the `threaded` field for the pre-pthread unblock dance.
+const LibC = extern struct {
+    can_do_threads: u8,
+    threaded: u8,
+    secure: u8,
+    need_locks: i8,
+    threads_minus_1: c_int,
+};
+extern var __libc: LibC;
+extern var __abort_lock: c_int;
+extern "c" fn __lock(lock: *c_int) void;
+extern "c" fn __unlock(lock: *c_int) void;
 extern "c" fn psignal(sig: c_int, msg: ?[*:0]const u8) callconv(.c) void;
 const FILE = extern struct {
     flags: c_uint,
@@ -96,6 +113,11 @@ comptime {
         symbol(&__block_all_sigs, "__block_all_sigs");
         symbol(&__block_app_sigs, "__block_app_sigs");
         symbol(&__restore_sigs, "__restore_sigs");
+        symbol(&__libc_sigactionImpl, "__libc_sigaction");
+        symbol(&__sigactionImpl, "__sigaction");
+        symbol(&__sigactionImpl, "sigaction");
+        symbol(&__get_handler_set, "__get_handler_set");
+        @export(&__eintr_valid_flag, .{ .name = "__eintr_valid_flag", .linkage = .weak, .visibility = .hidden });
         symbol(&sigholdLinux, "sighold");
         symbol(&sigrelseLinux, "sigrelse");
         symbol(&sigpauseLinux, "sigpause");
@@ -245,6 +267,119 @@ fn __restore_sigs(set: *const sigset_t) callconv(.c) void {
     _ = linux.sigprocmask(linux.SIG.SETMASK, set, null);
 }
 
+// State backing the migrated `sigaction.c`: a bitmap of installed
+// non-default handlers (read by `__get_handler_set` from posix_spawn),
+// a "have we unmasked the implementation-internal signals yet" flag,
+// and the EINTR-might-be-meaningful flag consulted by `__timedwait`.
+var handler_set: sigset_t = @splat(0);
+var unmask_done: bool = false;
+var __eintr_valid_flag: c_int = 0;
+
+// True for arches whose userspace must install an rt_sigreturn trampoline
+// (`SA_RESTORER` flag). All other Linux arches (mips, loongarch, riscv,
+// hexagon, or1k) hand sigreturn off to the kernel directly.
+const has_restorer = @hasField(linux.k_sigaction, "restorer");
+
+fn __get_handler_set(set: *sigset_t) callconv(.c) void {
+    set.* = handler_set;
+}
+
+fn __libc_sigactionImpl(sig: c_int, sa: ?*const c_sigaction, old: ?*c_sigaction) callconv(.c) c_int {
+    var ksa: linux.k_sigaction = undefined;
+    var ksa_old: linux.k_sigaction = undefined;
+    const mask_size = @sizeOf(linux.sigset_t);
+
+    if (sa) |new| {
+        if (@intFromPtr(new.handler) > 1) {
+            const s: u32 = @bitCast(sig - 1);
+            const bit = @as(SigsetElement, 1) << @intCast(s % bits_per_elem);
+            _ = @atomicRmw(SigsetElement, &handler_set[s / bits_per_elem], .Or, bit, .seq_cst);
+
+            // If pthread_create has not yet been called, the
+            // implementation-internal signals (SIGCANCEL, SIGSYNCCALL)
+            // may still be blocked. Unblock them once before installing
+            // any application handler, so that a handler cannot observe
+            // an illegal sigset_t with those signals masked.
+            if (__libc.threaded == 0 and !unmask_done) {
+                const sigpt_set: sigset_t = comptime blk: {
+                    var m: sigset_t = @splat(0);
+                    // SIGCANCEL = 33, SIGSYNCCALL = 34 (bit positions 32, 33).
+                    for ([_]u32{ 32, 33 }) |bit_pos| {
+                        m[bit_pos / bits_per_elem] |= @as(SigsetElement, 1) << @intCast(bit_pos % bits_per_elem);
+                    }
+                    break :blk m;
+                };
+                _ = linux.syscall4(
+                    .rt_sigprocmask,
+                    linux.SIG.UNBLOCK,
+                    @intFromPtr(&sigpt_set),
+                    0,
+                    NSIG / 8,
+                );
+                unmask_done = true;
+            }
+
+            if ((new.flags & SA_RESTART) == 0) {
+                @atomicStore(c_int, &__eintr_valid_flag, 1, .seq_cst);
+            }
+        }
+        ksa.handler = @ptrCast(new.handler);
+        var flags_u32: u32 = @bitCast(new.flags);
+        if (has_restorer) {
+            flags_u32 |= @as(u32, @bitCast(SA_RESTORER));
+        }
+        ksa.flags = flags_u32;
+        if (has_restorer) {
+            const r_fn = if ((new.flags & SA_SIGINFO) != 0) &linux.restore_rt else &linux.restore;
+            @field(ksa, "restorer") = @ptrCast(r_fn);
+        }
+        @memcpy(std.mem.asBytes(&ksa.mask), std.mem.asBytes(&new.mask)[0..mask_size]);
+    }
+
+    const r = linux.syscall4(
+        .rt_sigaction,
+        @as(usize, @bitCast(@as(isize, sig))),
+        if (sa != null) @intFromPtr(&ksa) else 0,
+        if (old != null) @intFromPtr(&ksa_old) else 0,
+        mask_size,
+    );
+    const signed: isize = @bitCast(r);
+    if (signed < 0) {
+        std.c._errno().* = @intCast(-signed);
+        return -1;
+    }
+    if (old) |o| {
+        o.handler = @ptrCast(ksa_old.handler);
+        o.flags = @bitCast(@as(u32, @truncate(ksa_old.flags)));
+        @memcpy(std.mem.asBytes(&o.mask)[0..mask_size], std.mem.asBytes(&ksa_old.mask));
+    }
+    return 0;
+}
+
+fn __sigactionImpl(sig: c_int, sa: ?*const c_sigaction, old: ?*c_sigaction) callconv(.c) c_int {
+    const s1: u32 = @bitCast(sig -% 1);
+    if (s1 >= NSIG - 1 or @as(u32, @bitCast(sig -% 32)) < 3) {
+        std.c._errno().* = @intFromEnum(linux.E.INVAL);
+        return -1;
+    }
+
+    // Changing the disposition of SIGABRT must be serialised against
+    // `abort()` so the latter cannot observe a half-installed handler
+    // while it is racing to terminate the process.
+    var saved: sigset_t = undefined;
+    const is_sigabrt = sig == @intFromEnum(linux.SIG.ABRT);
+    if (is_sigabrt) {
+        __block_all_sigs(&saved);
+        __lock(&__abort_lock);
+    }
+    const r = __libc_sigactionImpl(sig, sa, old);
+    if (is_sigabrt) {
+        __unlock(&__abort_lock);
+        __restore_sigs(&saved);
+    }
+    return r;
+}
+
 fn sigholdLinux(sig: c_int) callconv(.c) c_int {
     var mask: sigset_t = @splat(0);
     const s: u32 = @bitCast(sig -% 1);
@@ -380,10 +515,7 @@ fn sigqueueImpl(pid: linux.pid_t, sig: c_int, value: usize) callconv(.c) c_int {
 
     var set: sigset_t = undefined;
     _ = linux.sigprocmask(linux.SIG.BLOCK, &app_mask, &set);
-    const ret = errno(linux.syscall3(.rt_sigqueueinfo,
-        @as(usize, @bitCast(@as(isize, pid))),
-        @as(usize, @bitCast(@as(isize, sig))),
-        @intFromPtr(&si)));
+    const ret = errno(linux.syscall3(.rt_sigqueueinfo, @as(usize, @bitCast(@as(isize, pid))), @as(usize, @bitCast(@as(isize, sig))), @intFromPtr(&si)));
     _ = linux.sigprocmask(linux.SIG.SETMASK, &set, null);
     return ret;
 }

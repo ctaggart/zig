@@ -179,7 +179,10 @@ const FUTEX_PRIVATE: usize = 128;
 const SYS_futex_time64: usize = if (@hasField(linux.SYS, "futex_time64")) @intFromEnum(linux.SYS.futex_time64) else 0;
 const SYS_futex: usize = if (@hasField(linux.SYS, "futex")) @intFromEnum(linux.SYS.futex) else SYS_futex_time64;
 const SYS_FUTEX: linux.SYS = if (@hasField(linux.SYS, "futex")) .futex else .futex_time64;
-var dummy_eintr_valid_flag: c_int = 0;
+// `__eintr_valid_flag` is now provided as a real symbol by lib/c/signal.zig
+// (the migrated `sigaction.c`). Reference it via extern so that any handler
+// installed without `SA_RESTART` is observed here.
+extern var __eintr_valid_flag: c_int;
 var unmap_base: ?*anyopaque = null;
 var unmap_size: usize = 0;
 var shared_stack: [256]u8 = undefined;
@@ -449,7 +452,6 @@ comptime {
             symbol(&pthread_cancel_fn, "pthread_cancel");
             symbol(&timedwait_cp_fn, "__timedwait_cp");
             symbol(&timedwait_fn, "__timedwait");
-            symbol(&dummy_eintr_valid_flag, "__eintr_valid_flag");
             symbol(&unmapself_fn, "__unmapself");
         }
     }
@@ -3424,7 +3426,7 @@ fn timedwait_cp_fn(addr: *volatile c_int, val: c_int, clk: c_int, at: ?*const li
 
     var r: c_int = @intCast(-futex4_cp(addr, FUTEX_WAIT | priv, val, top));
     if (r != eint(.INTR) and r != eint(.TIMEDOUT) and r != eint(.CANCELED)) r = 0;
-    if (r == eint(.INTR) and @atomicLoad(c_int, &dummy_eintr_valid_flag, .monotonic) == 0) r = 0;
+    if (r == eint(.INTR) and @atomicLoad(c_int, &__eintr_valid_flag, .monotonic) == 0) r = 0;
     return r;
 }
 

@@ -448,8 +448,16 @@ fn fgetwc_unlocked_internal(f: *FILE) wint_t {
 
     if (f.rpos != f.rend) {
         const len = @intFromPtr(f.rend.?) - @intFromPtr(f.rpos.?);
-        l = @intCast(mbtowc_fn(&wc, f.rpos, len));
-        if (l +% 1 >= 1) {
+        // `mbtowc` returns a `c_int`: a non-negative byte count on
+        // success, or -1 on incomplete / invalid sequence. Casting
+        // a negative `c_int` to `usize` with `@intCast` is illegal
+        // behaviour in safe build modes and undefined in optimised
+        // modes (which here caused us to return the still-undefined
+        // `wc` to the caller). Mirror musl's behaviour: fall through
+        // to the byte-by-byte path on a negative return.
+        const ret: c_int = mbtowc_fn(&wc, f.rpos, len);
+        if (ret >= 0) {
+            l = @intCast(ret);
             f.rpos = f.rpos.? + l + @intFromBool(l == 0);
             return @intCast(wc);
         }

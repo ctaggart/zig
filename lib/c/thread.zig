@@ -355,6 +355,7 @@ comptime {
         symbol(&pthread_atfork_fn, "pthread_atfork");
         symbol(&pthread_tsd_size, "__pthread_tsd_size");
         symbol(&pthread_tsd_main, "__pthread_tsd_main");
+        symbol(&sem_open_lockptr, "__sem_open_lockptr");
     }
     if (builtin.target.isMuslLibC()) {
         if (builtin.link_libc) {
@@ -372,6 +373,8 @@ comptime {
             symbol(&pthread_detach_fn, "pthread_detach");
             symbol(&sem_wait_fn, "sem_wait");
             symbol(&sem_unlink_fn, "sem_unlink");
+            symbol(&sem_open_impl, "sem_open");
+            symbol(&sem_close_impl, "sem_close");
             symbol(&do_cleanup_push_default, "__do_cleanup_push");
             symbol(&do_cleanup_pop_default, "__do_cleanup_pop");
             symbol(&_pthread_cleanup_push_fn, "_pthread_cleanup_push");
@@ -1126,6 +1129,300 @@ fn sem_wait_fn(sem: *sem_impl) callconv(.c) c_int {
 fn sem_unlink_fn(name: [*:0]const u8) callconv(.c) c_int {
     const shm_unlink = @extern(*const fn ([*:0]const u8) callconv(.c) c_int, .{ .name = "shm_unlink" });
     return shm_unlink(name);
+}
+
+// --- sem_open.c (also defines sem_close) ---
+// Named POSIX semaphores backed by files in /dev/shm. Multiple sem_open
+// calls on the same name return the same pointer; the per-process semtab
+// tracks (inode, sem, refcnt) so duplicate mappings are coalesced and
+// sem_close only unmaps when the last reference is released.
+
+const SEM_NSEMS_MAX: c_int = 256;
+const SEM_NAME_MAX: usize = 255;
+
+const SemTabEntry = extern struct {
+    ino: u64 = 0,
+    sem: ?*sem_impl = null,
+    refcnt: c_int = 0,
+};
+
+var semtab: ?[*]SemTabEntry = null;
+var sem_open_lock_storage: c_int = 0;
+var sem_open_lockptr: ?*c_int = &sem_open_lock_storage;
+
+/// Inline equivalent of musl's hidden `__shm_mapname`: validate `name`
+/// per POSIX shm_open/sem_open rules and emit "/dev/shm/<name>" into
+/// `buf`, returning a pointer to the start of the buffer on success.
+/// On error, sets errno and returns null.
+fn shm_mapname(name: [*:0]const u8, buf: *[SEM_NAME_MAX + 10]u8) ?[*:0]const u8 {
+    var p = name;
+    while (p[0] == '/') p += 1;
+    var len: usize = 0;
+    while (p[len] != 0) : (len += 1) {
+        if (p[len] == '/') {
+            std.c._errno().* = eint(.INVAL);
+            return null;
+        }
+    }
+    if (len == 0 or (len <= 2 and p[0] == '.' and (len == 1 or p[1] == '.'))) {
+        std.c._errno().* = eint(.INVAL);
+        return null;
+    }
+    if (len > SEM_NAME_MAX) {
+        std.c._errno().* = eint(.NAMETOOLONG);
+        return null;
+    }
+    @memcpy(buf[0..9], "/dev/shm/");
+    @memcpy(buf[9..][0..len], p[0..len]);
+    buf[9 + len] = 0;
+    return @ptrCast(buf);
+}
+
+/// Common cleanup for any failure path inside sem_open: restore the
+/// cancellation state and release the slot we reserved.
+fn sem_open_release_slot(slot: c_int, cs: c_int) ?*sem_impl {
+    const pthread_setcancelstate_ext = @extern(
+        *const fn (c_int, ?*c_int) callconv(.c) c_int,
+        .{ .name = "pthread_setcancelstate" },
+    );
+    _ = pthread_setcancelstate_ext(cs, null);
+    __lock_fn(&sem_open_lock_storage);
+    if (semtab) |tab| tab[@intCast(slot)].sem = null;
+    __unlock_fn(&sem_open_lock_storage);
+    return null;
+}
+
+fn sem_open_impl(name: [*:0]const u8, flags: c_int, ...) callconv(.c) ?*sem_impl {
+    var path_buf: [SEM_NAME_MAX + 10]u8 = undefined;
+    const path = shm_mapname(name, &path_buf) orelse return null;
+
+    __lock_fn(&sem_open_lock_storage);
+    if (semtab == null) {
+        const p = std.c.calloc(@sizeOf(SemTabEntry), @intCast(SEM_NSEMS_MAX)) orelse {
+            __unlock_fn(&sem_open_lock_storage);
+            return null;
+        };
+        semtab = @ptrCast(@alignCast(p));
+    }
+    const tab = semtab.?;
+
+    // Reserve a slot up front: creating the backing file can fail in ways
+    // that cannot be undone, so we must know we have somewhere to record
+    // the result before doing any I/O.
+    var slot: c_int = -1;
+    var cnt: c_int = 0;
+    {
+        var i: c_int = 0;
+        while (i < SEM_NSEMS_MAX) : (i += 1) {
+            const entry = &tab[@intCast(i)];
+            cnt +%= entry.refcnt;
+            if (entry.sem == null and slot < 0) slot = i;
+        }
+    }
+    if (cnt == std.math.maxInt(c_int) or slot < 0) {
+        std.c._errno().* = eint(.MFILE);
+        __unlock_fn(&sem_open_lock_storage);
+        return null;
+    }
+    // Dummy sentinel pointer (matches musl's `(sem_t *)-1`).
+    const sentinel: *sem_impl = @ptrFromInt(@as(usize, std.math.maxInt(usize)) & ~@as(usize, @alignOf(sem_impl) - 1));
+    tab[@intCast(slot)].sem = sentinel;
+    __unlock_fn(&sem_open_lock_storage);
+
+    // Only O_CREAT and O_EXCL are honored.
+    const o_flags: linux.O = @bitCast(@as(u32, @bitCast(flags)));
+    const create = o_flags.CREAT;
+    const exclusive = o_flags.EXCL;
+
+    const pthread_setcancelstate_ext = @extern(
+        *const fn (c_int, ?*c_int) callconv(.c) c_int,
+        .{ .name = "pthread_setcancelstate" },
+    );
+    var cs: c_int = undefined;
+    _ = pthread_setcancelstate_ext(1, &cs); // PTHREAD_CANCEL_DISABLE
+
+    // Early failure check for exclusive open; otherwise the case where the
+    // semaphore already exists is expensive.
+    if (create and exclusive) {
+        if (linux.faccessat(linux.AT.FDCWD, path, linux.F_OK, 0) == 0) {
+            std.c._errno().* = eint(.EXIST);
+            return sem_open_release_slot(slot, cs);
+        }
+    }
+
+    const base_flags: linux.O = .{
+        .ACCMODE = .RDWR,
+        .NOFOLLOW = true,
+        .CLOEXEC = true,
+        .NONBLOCK = true,
+    };
+    const prot: std.os.linux.PROT = .{ .READ = true, .WRITE = true };
+    const map_flags: std.os.linux.MAP = .{ .TYPE = .SHARED };
+
+    var newsem: sem_impl = .{};
+    var first = true;
+    var mode_arg: linux.mode_t = 0;
+    var st_ino: u64 = 0;
+    var map_addr: usize = 0;
+
+    while (true) {
+        // If exclusive mode is not requested, try opening an existing file
+        // first and fall back to creation.
+        if (!(create and exclusive)) {
+            const fd_raw = linux.openat(linux.AT.FDCWD, path, base_flags, 0);
+            const fd_signed: isize = @bitCast(fd_raw);
+            if (fd_signed >= 0) {
+                const fd: i32 = @intCast(fd_signed);
+                var stx: linux.Statx = undefined;
+                const stx_rc: isize = @bitCast(linux.statx(fd, "", linux.AT.EMPTY_PATH, linux.STATX.BASIC_STATS, &stx));
+                if (stx_rc < 0) {
+                    _ = linux.close(fd);
+                    std.c._errno().* = @intCast(-stx_rc);
+                    return sem_open_release_slot(slot, cs);
+                }
+                const mm = linux.mmap(null, @sizeOf(sem_impl), prot, map_flags, fd, 0);
+                const mm_signed: isize = @bitCast(mm);
+                if (mm_signed < 0 and mm_signed >= -4095) {
+                    _ = linux.close(fd);
+                    std.c._errno().* = @intCast(-mm_signed);
+                    return sem_open_release_slot(slot, cs);
+                }
+                _ = linux.close(fd);
+                map_addr = mm;
+                st_ino = stx.ino;
+                break;
+            }
+            const err: c_int = @intCast(-fd_signed);
+            if (err != eint(.NOENT)) {
+                std.c._errno().* = err;
+                return sem_open_release_slot(slot, cs);
+            }
+            std.c._errno().* = err;
+        }
+        if (!create) {
+            // Without O_CREAT and the file does not exist: errno is already ENOENT.
+            return sem_open_release_slot(slot, cs);
+        }
+        if (first) {
+            first = false;
+            var ap = @cVaStart();
+            const m_arg = @cVaArg(&ap, linux.mode_t);
+            const value_arg = @cVaArg(&ap, c_uint);
+            @cVaEnd(&ap);
+            mode_arg = m_arg & 0o666;
+            if (value_arg > 0x7fffffff) {
+                std.c._errno().* = eint(.INVAL);
+                return sem_open_release_slot(slot, cs);
+            }
+            _ = sem_init(&newsem, 1, value_arg);
+        }
+
+        // Create a temp file with the new semaphore contents and attempt to
+        // atomically link it as the new name.
+        var ts: linux.timespec = undefined;
+        _ = linux.clock_gettime(.REALTIME, &ts);
+        var tmp_buf: [64]u8 = undefined;
+        const tmp_path = std.fmt.bufPrintZ(&tmp_buf, "/dev/shm/tmp-{d}", .{@as(c_int, @truncate(ts.nsec))}) catch unreachable;
+
+        var create_flags = base_flags;
+        create_flags.CREAT = true;
+        create_flags.EXCL = true;
+
+        const fd_raw = linux.openat(linux.AT.FDCWD, tmp_path.ptr, create_flags, mode_arg);
+        const fd_signed: isize = @bitCast(fd_raw);
+        if (fd_signed < 0) {
+            const err: c_int = @intCast(-fd_signed);
+            std.c._errno().* = err;
+            if (err == eint(.EXIST)) continue;
+            return sem_open_release_slot(slot, cs);
+        }
+        const fd: i32 = @intCast(fd_signed);
+
+        const w_raw = linux.write(fd, std.mem.asBytes(&newsem), @sizeOf(sem_impl));
+        const w_signed: isize = @bitCast(w_raw);
+        var stx: linux.Statx = undefined;
+        const stx_rc: isize = @bitCast(linux.statx(fd, "", linux.AT.EMPTY_PATH, linux.STATX.BASIC_STATS, &stx));
+
+        var fatal = false;
+        var mapped: usize = 0;
+        if (w_signed != @sizeOf(sem_impl) or stx_rc < 0) {
+            fatal = true;
+            if (w_signed < 0) std.c._errno().* = @intCast(-w_signed);
+            if (stx_rc < 0) std.c._errno().* = @intCast(-stx_rc);
+        } else {
+            mapped = linux.mmap(null, @sizeOf(sem_impl), prot, map_flags, fd, 0);
+            const mm_signed: isize = @bitCast(mapped);
+            if (mm_signed < 0 and mm_signed >= -4095) {
+                fatal = true;
+                std.c._errno().* = @intCast(-mm_signed);
+            }
+        }
+
+        if (fatal) {
+            _ = linux.close(fd);
+            _ = linux.unlink(tmp_path.ptr);
+            return sem_open_release_slot(slot, cs);
+        }
+        _ = linux.close(fd);
+
+        const link_raw = linux.link(tmp_path.ptr, path);
+        const link_signed: isize = @bitCast(link_raw);
+        const e: c_int = if (link_signed < 0) @intCast(-link_signed) else 0;
+        _ = linux.unlink(tmp_path.ptr);
+        if (e == 0) {
+            map_addr = mapped;
+            st_ino = stx.ino;
+            break;
+        }
+        _ = linux.munmap(@ptrFromInt(mapped), @sizeOf(sem_impl));
+        // Failure is only fatal when doing an exclusive open; otherwise the
+        // next iteration will try to open the existing file.
+        if (e != eint(.EXIST) or (create and exclusive)) {
+            std.c._errno().* = e;
+            return sem_open_release_slot(slot, cs);
+        }
+    }
+
+    // See if the newly mapped semaphore is already mapped. If so, unmap the
+    // new mapping and use the existing one. Otherwise, add it to the table.
+    __lock_fn(&sem_open_lock_storage);
+    var existing: c_int = 0;
+    while (existing < SEM_NSEMS_MAX and tab[@intCast(existing)].ino != st_ino) : (existing += 1) {}
+    var final_slot = slot;
+    if (existing < SEM_NSEMS_MAX) {
+        _ = linux.munmap(@ptrFromInt(map_addr), @sizeOf(sem_impl));
+        tab[@intCast(slot)].sem = null;
+        final_slot = existing;
+        map_addr = @intFromPtr(tab[@intCast(existing)].sem);
+    }
+    tab[@intCast(final_slot)].refcnt += 1;
+    tab[@intCast(final_slot)].sem = @ptrFromInt(map_addr);
+    tab[@intCast(final_slot)].ino = st_ino;
+    __unlock_fn(&sem_open_lock_storage);
+    _ = pthread_setcancelstate_ext(cs, null);
+    return @ptrFromInt(map_addr);
+}
+
+fn sem_close_impl(sem: *sem_impl) callconv(.c) c_int {
+    __lock_fn(&sem_open_lock_storage);
+    const tab = semtab orelse {
+        __unlock_fn(&sem_open_lock_storage);
+        return 0;
+    };
+    var i: c_int = 0;
+    while (i < SEM_NSEMS_MAX and tab[@intCast(i)].sem != sem) : (i += 1) {}
+    // If i == SEM_NSEMS_MAX the caller passed an unknown sem; musl's
+    // implementation has the same undefined-behavior corner here.
+    tab[@intCast(i)].refcnt -= 1;
+    if (tab[@intCast(i)].refcnt != 0) {
+        __unlock_fn(&sem_open_lock_storage);
+        return 0;
+    }
+    tab[@intCast(i)].sem = null;
+    tab[@intCast(i)].ino = 0;
+    __unlock_fn(&sem_open_lock_storage);
+    _ = linux.munmap(@ptrCast(sem), @sizeOf(sem_impl));
+    return 0;
 }
 
 fn futex_wake(addr: *const c_int, cnt: c_int, priv: c_int) void {

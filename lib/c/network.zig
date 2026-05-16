@@ -226,6 +226,7 @@ const c = if (builtin.link_libc) struct {
     const strncmp = @extern(*const fn ([*]const u8, [*]const u8, usize) callconv(.c) c_int, .{ .name = "strncmp" });
     const strcpy = @extern(*const fn ([*]u8, [*:0]const u8) callconv(.c) [*]u8, .{ .name = "strcpy" });
     const strncpy = @extern(*const fn ([*]u8, [*:0]const u8, usize) callconv(.c) [*]u8, .{ .name = "strncpy" });
+    const strtoul = @extern(*const fn ([*:0]const u8, *[*:0]u8, c_int) callconv(.c) c_ulong, .{ .name = "strtoul" });
     const if_nametoindex = @extern(*const fn ([*:0]const u8) callconv(.c) c_uint, .{ .name = "if_nametoindex" });
     const snprintf = @extern(*const fn ([*]u8, usize, [*:0]const u8, ...) callconv(.c) c_int, .{ .name = "snprintf" });
     const socket_fn = @extern(*const fn (c_int, c_int, c_int) callconv(.c) c_int, .{ .name = "socket" });
@@ -335,6 +336,37 @@ comptime {
         symbol(&endservent_impl, "endservent");
         symbol(&setservent_impl, "setservent");
         symbol(&getservent_impl, "getservent");
+
+        // proto.c — static protocol-number table
+        symbol(&getprotoent_impl, "getprotoent");
+        symbol(&getprotobyname_impl, "getprotobyname");
+        symbol(&getprotobynumber_impl, "getprotobynumber");
+        symbol(&setprotoent_impl, "setprotoent");
+        symbol(&endprotoent_impl, "endprotoent");
+
+        // ent.c — host/net database iteration stubs (+ weak aliases)
+        symbol(&sethostent_impl, "sethostent");
+        symbol(&sethostent_impl, "setnetent");
+        symbol(&endhostent_impl, "endhostent");
+        symbol(&endhostent_impl, "endnetent");
+        symbol(&gethostent_impl, "gethostent");
+        symbol(&getnetent_impl, "getnetent");
+
+        // ether.c — ethernet address conversion
+        symbol(&ether_aton_impl, "ether_aton");
+        symbol(&ether_aton_r_impl, "ether_aton_r");
+        symbol(&ether_ntoa_impl, "ether_ntoa");
+        symbol(&ether_ntoa_r_impl, "ether_ntoa_r");
+        symbol(&ether_line_impl, "ether_line");
+        symbol(&ether_ntohost_impl, "ether_ntohost");
+        symbol(&ether_hostton_impl, "ether_hostton");
+
+        // h_errno.c / herror.c / hstrerror.c / gai_strerror.c
+        symbol(&h_errno_storage, "h_errno");
+        symbol(&__h_errno_location_impl, "__h_errno_location");
+        symbol(&herror_impl, "herror");
+        symbol(&hstrerror_impl, "hstrerror");
+        symbol(&gai_strerror_impl, "gai_strerror");
 
         // dn_expand.c / dn_skipname.c / dns_parse.c
         symbol(&dn_expand_impl, "__dn_expand");
@@ -1062,4 +1094,274 @@ fn inet_ntop_impl(af: c_int, a0: *const anyopaque, s: [*]u8, l: linux.socklen_t)
 
     std.c._errno().* = @intFromEnum(linux.E.NOSPC);
     return null;
+}
+
+// ============================================================
+// proto.c — static protocol-number table + getprotoent family
+// ============================================================
+
+const protoent = extern struct {
+    p_name: ?[*:0]u8,
+    p_aliases: ?[*]?[*:0]const u8,
+    p_proto: c_int,
+};
+
+// Ported verbatim from musl's `protos` table in src/network/proto.c.
+// Each record is encoded as <proto_byte><name bytes><\0>, concatenated
+// end-to-end. Includes the implicit trailing \0 that musl's C string
+// literal initializer adds, so `protos.len` matches `sizeof(protos)`.
+const protos =
+    "\x00ip\x00" ++
+    "\x01icmp\x00" ++
+    "\x02igmp\x00" ++
+    "\x03ggp\x00" ++
+    "\x04ipencap\x00" ++
+    "\x05st\x00" ++
+    "\x06tcp\x00" ++
+    "\x08egp\x00" ++
+    "\x0cpup\x00" ++
+    "\x11udp\x00" ++
+    "\x14hmp\x00" ++
+    "\x16xns-idp\x00" ++
+    "\x1brdp\x00" ++
+    "\x1diso-tp4\x00" ++
+    "\x24xtp\x00" ++
+    "\x25ddp\x00" ++
+    "\x26idpr-cmtp\x00" ++
+    "\x29ipv6\x00" ++
+    "\x2bipv6-route\x00" ++
+    "\x2cipv6-frag\x00" ++
+    "\x2didrp\x00" ++
+    "\x2ersvp\x00" ++
+    "\x2fgre\x00" ++
+    "\x32esp\x00" ++
+    "\x33ah\x00" ++
+    "\x39skip\x00" ++
+    "\x3aipv6-icmp\x00" ++
+    "\x3bipv6-nonxt\x00" ++
+    "\x3cipv6-opts\x00" ++
+    "\x49rspf\x00" ++
+    "\x51vmtp\x00" ++
+    "\x59ospf\x00" ++
+    "\x5eipip\x00" ++
+    "\x62encap\x00" ++
+    "\x67pim\x00" ++
+    "\xffraw\x00";
+
+var proto_idx: usize = 0;
+var proto_aliases: ?[*:0]const u8 = null;
+var proto_ent: protoent = .{ .p_name = null, .p_aliases = null, .p_proto = 0 };
+
+fn endprotoent_impl() callconv(.c) void {
+    proto_idx = 0;
+}
+
+fn setprotoent_impl(stayopen: c_int) callconv(.c) void {
+    _ = stayopen;
+    proto_idx = 0;
+}
+
+fn getprotoent_impl() callconv(.c) ?*protoent {
+    if (proto_idx >= protos.len) return null;
+    proto_ent.p_proto = protos[proto_idx];
+    const name_ptr: [*:0]const u8 = @ptrCast(protos[proto_idx + 1 ..].ptr);
+    proto_ent.p_name = @constCast(name_ptr);
+    proto_ent.p_aliases = @ptrCast(&proto_aliases);
+    proto_idx += c.strlen(name_ptr) + 2;
+    return &proto_ent;
+}
+
+fn getprotobyname_impl(name: [*:0]const u8) callconv(.c) ?*protoent {
+    endprotoent_impl();
+    while (getprotoent_impl()) |p| {
+        if (c.strcmp(name, @ptrCast(p.p_name.?)) == 0) return p;
+    }
+    return null;
+}
+
+fn getprotobynumber_impl(num: c_int) callconv(.c) ?*protoent {
+    endprotoent_impl();
+    while (getprotoent_impl()) |p| {
+        if (p.p_proto == num) return p;
+    }
+    return null;
+}
+
+// ============================================================
+// ent.c — set/end/get hostent and netent stubs (+ weak aliases)
+// ============================================================
+
+fn sethostent_impl(x: c_int) callconv(.c) void {
+    _ = x;
+}
+
+fn endhostent_impl() callconv(.c) void {}
+
+fn gethostent_impl() callconv(.c) ?*hostent {
+    return null;
+}
+
+fn getnetent_impl() callconv(.c) ?*anyopaque {
+    return null;
+}
+
+// ============================================================
+// ether.c — ether_aton / ether_ntoa (+ _r forms) and stubs
+// ============================================================
+
+const ether_addr = extern struct {
+    ether_addr_octet: [6]u8,
+};
+
+var ether_aton_static: ether_addr = .{ .ether_addr_octet = .{0} ** 6 };
+var ether_ntoa_static: [18]u8 = undefined;
+
+fn ether_aton_r_impl(x: [*:0]const u8, p_a: *ether_addr) callconv(.c) ?*ether_addr {
+    var a: ether_addr = undefined;
+    var xp: [*:0]const u8 = x;
+    var i: usize = 0;
+    while (i < 6) : (i += 1) {
+        if (i != 0) {
+            if (xp[0] != ':') return null;
+            xp += 1;
+        }
+        var y: [*:0]u8 = undefined;
+        const n = c.strtoul(xp, &y, 16);
+        xp = y;
+        if (n > 0xff) return null;
+        a.ether_addr_octet[i] = @intCast(n);
+    }
+    if (xp[0] != 0) return null;
+    p_a.* = a;
+    return p_a;
+}
+
+fn ether_aton_impl(x: [*:0]const u8) callconv(.c) ?*ether_addr {
+    return ether_aton_r_impl(x, &ether_aton_static);
+}
+
+fn ether_ntoa_r_impl(p_a: *const ether_addr, x: [*]u8) callconv(.c) [*]u8 {
+    const hex = "0123456789ABCDEF";
+    var idx: usize = 0;
+    var i: usize = 0;
+    while (i < 6) : (i += 1) {
+        if (i != 0) {
+            x[idx] = ':';
+            idx += 1;
+        }
+        const b = p_a.ether_addr_octet[i];
+        x[idx] = hex[(b >> 4) & 0xf];
+        x[idx + 1] = hex[b & 0xf];
+        idx += 2;
+    }
+    x[idx] = 0;
+    return x;
+}
+
+fn ether_ntoa_impl(p_a: *const ether_addr) callconv(.c) [*]u8 {
+    return ether_ntoa_r_impl(p_a, &ether_ntoa_static);
+}
+
+fn ether_line_impl(l: [*:0]const u8, e: *ether_addr, hostname: [*]u8) callconv(.c) c_int {
+    _ = l;
+    _ = e;
+    _ = hostname;
+    return -1;
+}
+
+fn ether_ntohost_impl(hostname: [*]u8, e: *const ether_addr) callconv(.c) c_int {
+    _ = hostname;
+    _ = e;
+    return -1;
+}
+
+fn ether_hostton_impl(hostname: [*:0]const u8, e: *ether_addr) callconv(.c) c_int {
+    _ = hostname;
+    _ = e;
+    return -1;
+}
+
+// ============================================================
+// h_errno.c — h_errno global + __h_errno_location accessor
+// ============================================================
+
+// musl's h_errno.c falls back to a process-global `h_errno` when the
+// thread's pthread stack isn't set up. We use a plain global so the
+// existing `@extern(*c_int, .{ .name = "h_errno" })` references inside
+// network.zig / network/dns.zig / network/resolver.zig resolve to the
+// same backing storage that `__h_errno_location` returns.
+var h_errno_storage: c_int = 0;
+
+fn __h_errno_location_impl() callconv(.c) *c_int {
+    return &h_errno_storage;
+}
+
+// ============================================================
+// hstrerror.c / herror.c / gai_strerror.c — packed message tables
+// ============================================================
+
+// Ported verbatim from musl's `msgs` table in src/network/hstrerror.c.
+// `\x00Unknown error` is the catch-all suffix used when ecode is 0 or
+// past the end of the known table.
+const hstrerror_msgs =
+    "Host not found\x00" ++
+    "Try again\x00" ++
+    "Non-recoverable error\x00" ++
+    "Address not available\x00" ++
+    "\x00Unknown error";
+
+fn hstrerror_impl(ecode: c_int) callconv(.c) [*:0]const u8 {
+    var s: [*]const u8 = hstrerror_msgs;
+    var e: c_int = ecode -% 1;
+    while (e != 0 and s[0] != 0) {
+        while (s[0] != 0) : (s += 1) {}
+        e -%= 1;
+        s += 1;
+    }
+    if (s[0] == 0) s += 1;
+    return @ptrCast(s);
+}
+
+fn herror_impl(msg: ?[*:0]const u8) callconv(.c) void {
+    // musl writes to stderr via fprintf; stderr is unbuffered by default
+    // so a direct write(2, ...) syscall is functionally equivalent.
+    if (msg) |m| {
+        const mlen = c.strlen(m);
+        _ = linux.write(2, m, mlen);
+        _ = linux.write(2, ": ", 2);
+    }
+    const h = hstrerror_impl(h_errno_storage);
+    const hlen = c.strlen(h);
+    _ = linux.write(2, h, hlen);
+    _ = linux.write(2, "\n", 1);
+}
+
+// Ported verbatim from musl's `msgs` table in src/network/gai_strerror.c.
+const gai_strerror_msgs =
+    "Invalid flags\x00" ++
+    "Name does not resolve\x00" ++
+    "Try again\x00" ++
+    "Non-recoverable error\x00" ++
+    "Name has no usable address\x00" ++
+    "Unrecognized address family or invalid length\x00" ++
+    "Unrecognized socket type\x00" ++
+    "Unrecognized service\x00" ++
+    "Unknown error\x00" ++
+    "Out of memory\x00" ++
+    "System error\x00" ++
+    "Overflow\x00" ++
+    "\x00Unknown error";
+
+fn gai_strerror_impl(ecode: c_int) callconv(.c) [*:0]const u8 {
+    // EAI_* error codes are negative, so musl uses `ecode++` (mirroring
+    // hstrerror's `ecode--` for positive HOST_* codes).
+    var s: [*]const u8 = gai_strerror_msgs;
+    var e: c_int = ecode +% 1;
+    while (e != 0 and s[0] != 0) {
+        while (s[0] != 0) : (s += 1) {}
+        e +%= 1;
+        s += 1;
+    }
+    if (s[0] == 0) s += 1;
+    return @ptrCast(s);
 }

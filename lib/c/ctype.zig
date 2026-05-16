@@ -1404,11 +1404,17 @@ fn iswgraph_fn(wc: wint_t) callconv(.c) c_int {
 }
 
 fn iswlower_fn(wc: wint_t) callconv(.c) c_int {
-    return @intFromBool(towupper_fn(wc) != wc);
+    // Mirrors musl's `iswlower`: a pure ASCII `a..z` check. The
+    // earlier `towupper_fn(wc) != wc` implementation over-classified
+    // non-letter codepoints (e.g. the private-use codeunits
+    // 0xdf80–0xdfff used by libzigc's single-byte mapping, and any
+    // non-ASCII codepoint whose casemap table entry happens to be
+    // non-zero) as having case.
+    return @intFromBool(wc -% 'a' < 26);
 }
 
 fn iswupper_fn(wc: wint_t) callconv(.c) c_int {
-    return @intFromBool(towlower_fn(wc) != wc);
+    return @intFromBool(wc -% 'A' < 26);
 }
 
 fn iswxdigit_fn(wc: wint_t) callconv(.c) c_int {

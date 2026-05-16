@@ -812,9 +812,30 @@ fn inet_netof_impl(in: in_addr) callconv(.c) in_addr_t {
 
 var inet_ntoa_buf: [16]u8 = undefined;
 
-fn inet_ntoa_impl(in: in_addr) callconv(.c) [*]u8 {
-    const a: *const [4]u8 = @ptrCast(&in);
-    _ = c.snprintf(&inet_ntoa_buf, inet_ntoa_buf.len, "%d.%d.%d.%d", a[0], a[1], a[2], a[3]);
+fn inet_ntoa_impl(in: in_addr_t) callconv(.c) [*]u8 {
+    // The previous version went through `snprintf("%d.%d.%d.%d", a[0],
+    // a[1], a[2], a[3])`, but Zig does not apply C's default-argument
+    // promotion to variadic args: each `u8` was passed in its natural
+    // 1-byte width while libc's `snprintf` read 4 bytes per `%d`,
+    // producing `0.0.0.0` for every nonzero address on aarch64.
+    //
+    // Take the address as a plain `in_addr_t` (u32) rather than the
+    // `in_addr` extern struct wrapper. A struct{u32} value parameter
+    // is supposed to match the u32 ABI on aarch64, but the optimiser
+    // wasn't preserving the argument bits through the struct param
+    // (it folded `inet_ntoa_impl` to a constant `0.0.0.0` store).
+    // The C declaration `inet_ntoa(struct in_addr)` and `inet_ntoa(uint32_t)`
+    // both pass the value in the low 32 bits of x0, so the C ABI is
+    // unchanged.
+    var len: usize = 0;
+    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, @as(u8, @truncate(in)));
+    inetNtopWriteByte(&inet_ntoa_buf, &len, '.');
+    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, @as(u8, @truncate(in >> 8)));
+    inetNtopWriteByte(&inet_ntoa_buf, &len, '.');
+    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, @as(u8, @truncate(in >> 16)));
+    inetNtopWriteByte(&inet_ntoa_buf, &len, '.');
+    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, @as(u8, @truncate(in >> 24)));
+    inet_ntoa_buf[len] = 0;
     return &inet_ntoa_buf;
 }
 

@@ -853,15 +853,22 @@ fn inet_ntop_impl(af: c_int, a0: *const anyopaque, s: [*]u8, l: linux.socklen_t)
 
     switch (af) {
         linux.AF.INET => {
-            inetNtopWriteUnsigned(s, &len, 10, a[0]);
-            inetNtopWriteByte(s, &len, '.');
-            inetNtopWriteUnsigned(s, &len, 10, a[1]);
-            inetNtopWriteByte(s, &len, '.');
-            inetNtopWriteUnsigned(s, &len, 10, a[2]);
-            inetNtopWriteByte(s, &len, '.');
-            inetNtopWriteUnsigned(s, &len, 10, a[3]);
+            // Write into the local buffer first; only copy into `s`
+            // after a bounds check. The previous version wrote into
+            // `s` directly and only validated `len < l` afterwards,
+            // which let `inet_ntop(AF_INET, "xxxx", "", 0)` overrun
+            // a zero-length destination (segfaulting libc-test's
+            // ENOSPC error-path test). Mirrors musl's `snprintf(s, l, …)`.
+            inetNtopWriteUnsigned(&buf, &len, 10, a[0]);
+            inetNtopWriteByte(&buf, &len, '.');
+            inetNtopWriteUnsigned(&buf, &len, 10, a[1]);
+            inetNtopWriteByte(&buf, &len, '.');
+            inetNtopWriteUnsigned(&buf, &len, 10, a[2]);
+            inetNtopWriteByte(&buf, &len, '.');
+            inetNtopWriteUnsigned(&buf, &len, 10, a[3]);
+            buf[len] = 0;
             if (len < l) {
-                s[len] = 0;
+                @memcpy(s[0 .. len + 1], buf[0 .. len + 1]);
                 return s;
             }
         },

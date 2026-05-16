@@ -816,7 +816,7 @@ const src_files = [_][]const u8{
     //"musl/src/thread/sem_destroy.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/sem_getvalue.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/sem_init.c", // migrated to lib/c/thread.zig
-    "musl/src/thread/sem_open.c",
+    //"musl/src/thread/sem_open.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/__timedwait.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/tls.c", // empty file
     "musl/src/thread/__tls_get_addr.c",

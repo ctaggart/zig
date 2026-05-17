@@ -199,8 +199,6 @@ comptime {
         symbol(&forkImpl, "fork");
         symbol(&dummyForkHandler, "__malloc_atfork");
         symbol(&dummyForkHandler, "__ldso_atfork");
-        symbol(&dummy0, "__tl_lock");
-        symbol(&dummy0, "__tl_unlock");
         symbol(&dummyLockPtr, "__gettext_lockptr");
         symbol(&dummyLockPtr, "__locale_lockptr");
         symbol(&dummyLockPtr, "__random_lockptr");
@@ -211,8 +209,6 @@ comptime {
 var dummyLockPtr: ?*c_int = null;
 
 fn dummyForkHandler(_: c_int) callconv(.c) void {}
-
-fn dummy0() callconv(.c) void {}
 
 fn pthreadSelfPtr() usize {
     const tp = switch (arch) {

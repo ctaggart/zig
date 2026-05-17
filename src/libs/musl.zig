@@ -875,8 +875,8 @@ const src_files = [_][]const u8{
     //"musl/src/stdio/putchar_unlocked.c", // migrated to lib/c/stdio.zig
     //"musl/src/thread/pthread_cancel.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_cond_timedwait.c", // migrated to lib/c/thread.zig
-    "musl/src/thread/pthread_create.c",
-    "musl/src/thread/pthread_join.c",
+    //"musl/src/thread/pthread_create.c", // migrated to lib/c/thread.zig
+    //"musl/src/thread/pthread_join.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_key_create.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_mutex_lock.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/pthread_mutex_unlock.c", // migrated to lib/c/thread.zig

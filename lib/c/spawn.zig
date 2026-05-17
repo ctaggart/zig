@@ -207,14 +207,14 @@ fn sysDup2(old: c_int, new: c_int) isize {
     if (have_sys_dup2) {
         return @bitCast(linux.syscall2(
             .dup2,
-            @bitCast(@as(isize, old)),
-            @bitCast(@as(isize, new)),
+            @as(usize, @bitCast(@as(isize, old))),
+            @as(usize, @bitCast(@as(isize, new))),
         ));
     } else {
         return @bitCast(linux.syscall3(
             .dup3,
-            @bitCast(@as(isize, old)),
-            @bitCast(@as(isize, new)),
+            @as(usize, @bitCast(@as(isize, old))),
+            @as(usize, @bitCast(@as(isize, new))),
             0,
         ));
     }
@@ -232,7 +232,7 @@ fn sysOpen(path: [*:0]const u8, flags: c_int, mode: linux.mode_t) isize {
     } else {
         return @bitCast(linux.syscall4(
             .openat,
-            @bitCast(@as(isize, linux.AT.FDCWD)),
+            @as(usize, @bitCast(@as(isize, linux.AT.FDCWD))),
             @intFromPtr(path),
             fl,
             mode,
@@ -241,13 +241,13 @@ fn sysOpen(path: [*:0]const u8, flags: c_int, mode: linux.mode_t) isize {
 }
 
 fn sysClose(fd: c_int) isize {
-    return @bitCast(linux.syscall1(.close, @bitCast(@as(isize, fd))));
+    return @bitCast(linux.syscall1(.close, @as(usize, @bitCast(@as(isize, fd)))));
 }
 
 fn sysWrite(fd: c_int, buf: *const anyopaque, count: usize) isize {
     return @bitCast(linux.syscall3(
         .write,
-        @bitCast(@as(isize, fd)),
+        @as(usize, @bitCast(@as(isize, fd))),
         @intFromPtr(buf),
         count,
     ));
@@ -258,14 +258,14 @@ fn sysFcntl(fd: c_int, cmd: c_int, arg: usize) isize {
     const SYS_fcntl_compat = if (@hasField(linux.SYS, "fcntl")) linux.SYS.fcntl else linux.SYS.fcntl64;
     return @bitCast(linux.syscall3(
         SYS_fcntl_compat,
-        @bitCast(@as(isize, fd)),
-        @bitCast(@as(isize, cmd)),
+        @as(usize, @bitCast(@as(isize, fd))),
+        @as(usize, @bitCast(@as(isize, cmd))),
         arg,
     ));
 }
 
 fn sysDup(fd: c_int) isize {
-    return @bitCast(linux.syscall1(.dup, @bitCast(@as(isize, fd))));
+    return @bitCast(linux.syscall1(.dup, @as(usize, @bitCast(@as(isize, fd)))));
 }
 
 // The child function runs on the parent's stack via CLONE_VM|CLONE_VFORK,
@@ -318,7 +318,7 @@ fn childImpl(args: *Args) noreturn {
         ret = @bitCast(linux.syscall2(
             .setpgid,
             0,
-            @bitCast(@as(isize, attr.__pgrp)),
+            @as(usize, @bitCast(@as(isize, attr.__pgrp))),
         ));
         if (ret != 0) {
             failExit(p, ret);
@@ -401,7 +401,7 @@ fn childImpl(args: *Args) noreturn {
                     FDOP_FCHDIR => {
                         ret = @bitCast(linux.syscall1(
                             .fchdir,
-                            @bitCast(@as(isize, o.fd)),
+                            @as(usize, @bitCast(@as(isize, o.fd))),
                         ));
                         if (ret < 0) failExit(p, ret);
                     },

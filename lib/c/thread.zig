@@ -22,6 +22,7 @@ const LibC = extern struct {
 };
 extern var __libc: LibC;
 extern var __thread_list_lock: c_int;
+extern var __hwcap: usize;
 const E = std.os.linux.E;
 const c_ENOMEM: c_int = @intCast(@intFromEnum(E.NOMEM));
 /// `typedef struct { unsigned __attr; } pthread_mutexattr_t;`
@@ -456,6 +457,10 @@ comptime {
             symbol(&timedwait_cp_fn, "__timedwait_cp");
             symbol(&timedwait_fn, "__timedwait");
             symbol(&unmapself_fn, "__unmapself");
+        }
+        symbol(&__tls_get_addr_impl, "__tls_get_addr");
+        if (@hasField(linux.SYS, "set_tls")) {
+            symbol(&__set_thread_area_impl, "__set_thread_area");
         }
     }
     @export(&vmlock, .{ .name = "__vmlock_lockptr" });
@@ -3959,4 +3964,77 @@ fn pthread_once_fn(control: *volatile c_int, init: *const fn () callconv(.c) voi
         return 0;
     }
     return pthread_once_full(@constCast(@volatileCast(control)), init);
+}
+
+// ── __tls_get_addr (universal) ─────────────────────────────────────────
+// musl src/thread/__tls_get_addr.c. Looks up the dynamic-TLS slot for module
+// v[0] at offset v[1]. `tls_mod_off_t` is `size_t` on every arch Zig targets.
+
+/// Offset of the `dtv` pointer within `struct pthread` (musl ABI).
+/// Non-TLS_ABOVE_TP: dtv lives immediately after `self`.
+/// TLS_ABOVE_TP: dtv is the last field in struct pthread.
+const dtv_offset: usize = if (tls_above_tp) sizeof_pthread - ptr_size else ptr_size;
+
+fn __tls_get_addr_impl(v: [*]const usize) callconv(.c) ?*anyopaque {
+    const self = pthread_self_ptr();
+    const dtv: [*]const usize = @ptrFromInt(@as(*const usize, @ptrFromInt(self + dtv_offset)).*);
+    return @ptrFromInt(dtv[v[0]] + v[1]);
+}
+
+// ── __set_thread_area (arm-only) ───────────────────────────────────────
+// musl src/thread/arm/__set_thread_area.c. Issues the `__ARM_NR_set_tls`
+// syscall (0xf0005) and, on pre-v7 hardware, patches the atomic-helper
+// pointers from arm/atomics.s. The runtime hwcap walk is correct on v7+
+// targets too (just unnecessary): the v7 helpers are always present, so
+// installing them is a no-op for the inline atomic code.
+
+const HWCAP_TLS: usize = 1 << 15;
+const A_BARRIER_KUSER: usize = 0xffff0fa0;
+const A_CAS_KUSER: usize = 0xffff0fc0;
+const A_GETTP_KUSER: usize = 0xffff0fe0;
+const ARM_KUSER_HELPER_VERSION_ADDR: usize = 0xffff0ffc;
+
+fn __set_thread_area_impl(p: ?*anyopaque) callconv(.c) c_int {
+    if (@hasField(linux.SYS, "set_tls")) {
+        // arm/atomics.s data slots — branch targets selected per hwcap.
+        const a_barrier_ptr = @extern(*usize, .{ .name = "__a_barrier_ptr" });
+        const a_cas_ptr = @extern(*usize, .{ .name = "__a_cas_ptr" });
+        const a_gettp_ptr = @extern(*usize, .{ .name = "__a_gettp_ptr" });
+        // arm/atomics.s function bodies — only their addresses are used.
+        const a_barrier_oldkuser = @extern(*const u8, .{ .name = "__a_barrier_oldkuser" });
+        const a_barrier_v6 = @extern(*const u8, .{ .name = "__a_barrier_v6" });
+        const a_barrier_v7 = @extern(*const u8, .{ .name = "__a_barrier_v7" });
+        const a_cas_v6 = @extern(*const u8, .{ .name = "__a_cas_v6" });
+        const a_cas_v7 = @extern(*const u8, .{ .name = "__a_cas_v7" });
+
+        if (__hwcap & HWCAP_TLS != 0) {
+            a_cas_ptr.* = @intFromPtr(a_cas_v7);
+            a_barrier_ptr.* = @intFromPtr(a_barrier_v7);
+            if (__libc.auxv) |auxv| {
+                var i: usize = 0;
+                while (auxv[i] != 0) : (i += 2) {
+                    if (auxv[i] != AT_PLATFORM) continue;
+                    const s: [*]const u8 = @ptrFromInt(auxv[i + 1]);
+                    // Musl: `if (s[0]!='v' || s[1]!='6' || s[2]-'0'<10u) break;`.
+                    // Break (i.e. don't downgrade to v6 helpers) unless the
+                    // platform string is "v6" optionally followed by a
+                    // non-digit (matches "v6", "v6T", "v6T2", …).
+                    if (s[0] != 'v' or s[1] != '6' or (s[2] >= '0' and s[2] <= '9')) break;
+                    a_cas_ptr.* = @intFromPtr(a_cas_v6);
+                    a_barrier_ptr.* = @intFromPtr(a_barrier_v6);
+                    break;
+                }
+            }
+        } else {
+            const ver: i32 = @as(*const i32, @ptrFromInt(ARM_KUSER_HELPER_VERSION_ADDR)).*;
+            a_gettp_ptr.* = A_GETTP_KUSER;
+            a_cas_ptr.* = A_CAS_KUSER;
+            a_barrier_ptr.* = A_BARRIER_KUSER;
+            if (ver < 2) @trap();
+            if (ver < 3) a_barrier_ptr.* = @intFromPtr(a_barrier_oldkuser);
+        }
+        const rc: usize = linux.syscall1(.set_tls, @intFromPtr(p));
+        return @intCast(@as(isize, @bitCast(rc)));
+    }
+    return 0;
 }

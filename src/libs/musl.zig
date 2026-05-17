@@ -543,10 +543,10 @@ const src_files = [_][]const u8{
     //"musl/src/network/dn_expand.c", // migrated to lib/c/network.zig
     //"musl/src/network/dn_skipname.c", // migrated to lib/c/network.zig
     //"musl/src/network/dns_parse.c", // migrated to lib/c/network.zig; exports: __dns_parse
-    "musl/src/network/ent.c",
-    "musl/src/network/ether.c",
+    //"musl/src/network/ent.c", // migrated to lib/c/network.zig; exports: sethostent,endhostent,gethostent,getnetent,setnetent,endnetent
+    //"musl/src/network/ether.c", // migrated to lib/c/network.zig; exports: ether_aton,ether_aton_r,ether_ntoa,ether_ntoa_r,ether_line,ether_ntohost,ether_hostton
     //"musl/src/network/freeaddrinfo.c", // migrated to lib/c/network.zig
-    "musl/src/network/gai_strerror.c",
+    //"musl/src/network/gai_strerror.c", // migrated to lib/c/network.zig
     //"musl/src/network/getaddrinfo.c", // migrated to lib/c/network.zig
     //"musl/src/network/gethostbyaddr.c", // migrated to lib/c/network.zig
     //"musl/src/network/gethostbyaddr_r.c", // migrated to lib/c/network.zig
@@ -563,9 +563,9 @@ const src_files = [_][]const u8{
     //"musl/src/network/getservbyport_r.c", // migrated to lib/c/network.zig
     "musl/src/network/getsockname.c",
     "musl/src/network/getsockopt.c",
-    "musl/src/network/h_errno.c",
-    "musl/src/network/herror.c",
-    "musl/src/network/hstrerror.c",
+    //"musl/src/network/h_errno.c", // migrated to lib/c/network.zig
+    //"musl/src/network/herror.c", // migrated to lib/c/network.zig
+    //"musl/src/network/hstrerror.c", // migrated to lib/c/network.zig
     //"musl/src/network/htonl.c", // migrated to lib/c/network.zig
     //"musl/src/network/htons.c", // migrated to lib/c/network.zig
     //"musl/src/network/if_freenameindex.c", // migrated to lib/c/network.zig
@@ -589,7 +589,7 @@ const src_files = [_][]const u8{
     //"musl/src/network/ns_parse.c", // migrated to lib/c/network.zig; exports: ns_get16,ns_get32,ns_put16,ns_put32,ns_initparse,ns_skiprr,ns_parserr,ns_name_uncompress
     //"musl/src/network/ntohl.c", // migrated to lib/c/network.zig
     //"musl/src/network/ntohs.c", // migrated to lib/c/network.zig
-    "musl/src/network/proto.c",
+    //"musl/src/network/proto.c", // migrated to lib/c/network.zig; exports: getprotoent,getprotobyname,getprotobynumber,setprotoent,endprotoent
     "musl/src/network/recv.c",
     "musl/src/network/recvfrom.c",
     "musl/src/network/recvmmsg.c",

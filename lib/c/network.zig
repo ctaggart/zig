@@ -318,6 +318,13 @@ comptime {
         symbol(&if_indextoname_impl, "if_indextoname");
         symbol(&if_nametoindex_impl, "if_nametoindex");
 
+        // getsockname.c / getpeername.c / getsockopt.c / setsockopt.c / sockatmark.c
+        symbol(&getsockname_impl, "getsockname");
+        symbol(&getpeername_impl, "getpeername");
+        symbol(&getsockopt_impl, "getsockopt");
+        symbol(&setsockopt_impl, "setsockopt");
+        symbol(&sockatmark_impl, "sockatmark");
+
         // res_init.c / res_state.c
         symbol(&res_init_impl, "res_init");
         symbol(&res_state_impl, "__res_state");
@@ -539,6 +546,212 @@ fn if_nametoindex_impl(name: [*:0]const u8) callconv(.c) c_uint {
     _ = linux.close(fd);
     if (r < 0) return 0;
     return @intCast(ifr.ifr_ifru.ivalue);
+}
+
+// ============================================================
+// Socket info / option syscall wrappers
+//   musl/src/network/{getsockname,getpeername,getsockopt,setsockopt,sockatmark}.c
+// ============================================================
+
+// musl's userspace `struct timeval` is always { i64 tv_sec; i64 tv_usec; }.
+const timeval = extern struct {
+    tv_sec: i64,
+    tv_usec: i64,
+};
+
+const SOL_SOCKET: c_int = switch (builtin.cpu.arch) {
+    .mips, .mipsel, .mips64, .mips64el => 65535,
+    else => 1,
+};
+
+// Kernel "_OLD" option ids (used in time-bits-64 socket option syscalls).
+// Mirrors musl's per-arch SO_RCVTIMEO_OLD/SO_SNDTIMEO_OLD in arch/*/syscall_arch.h
+// and the defaults from src/internal/syscall.h.
+const SO_RCVTIMEO_OLD: c_int = switch (builtin.cpu.arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => 18,
+    .mips, .mipsel, .mips64, .mips64el => 0x1006,
+    else => 20,
+};
+const SO_SNDTIMEO_OLD: c_int = switch (builtin.cpu.arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => 19,
+    .mips, .mipsel, .mips64, .mips64el => 0x1005,
+    else => 21,
+};
+const SO_TIMESTAMP_OLD: c_int = 29;
+const SO_TIMESTAMPNS_OLD: c_int = 35;
+
+// User-space `SO_*` values as exposed by musl's <sys/socket.h>.
+// On time-bits-32 (32-bit long) targets without a bits/socket.h override,
+// these are the "_NEW" ids; on time-bits-64 targets they coincide with
+// the "_OLD" ids and no translation is performed.
+const SO_RCVTIMEO: c_int = if (@bitSizeOf(c_long) == 32) 66 else SO_RCVTIMEO_OLD;
+const SO_SNDTIMEO: c_int = if (@bitSizeOf(c_long) == 32) 67 else SO_SNDTIMEO_OLD;
+const SO_TIMESTAMP: c_int = if (@bitSizeOf(c_long) == 32) 63 else SO_TIMESTAMP_OLD;
+const SO_TIMESTAMPNS: c_int = if (@bitSizeOf(c_long) == 32) 64 else SO_TIMESTAMPNS_OLD;
+
+const SIOCATMARK: u32 = switch (builtin.cpu.arch) {
+    // Linux MIPS uses _IOR('s', 7, int) which evaluates to:
+    //   (_IOC_READ=2)<<29 | sizeof(int)=4<<16 | 's'=0x73<<8 | 7 = 0x40047307
+    .mips, .mipsel, .mips64, .mips64el => 0x40047307,
+    else => 0x8905,
+};
+
+fn getsockname_impl(fd: c_int, addr: *linux.sockaddr, len: *linux.socklen_t) callconv(.c) c_int {
+    return errno(linux.getsockname(fd, addr, len));
+}
+
+fn getpeername_impl(fd: c_int, addr: *linux.sockaddr, len: *linux.socklen_t) callconv(.c) c_int {
+    return errno(linux.getpeername(fd, addr, len));
+}
+
+fn getsockopt_impl(
+    fd: c_int,
+    level: c_int,
+    optname: c_int,
+    optval: *anyopaque,
+    optlen: *linux.socklen_t,
+) callconv(.c) c_int {
+    var r: isize = @bitCast(linux.getsockopt(
+        fd,
+        level,
+        @bitCast(optname),
+        @as([*]u8, @ptrCast(optval)),
+        optlen,
+    ));
+
+    const enoprotoopt: isize = -@as(isize, @intFromEnum(linux.E.NOPROTOOPT));
+    if (r == enoprotoopt and level == SOL_SOCKET) translate: {
+        if (comptime SO_RCVTIMEO != SO_RCVTIMEO_OLD) {
+            if (optname == SO_RCVTIMEO or optname == SO_SNDTIMEO) {
+                if (optlen.* < @sizeOf(timeval)) {
+                    std.c._errno().* = @intFromEnum(linux.E.INVAL);
+                    return -1;
+                }
+                const new_optname: c_int = if (optname == SO_RCVTIMEO)
+                    SO_RCVTIMEO_OLD
+                else
+                    SO_SNDTIMEO_OLD;
+                var tv32: [2]c_long = undefined;
+                var len32: linux.socklen_t = @sizeOf(@TypeOf(tv32));
+                r = @bitCast(linux.getsockopt(
+                    fd,
+                    level,
+                    @bitCast(new_optname),
+                    @as([*]u8, @ptrCast(&tv32)),
+                    &len32,
+                ));
+                if (r >= 0) {
+                    const tv: *timeval = @ptrCast(@alignCast(optval));
+                    tv.tv_sec = @intCast(tv32[0]);
+                    tv.tv_usec = @intCast(tv32[1]);
+                    optlen.* = @sizeOf(timeval);
+                }
+                break :translate;
+            }
+        }
+        if (comptime SO_TIMESTAMP != SO_TIMESTAMP_OLD) {
+            if (optname == SO_TIMESTAMP or optname == SO_TIMESTAMPNS) {
+                const new_optname: c_int = if (optname == SO_TIMESTAMP)
+                    SO_TIMESTAMP_OLD
+                else
+                    SO_TIMESTAMPNS_OLD;
+                r = @bitCast(linux.getsockopt(
+                    fd,
+                    level,
+                    @bitCast(new_optname),
+                    @as([*]u8, @ptrCast(optval)),
+                    optlen,
+                ));
+            }
+        }
+    }
+    return errno(@bitCast(r));
+}
+
+// Mirror of musl's IS32BIT: true iff x fits in a signed 32-bit integer.
+fn fitsI32(x: i64) bool {
+    return x >= -0x80000000 and x <= 0x7fffffff;
+}
+
+// Mirror of musl's CLAMP: saturate to INT32_MIN/INT32_MAX, otherwise pass through.
+fn clampI32(x: i64) c_long {
+    if (fitsI32(x)) return @intCast(x);
+    return if (x >= 0) 0x7fffffff else -0x80000000;
+}
+
+fn setsockopt_impl(
+    fd: c_int,
+    level: c_int,
+    optname: c_int,
+    optval: *const anyopaque,
+    optlen: linux.socklen_t,
+) callconv(.c) c_int {
+    var r: isize = @bitCast(linux.setsockopt(
+        fd,
+        level,
+        @bitCast(optname),
+        @as([*]const u8, @ptrCast(optval)),
+        optlen,
+    ));
+
+    const enoprotoopt: isize = -@as(isize, @intFromEnum(linux.E.NOPROTOOPT));
+    if (r == enoprotoopt and level == SOL_SOCKET) translate: {
+        if (comptime SO_RCVTIMEO != SO_RCVTIMEO_OLD) {
+            if (optname == SO_RCVTIMEO or optname == SO_SNDTIMEO) {
+                if (optlen < @sizeOf(timeval)) {
+                    std.c._errno().* = @intFromEnum(linux.E.INVAL);
+                    return -1;
+                }
+                const tv: *const timeval = @ptrCast(@alignCast(optval));
+                const s = tv.tv_sec;
+                const us = tv.tv_usec;
+                if (!fitsI32(s)) {
+                    std.c._errno().* = @intFromEnum(linux.E.OPNOTSUPP);
+                    return -1;
+                }
+                const new_optname: c_int = if (optname == SO_RCVTIMEO)
+                    SO_RCVTIMEO_OLD
+                else
+                    SO_SNDTIMEO_OLD;
+                const args = [2]c_long{ @intCast(s), clampI32(us) };
+                r = @bitCast(linux.setsockopt(
+                    fd,
+                    level,
+                    @bitCast(new_optname),
+                    @as([*]const u8, @ptrCast(&args)),
+                    2 * @sizeOf(c_long),
+                ));
+                break :translate;
+            }
+        }
+        if (comptime SO_TIMESTAMP != SO_TIMESTAMP_OLD) {
+            if (optname == SO_TIMESTAMP or optname == SO_TIMESTAMPNS) {
+                const new_optname: c_int = if (optname == SO_TIMESTAMP)
+                    SO_TIMESTAMP_OLD
+                else
+                    SO_TIMESTAMPNS_OLD;
+                r = @bitCast(linux.setsockopt(
+                    fd,
+                    level,
+                    @bitCast(new_optname),
+                    @as([*]const u8, @ptrCast(optval)),
+                    optlen,
+                ));
+            }
+        }
+    }
+    return errno(@bitCast(r));
+}
+
+fn sockatmark_impl(s: c_int) callconv(.c) c_int {
+    var ret: c_int = undefined;
+    const rc: isize = @bitCast(linux.ioctl(s, SIOCATMARK, @intFromPtr(&ret)));
+    if (rc < 0) {
+        @branchHint(.unlikely);
+        std.c._errno().* = @intCast(-rc);
+        return -1;
+    }
+    return ret;
 }
 
 fn ptrDiff(a: [*]const u8, b: [*]const u8) usize {

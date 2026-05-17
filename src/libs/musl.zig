@@ -754,7 +754,7 @@ const src_files = [_][]const u8{
     "musl/src/thread/arm/__aeabi_read_tp.s",
     "musl/src/thread/arm/atomics.s",
     "musl/src/thread/arm/clone.s",
-    "musl/src/thread/arm/__set_thread_area.c",
+    //"musl/src/thread/arm/__set_thread_area.c", // migrated to lib/c/thread.zig
     "musl/src/thread/arm/syscall_cp.s",
     "musl/src/thread/arm/__unmapself.s",
     "musl/src/thread/hexagon/clone.s",
@@ -819,7 +819,7 @@ const src_files = [_][]const u8{
     //"musl/src/thread/sem_open.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/__timedwait.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/tls.c", // empty file
-    "musl/src/thread/__tls_get_addr.c",
+    //"musl/src/thread/__tls_get_addr.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/tss_create.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/tss_delete.c", // migrated to lib/c/thread.zig
     //"musl/src/thread/__unmapself.c", // migrated to lib/c/thread.zig

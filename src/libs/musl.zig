@@ -446,7 +446,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
 }
 
 const src_files = [_][]const u8{
-    "musl/src/env/__init_tls.c",
+    //"musl/src/env/__init_tls.c", // migrated to lib/c/env.zig; exports: __init_tls,__init_tp,__copy_tls,__thread_list_lock
     "musl/src/fenv/aarch64/fenv.s",
     //"musl/src/fenv/arm/fenv.c", // migrated to lib/c/fenv.zig; exports: feclearexcept,feraiseexcept,fetestexcept,fegetround,__fesetround,fegetenv,fesetenv
     "musl/src/fenv/arm/fenv-hf.S",

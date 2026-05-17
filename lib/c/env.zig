@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 var environ_var: ?[*:null]?[*:0]u8 = null;
 const std = @import("std");
+const elf = std.elf;
 const linux = std.os.linux;
 const symbol = @import("../c.zig").symbol;
 // C library dependencies.
@@ -27,8 +28,14 @@ const tls_module = extern struct {
     @"align": usize,
     offset: usize,
 };
-// Partial __libc struct — only the fields we access.
-// After page_size, there's global_locale which we don't touch.
+/// musl's `struct __locale_struct` from include/locale.h (LC_ALL_MASK == 6
+/// categories, each a pointer-sized locmap entry). Used as the type of
+/// `__libc.global_locale`.
+const LocaleStruct = extern struct {
+    cat: [6]?*const anyopaque,
+};
+// Partial __libc struct — fields used here. Must match musl's `struct __libc`
+// (libc.h) up through `global_locale`.
 const LibC = extern struct {
     can_do_threads: u8,
     threaded: u8,
@@ -41,6 +48,7 @@ const LibC = extern struct {
     tls_align: usize,
     tls_cnt: usize,
     page_size: usize,
+    global_locale: LocaleStruct,
 };
 extern "c" fn __set_thread_area(tp: *anyopaque) c_int;
 extern "c" fn memset(dst: *anyopaque, c: c_int, n: usize) *anyopaque;
@@ -84,6 +92,307 @@ else
 // On aarch64 (TLS_ABOVE_TP): dtv is at end of struct after canary.
 const DTV_OFFSET: usize = @sizeOf(usize); // offset of dtv in struct pthread (after self ptr)
 
+// ── TLS init (musl src/env/__init_tls.c) ───────────────────────────────
+//
+// PThread layout is split per musl's `struct pthread` in
+// src/internal/pthread_impl.h:
+//   * TLS_ABOVE_TP archs: Part 1 = { self, prev, next, sysinfo } (4 ptrs);
+//     `canary` and `dtv` live in Part 3 at the END of the struct.
+//   * non-TLS_ABOVE_TP archs: Part 1 = { self, dtv, prev, next, sysinfo,
+//     canary } (6 ptrs); no Part 3.
+// Using a single shape for both (as PR #458 did) shifts every Part 2
+// field by 16 bytes on TLS_ABOVE_TP archs and broke aarch64/arm/loongarch64/
+// riscv/mips/m68k/powerpc — see ctaggart/zig#491.
+const TLS_ABOVE_TP = switch (builtin.cpu.arch) {
+    .aarch64,
+    .aarch64_be,
+    .arm,
+    .armeb,
+    .thumb,
+    .thumbeb,
+    .loongarch64,
+    .m68k,
+    .mips,
+    .mipsel,
+    .mips64,
+    .mips64el,
+    .powerpc,
+    .powerpcle,
+    .powerpc64,
+    .powerpc64le,
+    .riscv32,
+    .riscv64,
+    => true,
+    else => false,
+};
+const GAP_ABOVE_TP: usize = switch (builtin.cpu.arch) {
+    .aarch64, .aarch64_be => 16,
+    .arm, .armeb, .thumb, .thumbeb => 8,
+    else => 0,
+};
+const TP_OFFSET: usize = switch (builtin.cpu.arch) {
+    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le, .m68k => 0x7000,
+    else => 0,
+};
+
+/// musl's robust_list embedded inside `struct pthread`.
+const RobustList = extern struct {
+    head: ?*volatile anyopaque,
+    off: c_long,
+    pending: ?*volatile anyopaque,
+};
+
+/// musl's `struct pthread` from src/internal/pthread_impl.h. The Part 1 /
+/// Part 3 split is musl's own terminology: Part 1 leads the struct, Part 2
+/// is the implementation body, and Part 3 trails it on TLS_ABOVE_TP archs.
+///
+/// `__init_tp`, `__copy_tls`, and `__reset_tls` access only a handful of
+/// fields, but the *byte offsets* of every Part 2 field must match musl
+/// because `lib/c/thread.zig` and the rest of musl reference them by
+/// hard-coded offsets relative to the pthread base.
+const PThread = if (TLS_ABOVE_TP) extern struct {
+    // Part 1
+    self: ?*PThread,
+    prev: ?*PThread,
+    next: ?*PThread,
+    sysinfo: usize,
+    // Part 2
+    tid: c_int,
+    errno_val: c_int,
+    detach_state: c_int,
+    cancel: c_int,
+    canceldisable: u8,
+    cancelasync: u8,
+    tsd_flags: u8,
+    map_base: ?[*]u8,
+    map_size: usize,
+    stack: ?*anyopaque,
+    stack_size: usize,
+    guard_size: usize,
+    result: ?*anyopaque,
+    cancelbuf: ?*anyopaque,
+    tsd: ?[*]?*anyopaque,
+    robust_list: RobustList,
+    h_errno_val: c_int,
+    timer_id: c_int,
+    locale: ?*LocaleStruct,
+    killlock: [1]c_int,
+    dlerror_buf: ?[*]u8,
+    stdio_locks: ?*anyopaque,
+    // Part 3 (ABI: position relative to end of struct)
+    canary: usize,
+    dtv: ?[*]usize,
+} else extern struct {
+    // Part 1
+    self: ?*PThread,
+    dtv: ?[*]usize,
+    prev: ?*PThread,
+    next: ?*PThread,
+    sysinfo: usize,
+    canary: usize,
+    // Part 2
+    tid: c_int,
+    errno_val: c_int,
+    detach_state: c_int,
+    cancel: c_int,
+    canceldisable: u8,
+    cancelasync: u8,
+    tsd_flags: u8,
+    map_base: ?[*]u8,
+    map_size: usize,
+    stack: ?*anyopaque,
+    stack_size: usize,
+    guard_size: usize,
+    result: ?*anyopaque,
+    cancelbuf: ?*anyopaque,
+    tsd: ?[*]?*anyopaque,
+    robust_list: RobustList,
+    h_errno_val: c_int,
+    timer_id: c_int,
+    locale: ?*LocaleStruct,
+    killlock: [1]c_int,
+    dlerror_buf: ?[*]u8,
+    stdio_locks: ?*anyopaque,
+};
+
+/// musl's `struct builtin_tls` — initial TLS storage used when the
+/// computed `libc.tls_size` is small enough to fit. The leading `char c`
+/// + alignment padding gives `MIN_TLS_ALIGN` via `offsetof(.., pt)`.
+const BuiltinTls = extern struct {
+    c: u8,
+    pt: PThread,
+    space: [16]?*anyopaque,
+};
+
+const MIN_TLS_ALIGN = @offsetOf(BuiltinTls, "pt");
+
+var builtin_tls: [1]BuiltinTls = .{std.mem.zeroes(BuiltinTls)};
+var main_tls: tls_module = std.mem.zeroes(tls_module);
+
+/// `extern weak hidden const size_t _DYNAMIC[];` in musl — present in
+/// PIE/dynamic binaries, absent (null) in static binaries. Used to detect
+/// whether we have a dynamic section so the static-pie load base can be
+/// computed from `&_DYNAMIC - PT_DYNAMIC.p_vaddr`.
+fn get_DYNAMIC() ?[*]const usize {
+    return @extern(?[*]const usize, .{
+        .name = "_DYNAMIC",
+        .linkage = .weak,
+        .visibility = .hidden,
+    });
+}
+
+/// musl's `a_crash()` from src/internal/atomic.h was a static-inline UDF
+/// trap. With no C TU referencing it after this migration the symbol
+/// disappears from libc.a; emit the trap inline from Zig instead.
+fn a_crash() noreturn {
+    @trap();
+}
+
+fn __init_tp_fn(p: *anyopaque) callconv(.c) c_int {
+    const td: *PThread = @ptrCast(@alignCast(p));
+    td.self = td;
+    const tp: *anyopaque = if (TLS_ABOVE_TP)
+        @ptrFromInt(@intFromPtr(p) + @sizeOf(PThread) + TP_OFFSET)
+    else
+        p;
+    const r = __set_thread_area(tp);
+    if (r < 0) return -1;
+    if (r == 0) __libc.can_do_threads = 1;
+    td.detach_state = 2; // DT_JOINABLE
+    td.tid = @bitCast(@as(u32, @truncate(linux.syscall1(.set_tid_address, @intFromPtr(&__thread_list_lock)))));
+    td.locale = &__libc.global_locale;
+    td.robust_list.head = @ptrCast(&td.robust_list.head);
+    td.sysinfo = __sysinfo;
+    td.next = td;
+    td.prev = td;
+    return 0;
+}
+
+fn __copy_tls_fn(mem_arg: [*]u8) callconv(.c) *anyopaque {
+    var mem = mem_arg;
+    var td: *PThread = undefined;
+    var dtv: [*]usize = undefined;
+
+    if (TLS_ABOVE_TP) {
+        dtv = @as([*]usize, @ptrCast(@alignCast(mem + __libc.tls_size))) - (__libc.tls_cnt + 1);
+
+        mem += (@as(usize, 0) -% (@intFromPtr(mem) + @sizeOf(PThread))) & (__libc.tls_align - 1);
+        td = @ptrCast(@alignCast(mem));
+        mem += @sizeOf(PThread);
+
+        var i: usize = 1;
+        var p = __libc.tls_head;
+        while (p) |mod| : ({
+            i += 1;
+            p = mod.next;
+        }) {
+            dtv[i] = @intFromPtr(mem + mod.offset) + DTP_OFFSET;
+            _ = memcpy(mem + mod.offset, mod.image orelse continue, mod.len);
+        }
+    } else {
+        dtv = @ptrCast(@alignCast(mem));
+
+        mem += __libc.tls_size - @sizeOf(PThread);
+        mem = @ptrFromInt(@intFromPtr(mem) - (@intFromPtr(mem) & (__libc.tls_align - 1)));
+        td = @ptrCast(@alignCast(mem));
+
+        var i: usize = 1;
+        var p = __libc.tls_head;
+        while (p) |mod| : ({
+            i += 1;
+            p = mod.next;
+        }) {
+            dtv[i] = @intFromPtr(mem - mod.offset) + DTP_OFFSET;
+            _ = memcpy(mem - mod.offset, mod.image orelse continue, mod.len);
+        }
+    }
+
+    dtv[0] = __libc.tls_cnt;
+    td.dtv = dtv;
+    return td;
+}
+
+const Phdr = if (@sizeOf(usize) == 8) elf.Elf64_Phdr else elf.Elf32_Phdr;
+
+fn static_init_tls(aux: [*]usize) callconv(.c) void {
+    var tls_phdr: ?*Phdr = null;
+    var base: usize = 0;
+
+    var p: [*]u8 = @ptrFromInt(aux[AT_PHDR]);
+    var n = aux[AT_PHNUM];
+    while (n != 0) : ({
+        n -= 1;
+        p += aux[AT_PHENT];
+    }) {
+        const phdr: *Phdr = @ptrCast(@alignCast(p));
+        switch (phdr.p_type) {
+            PT_PHDR => base = aux[AT_PHDR] - phdr.p_vaddr,
+            PT_DYNAMIC => if (get_DYNAMIC()) |dyn| {
+                base = @intFromPtr(dyn) - phdr.p_vaddr;
+            },
+            PT_TLS => tls_phdr = phdr,
+            PT_GNU_STACK => if (phdr.p_memsz > __default_stacksize) {
+                __default_stacksize = if (phdr.p_memsz < DEFAULT_STACK_MAX)
+                    @intCast(phdr.p_memsz)
+                else
+                    DEFAULT_STACK_MAX;
+            },
+            else => {},
+        }
+    }
+
+    if (tls_phdr) |phdr| {
+        main_tls.image = @ptrFromInt(base + phdr.p_vaddr);
+        main_tls.len = phdr.p_filesz;
+        main_tls.size = phdr.p_memsz;
+        main_tls.@"align" = phdr.p_align;
+        __libc.tls_cnt = 1;
+        __libc.tls_head = &main_tls;
+    }
+
+    const image_addr = @intFromPtr(main_tls.image);
+    main_tls.size +%= (@as(usize, 0) -% main_tls.size -% image_addr) & (main_tls.@"align" - 1);
+    if (TLS_ABOVE_TP) {
+        main_tls.offset = GAP_ABOVE_TP;
+        main_tls.offset +%= (@as(usize, 0) -% GAP_ABOVE_TP +% image_addr) & (main_tls.@"align" - 1);
+    } else {
+        main_tls.offset = main_tls.size;
+    }
+    if (main_tls.@"align" < MIN_TLS_ALIGN) main_tls.@"align" = MIN_TLS_ALIGN;
+
+    __libc.tls_align = main_tls.@"align";
+    // libc.tls_size = 2*sizeof(void *) + sizeof(struct pthread)
+    //   [+ main_tls.offset if TLS_ABOVE_TP]
+    //   + main_tls.size + main_tls.align
+    //   + MIN_TLS_ALIGN-1 & -MIN_TLS_ALIGN;
+    const raw_size =
+        2 * @sizeOf(*anyopaque) + @sizeOf(PThread) +
+        (if (TLS_ABOVE_TP) main_tls.offset else 0) +
+        main_tls.size + main_tls.@"align" +
+        MIN_TLS_ALIGN - 1;
+    __libc.tls_size = raw_size & (@as(usize, 0) -% MIN_TLS_ALIGN);
+
+    const mem: [*]u8 = blk: {
+        if (__libc.tls_size > @sizeOf(@TypeOf(builtin_tls))) {
+            const r = linux.mmap(
+                null,
+                __libc.tls_size,
+                .{ .READ = true, .WRITE = true },
+                .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+                -1,
+                0,
+            );
+            // -4095...-1 cast to a pointer will crash on dereference if
+            // mmap failed; matches musl's policy of not checking errors.
+            break :blk @ptrFromInt(r);
+        }
+        break :blk @ptrCast(&builtin_tls);
+    };
+
+    // Failure to initialize thread pointer is always fatal.
+    if (__init_tp_fn(__copy_tls_fn(mem)) < 0) a_crash();
+}
+
 fn __reset_tls_fn() callconv(.c) void {
     const tp = get_tp();
     // On non-TLS_ABOVE_TP (x86_64), pthread_self = tp, dtv at offset 8.
@@ -118,8 +427,7 @@ extern var __progname: ?[*:0]u8;
 extern var __progname_full: ?[*:0]u8;
 extern "c" fn __libc_start_init() void;
 extern var __default_stacksize: c_uint;
-extern var __thread_list_lock: c_int;
-extern "c" fn __init_tls(aux: [*]usize) void;
+var __thread_list_lock: c_int = 0;
 
 comptime {
     if (builtin.target.isMuslLibC()) {
@@ -136,6 +444,10 @@ comptime {
         }
         symbol(&issetugidImpl, "issetugid");
         symbol(&__reset_tls_fn, "__reset_tls");
+        symbol(&__init_tp_fn, "__init_tp");
+        symbol(&__copy_tls_fn, "__copy_tls");
+        symbol(&static_init_tls, "__init_tls");
+        @export(&__thread_list_lock, .{ .name = "__thread_list_lock", .linkage = .strong, .visibility = .hidden });
         symbol(&dummy, "_init");
         symbol(&libc_start_init_fn, "__libc_start_init");
         symbol(&__init_libc_fn, "__init_libc");
@@ -426,7 +738,7 @@ fn __init_libc_fn(envp: [*:null]?[*:0]u8, pn: ?[*:0]u8) callconv(.c) void {
         }
     }
 
-    __init_tls(&aux);
+    static_init_tls(&aux);
     __init_ssp(@ptrFromInt(aux[AT_RANDOM]));
 
     if (aux[AT_UID] == aux[AT_EUID] and aux[AT_GID] == aux[AT_EGID] and aux[AT_SECURE] == 0) return;

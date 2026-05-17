@@ -612,8 +612,8 @@ const src_files = [_][]const u8{
     //"musl/src/network/sockatmark.c", // migrated to lib/c/network.zig
     //"musl/src/network/socket.c", // migrated to lib/c/network.zig
     //"musl/src/network/socketpair.c", // migrated to lib/c/network.zig
-    "musl/src/process/posix_spawn.c",
-    "musl/src/process/posix_spawnp.c",
+    //"musl/src/process/posix_spawn.c", // migrated to lib/c/spawn.zig
+    //"musl/src/process/posix_spawnp.c", // migrated to lib/c/spawn.zig
     //"musl/src/sched/affinity.c", // migrated to lib/c/sched.zig; exports: sched_getaffinity,sched_setaffinity,pthread_getaffinity_np,pthread_setaffinity_np
     "musl/src/setjmp/aarch64/longjmp.s",
     "musl/src/setjmp/aarch64/setjmp.s",

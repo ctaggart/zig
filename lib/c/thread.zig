@@ -457,6 +457,20 @@ comptime {
             symbol(&timedwait_cp_fn, "__timedwait_cp");
             symbol(&timedwait_fn, "__timedwait");
             symbol(&unmapself_fn, "__unmapself");
+            // pthread_create.c + pthread_join.c migration (issue #340).
+            symbol(&__tl_lock_fn, "__tl_lock");
+            symbol(&__tl_unlock_fn, "__tl_unlock");
+            symbol(&__tl_sync_fn, "__tl_sync");
+            symbol(&__pthread_exit_fn, "__pthread_exit");
+            symbol(&__pthread_exit_fn, "pthread_exit");
+            symbol(&__pthread_create_fn, "__pthread_create");
+            symbol(&__pthread_create_fn, "pthread_create");
+            symbol(&__pthread_join_fn, "__pthread_join");
+            symbol(&__pthread_join_fn, "pthread_join");
+            symbol(&__pthread_timedjoin_np_fn, "__pthread_timedjoin_np");
+            symbol(&__pthread_timedjoin_np_fn, "pthread_timedjoin_np");
+            symbol(&__pthread_tryjoin_np_fn, "__pthread_tryjoin_np");
+            symbol(&__pthread_tryjoin_np_fn, "pthread_tryjoin_np");
         }
         symbol(&__tls_get_addr_impl, "__tls_get_addr");
         if (@hasField(linux.SYS, "set_tls")) {
@@ -1093,8 +1107,7 @@ fn pthread_detach_fn(t: std.c.pthread_t) callconv(.c) c_int {
     if (@cmpxchgStrong(c_int, ds, DT_JOINABLE, DT_DETACHED, .seq_cst, .seq_cst) != null) {
         var cs: c_int = undefined;
         _ = pthread_setcancelstate_fn(1, &cs);
-        const __pthread_join = @extern(*const fn (std.c.pthread_t, ?*?*anyopaque) callconv(.c) c_int, .{ .name = "__pthread_join" });
-        _ = __pthread_join(t, null);
+        _ = __pthread_join_fn(t, null);
         _ = pthread_setcancelstate_fn(cs, null);
     }
     return 0;
@@ -1649,28 +1662,23 @@ fn sem_timedwait_fn(sem: *sem_impl, at: ?*const anyopaque) callconv(.c) c_int {
 }
 
 fn thrd_create_fn(thr: *anyopaque, func: ?*const anyopaque, arg: ?*anyopaque) callconv(.c) c_int {
-    // __ATTRP_C11_THREAD sentinel: (void*)(uintptr_t)-1
-    const ATTRP_C11_THREAD: ?*const anyopaque = @ptrFromInt(std.math.maxInt(usize));
-    const __pthread_create = @extern(*const fn (*anyopaque, ?*const anyopaque, ?*const anyopaque, ?*anyopaque) callconv(.c) c_int, .{ .name = "__pthread_create" });
-    const ret = __pthread_create(thr, ATTRP_C11_THREAD, func, arg);
+    const ret = __pthread_create_fn(thr, ATTRP_C11_THREAD, func, arg);
     if (ret == 0) return thrd_success;
     if (ret == eint(.AGAIN)) return thrd_nomem;
     return thrd_error;
 }
 
 fn thrd_exit_fn(result: c_int) callconv(.c) noreturn {
-    const __pthread_exit = @extern(*const fn (?*anyopaque) callconv(.c) noreturn, .{ .name = "__pthread_exit" });
     // (void*)(intptr_t)result — sign-extend int to pointer
-    __pthread_exit(@ptrFromInt(@as(usize, @bitCast(@as(isize, result)))));
+    __pthread_exit_fn(@ptrFromInt(@as(usize, @bitCast(@as(isize, result)))));
 }
 
 fn thrd_join_fn(t: std.c.pthread_t, res: ?*c_int) callconv(.c) c_int {
-    var pthread_res: usize = 0;
-    const __pthread_join = @extern(*const fn (std.c.pthread_t, *usize) callconv(.c) c_int, .{ .name = "__pthread_join" });
-    _ = __pthread_join(t, &pthread_res);
+    var pthread_res: ?*anyopaque = null;
+    _ = __pthread_join_fn(t, &pthread_res);
     if (res) |r| {
         // (int)(intptr_t)pthread_res — truncate pointer to int
-        r.* = @as(c_int, @truncate(@as(isize, @bitCast(pthread_res))));
+        r.* = @as(c_int, @truncate(@as(isize, @bitCast(@intFromPtr(pthread_res)))));
     }
     return thrd_success;
 }
@@ -3508,8 +3516,6 @@ fn pthread_key_create_fn(k: *c_uint, dtor: ?*const fn (?*anyopaque) callconv(.c)
 fn pthread_key_delete_fn(k: c_uint) callconv(.c) c_int {
     const __block_app_sigs = @extern(*const fn (*anyopaque) callconv(.c) void, .{ .name = "__block_app_sigs" });
     const __restore_sigs = @extern(*const fn (*anyopaque) callconv(.c) void, .{ .name = "__restore_sigs" });
-    const __tl_lock = @extern(*const fn () callconv(.c) void, .{ .name = "__tl_lock" });
-    const __tl_unlock = @extern(*const fn () callconv(.c) void, .{ .name = "__tl_unlock" });
 
     var set: [128]u8 = undefined;
     const self = pthread_self_ptr();
@@ -3518,7 +3524,7 @@ fn pthread_key_delete_fn(k: c_uint) callconv(.c) c_int {
     __block_app_sigs(@ptrCast(&set));
     _ = rwlock_wrlock_fn(@ptrCast(&pthread_key_lock));
 
-    __tl_lock();
+    __tl_lock_fn();
     while (true) {
         const tsd_pp: *?[*]?*anyopaque = @ptrFromInt(td + off_tsd);
         if (tsd_pp.*) |tsd| tsd[k] = null;
@@ -3526,7 +3532,7 @@ fn pthread_key_delete_fn(k: c_uint) callconv(.c) c_int {
         td = next.*;
         if (td == self) break;
     }
-    __tl_unlock();
+    __tl_unlock_fn();
 
     pthread_key_dtors[k] = null;
 
@@ -3791,8 +3797,7 @@ fn cancelasync_field(self: usize) *u8 {
 fn cancel_fn() callconv(.c) isize {
     const self = pthread_self_ptr();
     if (canceldisable_field(self).* == PTHREAD_CANCEL_ENABLE or cancelasync_field(self).* != 0) {
-        const pthread_exit = @extern(*const fn (?*anyopaque) callconv(.c) noreturn, .{ .name = "pthread_exit" });
-        pthread_exit(PTHREAD_CANCELED);
+        __pthread_exit_fn(PTHREAD_CANCELED);
     }
     canceldisable_field(self).* = PTHREAD_CANCEL_DISABLE;
     return -@as(isize, @intCast(eint(.CANCELED)));
@@ -3923,8 +3928,7 @@ fn pthread_cancel_fn(t: std.c.pthread_t) callconv(.c) c_int {
     @atomicStore(c_int, cancel_field(t_addr), 1, .seq_cst);
     if (t == pthread_self_fn()) {
         if (canceldisable_field(t_addr).* == PTHREAD_CANCEL_ENABLE and cancelasync_field(t_addr).* != 0) {
-            const pthread_exit = @extern(*const fn (?*anyopaque) callconv(.c) noreturn, .{ .name = "pthread_exit" });
-            pthread_exit(PTHREAD_CANCELED);
+            __pthread_exit_fn(PTHREAD_CANCELED);
         }
         return 0;
     }
@@ -4037,4 +4041,615 @@ fn __set_thread_area_impl(p: ?*anyopaque) callconv(.c) c_int {
         return @intCast(@as(isize, @bitCast(rc)));
     }
     return 0;
+}
+
+// ── pthread_create.c + pthread_join.c migration (issue #340) ───────────
+// musl src/thread/pthread_create.c and src/thread/pthread_join.c.
+//
+// These two files must land together: pthread_join references __tl_sync
+// (the no-op-when-not-dlopen'd flush defined in pthread_create.c) and the
+// same struct pthread `detach_state` / `result` / `map_base` / `map_size`
+// fields that pthread_create.c sets up.
+//
+// `__clone` remains musl's per-arch assembly (`arch/<arch>/clone.s`);
+// only its C-callable signature is declared here.
+
+extern "c" fn __clone(
+    func: *const fn (?*anyopaque) callconv(.c) c_int,
+    stack: *anyopaque,
+    flags: c_int,
+    arg: ?*anyopaque,
+    ptid: *c_int,
+    tls: *anyopaque,
+    ctid: *c_int,
+) c_int;
+
+extern "c" fn __copy_tls(mem: [*]u8) *anyopaque;
+
+const ATTRP_C11_THREAD: ?*const anyopaque = @ptrFromInt(std.math.maxInt(usize));
+
+const SIG_UNBLOCK: c_int = 1;
+
+// Per-arch struct pthread field offsets that pthread_create / pthread_exit
+// touch but the existing off_* set didn't pre-define.
+const off_self: usize = 0;
+const off_prev: usize = if (tls_above_tp) ptr_size else 2 * ptr_size;
+const off_sysinfo: usize = if (tls_above_tp) 3 * ptr_size else 4 * ptr_size;
+const off_canary: usize = if (tls_above_tp) sizeof_pthread - 2 * ptr_size else 5 * ptr_size;
+
+// struct pthread_mutex_t field offsets used by __pthread_exit's robust-list
+// walk. From musl pthread_impl.h:
+//   _m_type  = __u.__i[0]    (offset 0)
+//   _m_lock  = __u.__vi[1]   (offset 4)
+//   _m_waiters = __u.__vi[2] (offset 8)
+//   _m_next  = __u.__p[4]    (offset 4 * ptr_size)
+const off_m_type: usize = 0;
+const off_m_lock: usize = @sizeOf(c_int);
+const off_m_waiters: usize = 2 * @sizeOf(c_int);
+const off_m_next: usize = 4 * ptr_size;
+
+/// `struct start_args` musl pthread_create.c lays out on the new thread's
+/// stack. The trampoline (`start` / `start_c11`) reads it through this
+/// shape.
+const StartArgsCreate = extern struct {
+    start_func: ?*const fn (?*anyopaque) callconv(.c) ?*anyopaque,
+    start_arg: ?*anyopaque,
+    control: c_int,
+    sig_mask: [_NSIG / 8 / @sizeOf(c_long)]c_ulong,
+};
+
+/// Partial musl `struct _IO_FILE` — just the field offsets needed to
+/// implement `init_file_lock` (`next` and `lock`). The rest of the
+/// struct is laid out as opaque padding so that field offsets match
+/// musl's ABI. Field order MUST match `FILE` in `lib/c/stdio.zig`.
+const MuslFile = extern struct {
+    flags: c_uint,
+    rpos: ?*anyopaque,
+    rend: ?*anyopaque,
+    close_fn: ?*anyopaque,
+    wend: ?*anyopaque,
+    wpos: ?*anyopaque,
+    mustbezero_1: ?*anyopaque,
+    wbase: ?*anyopaque,
+    read_fn: ?*anyopaque,
+    write_fn: ?*anyopaque,
+    seek_fn: ?*anyopaque,
+    buf: ?*anyopaque,
+    buf_size: usize,
+    prev: ?*MuslFile,
+    next: ?*MuslFile,
+    fd: c_int,
+    pipe_pid: c_int,
+    lockcount: c_long,
+    mode: c_int,
+    lock: c_int,
+};
+
+/// SIGPT_SET bit set (musl pthread_impl.h): unblocks SIGCANCEL (33) and
+/// SIGSYNCCALL (34). Both signals occupy bits 32 and 33 of the sigset's
+/// first `unsigned long` on 64-bit, or its second `unsigned long` on
+/// 32-bit.
+fn sigptSet() [_NSIG / 8 / @sizeOf(c_long)]c_ulong {
+    var s: [_NSIG / 8 / @sizeOf(c_long)]c_ulong = .{0} ** (_NSIG / 8 / @sizeOf(c_long));
+    if (@sizeOf(c_long) == 8) {
+        s[0] = @as(c_ulong, 3) << 32;
+    } else {
+        s[1] = 3;
+    }
+    return s;
+}
+
+// ── __tl_lock / __tl_unlock / __tl_sync ────────────────────────────────
+
+fn __tl_lock_fn() callconv(.c) void {
+    const self = pthread_self_ptr();
+    const tid: c_int = @as(*const c_int, @ptrFromInt(self + off_tid)).*;
+    var val = @atomicLoad(c_int, &__thread_list_lock, .seq_cst);
+    if (val == tid) {
+        tl_lock_count += 1;
+        return;
+    }
+    while (true) {
+        val = cas(&__thread_list_lock, 0, tid);
+        if (val == 0) return;
+        __wait_fn(@ptrCast(&__thread_list_lock), @ptrCast(&tl_lock_waiters), val, 0);
+    }
+}
+
+fn __tl_unlock_fn() callconv(.c) void {
+    if (tl_lock_count != 0) {
+        tl_lock_count -= 1;
+        return;
+    }
+    @atomicStore(c_int, &__thread_list_lock, 0, .seq_cst);
+    if (@atomicLoad(c_int, &tl_lock_waiters, .seq_cst) != 0)
+        wake(@ptrCast(&__thread_list_lock), 1, 0);
+}
+
+fn __tl_sync_fn(_: std.c.pthread_t) callconv(.c) void {
+    // Acts as a memory barrier and flushes any pending thread-list-lock
+    // waiters before pthread_join inspects `t->result`.
+    _ = @atomicLoad(c_int, &__thread_list_lock, .seq_cst);
+    const val = @atomicLoad(c_int, &__thread_list_lock, .seq_cst);
+    if (val == 0) return;
+    __wait_fn(@ptrCast(&__thread_list_lock), @ptrCast(&tl_lock_waiters), val, 0);
+    if (@atomicLoad(c_int, &tl_lock_waiters, .seq_cst) != 0)
+        wake(@ptrCast(&__thread_list_lock), 1, 0);
+}
+
+// ── __pthread_exit ─────────────────────────────────────────────────────
+
+fn __pthread_exit_fn(result: ?*anyopaque) callconv(.c) noreturn {
+    const __block_app_sigs_ext = @extern(*const fn (*anyopaque) callconv(.c) void, .{ .name = "__block_app_sigs" });
+    const __block_all_sigs_ext = @extern(*const fn (*anyopaque) callconv(.c) void, .{ .name = "__block_all_sigs" });
+    const __restore_sigs_ext = @extern(*const fn (*anyopaque) callconv(.c) void, .{ .name = "__restore_sigs" });
+    const __do_orphaned_stdio_locks_ext = @extern(*const fn () callconv(.c) void, .{ .name = "__do_orphaned_stdio_locks" });
+    const __dl_thread_cleanup_ext = @extern(*const fn () callconv(.c) void, .{ .name = "__dl_thread_cleanup" });
+    const exit_ext = @extern(*const fn (c_int) callconv(.c) noreturn, .{ .name = "exit" });
+
+    const self = pthread_self_ptr();
+
+    canceldisable_field(self).* = 1;
+    cancelasync_field(self).* = 0;
+    const result_ptr: *?*anyopaque = @ptrFromInt(self + off_result);
+    result_ptr.* = result;
+
+    // Run pthread_cleanup_push handlers in reverse order.
+    const cancelbuf_ptr: *?*PtCb = @ptrFromInt(self + off_cancelbuf);
+    while (cancelbuf_ptr.*) |cb| {
+        const f = cb.f;
+        const x = cb.x;
+        cancelbuf_ptr.* = cb.next;
+        if (f) |func| func(x);
+    }
+
+    pthread_tsd_run_dtors_fn();
+
+    var set: [128]u8 = undefined;
+    __block_app_sigs_ext(@ptrCast(&set));
+
+    // This atomic potentially competes with a concurrent pthread_detach
+    // call; the loser is responsible for freeing thread resources.
+    const ds_ptr: *c_int = @ptrFromInt(self + off_detach_state);
+    const state = cas(@ptrCast(ds_ptr), DT_JOINABLE, DT_EXITING);
+
+    const map_base_ptr: *?[*]u8 = @ptrFromInt(self + off_map_base);
+
+    if (state == DT_DETACHED and map_base_ptr.* != null) {
+        // Since __unmapself bypasses the normal munmap code path,
+        // explicitly wait for vmlock holders first.
+        vm_wait_fn();
+    }
+
+    // killlock — for pthread_kill cross-thread coordination.
+    const killlock_ptr: *volatile c_int = @ptrFromInt(self + off_killlock);
+    __lock_fn(killlock_ptr);
+
+    __tl_lock_fn();
+
+    // If this is the only thread, don't terminate — fall through to exit(0)
+    // so atexit handlers run.
+    const next_ptr: *?*anyopaque = @ptrFromInt(self + off_next);
+    if (@intFromPtr(next_ptr.*) == self) {
+        __tl_unlock_fn();
+        __unlock_fn(killlock_ptr);
+        ds_ptr.* = state;
+        __restore_sigs_ext(@ptrCast(&set));
+        exit_ext(0);
+    }
+
+    // Committed to thread termination from here.
+    const tid_ptr: *c_int = @ptrFromInt(self + off_tid);
+    tid_ptr.* = 0;
+    __unlock_fn(killlock_ptr);
+
+    // Process robust mutex list in userspace.
+    vm_lock_fn();
+    {
+        const rh_ptr: *?*volatile anyopaque = @ptrFromInt(self + off_robust_head);
+        const rp_ptending: *?*volatile anyopaque = @ptrFromInt(self + off_robust_pending);
+        while (true) {
+            const rp = rh_ptr.*;
+            const rp_addr: usize = @intFromPtr(rp);
+            if (rp_addr == 0) break;
+            if (rp_addr == @intFromPtr(rh_ptr)) break;
+            // rp points to mutex._m_next (offset 32 on 64-bit).
+            const m_base: usize = rp_addr - off_m_next;
+            const m_waiters_ptr: *const c_int = @ptrFromInt(m_base + off_m_waiters);
+            const m_type_ptr: *const c_int = @ptrFromInt(m_base + off_m_type);
+            const m_lock_ptr: *c_int = @ptrFromInt(m_base + off_m_lock);
+            const waiters = m_waiters_ptr.*;
+            const priv = (m_type_ptr.* & 128) ^ 128;
+            rp_ptending.* = rp;
+            // *rp is the next entry in the chain.
+            const next_entry_ptr: *?*volatile anyopaque = @ptrFromInt(rp_addr);
+            rh_ptr.* = next_entry_ptr.*;
+            const cont = @atomicRmw(c_int, m_lock_ptr, .Xchg, 0x40000000, .seq_cst);
+            rp_ptending.* = null;
+            if (cont < 0 or waiters != 0)
+                wake(@ptrCast(m_lock_ptr), 1, priv);
+        }
+    }
+    vm_unlock_fn();
+
+    __do_orphaned_stdio_locks_ext();
+    __dl_thread_cleanup_ext();
+
+    // Decrement thread count under thread-list lock.
+    const tm1: *volatile c_int = @ptrCast(&__libc.threads_minus_1);
+    const nl: *volatile i8 = @ptrCast(&__libc.need_locks);
+    if (tm1.* == 1) {
+        tm1.* = 0;
+        nl.* = -1;
+    } else {
+        tm1.* -%= 1;
+    }
+
+    // Unlink from the circularly linked thread list.
+    {
+        const cur_next_addr: usize = @intFromPtr(next_ptr.*);
+        const prev_ptr_field: *?*anyopaque = @ptrFromInt(self + off_prev);
+        const cur_prev_addr: usize = @intFromPtr(prev_ptr_field.*);
+
+        // next->prev = self->prev
+        const next_prev_ptr: *?*anyopaque = @ptrFromInt(cur_next_addr + off_prev);
+        next_prev_ptr.* = prev_ptr_field.*;
+        // prev->next = self->next
+        const prev_next_ptr: *?*anyopaque = @ptrFromInt(cur_prev_addr + off_next);
+        prev_next_ptr.* = next_ptr.*;
+        // self->prev = self->next = self
+        const self_as_opaque: ?*anyopaque = @ptrFromInt(self);
+        prev_ptr_field.* = self_as_opaque;
+        next_ptr.* = self_as_opaque;
+    }
+
+    if (state == DT_DETACHED and map_base_ptr.* != null) {
+        // Detached threads must block even implementation-internal signals
+        // since they won't have a stack in their final moments.
+        __block_all_sigs_ext(@ptrCast(&set));
+
+        const robust_off_ptr: *const c_long = @ptrFromInt(self + off_robust_off);
+        if (robust_off_ptr.* != 0) {
+            _ = linux.syscall2(.set_robust_list, 0, 3 * @sizeOf(c_long));
+        }
+
+        // __unmapself unmaps the thread's stack and exits without
+        // touching the stack.
+        unmapself_fn(@ptrCast(map_base_ptr.*), @as(*const usize, @ptrFromInt(self + off_map_size)).*);
+    }
+
+    // Wake any joiner.
+    @atomicStore(c_int, ds_ptr, DT_EXITED, .seq_cst);
+    wake(@ptrCast(ds_ptr), 1, 1);
+
+    while (true) _ = linux.syscall1(.exit, 0);
+}
+
+// ── start / start_c11 — child entry trampolines ───────────────────────
+
+fn start(p: ?*anyopaque) callconv(.c) c_int {
+    const args: *StartArgsCreate = @ptrCast(@alignCast(p.?));
+    const state = @atomicLoad(c_int, &args.control, .seq_cst);
+    if (state != 0) {
+        // Caller requested explicit scheduling. Block until parent
+        // finishes (or aborts) the sched_setscheduler dance.
+        if (cas(@ptrCast(&args.control), 1, 2) == 1)
+            __wait_fn(@ptrCast(&args.control), null, 2, 1);
+        if (@atomicLoad(c_int, &args.control, .seq_cst) != 0) {
+            // Parent set control = 3 to indicate failure. Cleanly exit
+            // before start_func runs.
+            _ = linux.syscall1(.set_tid_address, @intFromPtr(&args.control));
+            while (true) _ = linux.syscall1(.exit, 0);
+        }
+    }
+    _ = linux.syscall4(.rt_sigprocmask, SIG_SETMASK, @intFromPtr(&args.sig_mask), 0, _NSIG / 8);
+    const func = args.start_func.?;
+    const arg = args.start_arg;
+    __pthread_exit_fn(func(arg));
+}
+
+fn start_c11(p: ?*anyopaque) callconv(.c) c_int {
+    const args: *StartArgsCreate = @ptrCast(@alignCast(p.?));
+    const c11_start: *const fn (?*anyopaque) callconv(.c) c_int = @ptrCast(args.start_func.?);
+    const ret = c11_start(args.start_arg);
+    // (void*)(uintptr_t)ret — sign-extend int to pointer
+    __pthread_exit_fn(@ptrFromInt(@as(usize, @bitCast(@as(isize, ret)))));
+}
+
+// ── __pthread_create ───────────────────────────────────────────────────
+
+fn initFileLock(f: ?*MuslFile) void {
+    if (f) |file| {
+        if (file.lock < 0) file.lock = 0;
+    }
+}
+
+fn roundPage(x: usize) usize {
+    const ps = std.heap.pageSize();
+    return (x + ps - 1) & ~(ps - 1);
+}
+
+fn __pthread_create_fn(
+    res: *anyopaque,
+    attrp_arg: ?*const anyopaque,
+    entry: ?*const anyopaque,
+    arg: ?*anyopaque,
+) callconv(.c) c_int {
+    const __block_app_sigs_ext = @extern(*const fn (*anyopaque) callconv(.c) void, .{ .name = "__block_app_sigs" });
+    const __restore_sigs_ext = @extern(*const fn (*anyopaque) callconv(.c) void, .{ .name = "__restore_sigs" });
+    const __ofl_lock_ext = @extern(*const fn () callconv(.c) *?*MuslFile, .{ .name = "__ofl_lock" });
+    const __ofl_unlock_ext = @extern(*const fn () callconv(.c) void, .{ .name = "__ofl_unlock" });
+    const __mmap_ext = @extern(*const fn (?*anyopaque, usize, c_int, c_int, c_int, i64) callconv(.c) ?*anyopaque, .{ .name = "__mmap" });
+    const __mprotect_ext = @extern(*const fn (?*anyopaque, usize, c_int) callconv(.c) c_int, .{ .name = "__mprotect" });
+    const __membarrier_init_ext = @extern(*const fn () callconv(.c) void, .{ .name = "__membarrier_init" });
+
+    if (__libc.can_do_threads == 0) return eint(.NOSYS);
+
+    const attrp_int: usize = @intFromPtr(attrp_arg);
+    const c11: bool = attrp_int == std.math.maxInt(usize);
+    const has_explicit_attr: bool = !c11 and attrp_arg != null;
+
+    const self = pthread_self_ptr();
+
+    if (__libc.threaded == 0) {
+        // First pthread_create: walk the open-file list and convert any
+        // single-threaded-mode locks (flag value -1) to multithread-mode
+        // (value 0). Also unblock SIGCANCEL / SIGSYNCCALL and seed the
+        // main thread's TSD pointer to the static `pthread_tsd_main`
+        // table.
+        var f = (__ofl_lock_ext()).*;
+        while (f) |file| : (f = file.next) {
+            initFileLock(file);
+        }
+        __ofl_unlock_ext();
+
+        const stdin_used = @extern(*const ?*MuslFile, .{ .name = "__stdin_used" });
+        const stdout_used = @extern(*const ?*MuslFile, .{ .name = "__stdout_used" });
+        const stderr_used = @extern(*const ?*MuslFile, .{ .name = "__stderr_used" });
+        initFileLock(stdin_used.*);
+        initFileLock(stdout_used.*);
+        initFileLock(stderr_used.*);
+
+        var sigpt: [_NSIG / 8 / @sizeOf(c_long)]c_ulong = sigptSet();
+        _ = linux.syscall4(.rt_sigprocmask, @as(usize, @bitCast(@as(isize, SIG_UNBLOCK))), @intFromPtr(&sigpt), 0, _NSIG / 8);
+
+        const self_tsd: *?[*]?*anyopaque = @ptrFromInt(self + off_tsd);
+        self_tsd.* = @ptrCast(&pthread_tsd_main);
+
+        __membarrier_init_ext();
+        __libc.threaded = 1;
+    }
+
+    var attr: pthread_attr_t = .{};
+    if (has_explicit_attr) {
+        attr = @as(*const pthread_attr_t, @ptrCast(@alignCast(attrp_arg.?))).*;
+    }
+
+    __acquire_ptc_fn();
+    if (!has_explicit_attr or c11) {
+        attr._a_stacksize = __default_stacksize;
+        attr._a_guardsize = __default_guardsize;
+    }
+
+    var size: usize = 0;
+    var guard: usize = 0;
+    var map: ?[*]u8 = null;
+    var stack: ?[*]u8 = null;
+    var tsd: ?[*]u8 = null;
+    var stack_limit: ?[*]u8 = null;
+
+    if (attr._a_stackaddr != 0) {
+        const need = __libc.tls_size + pthread_tsd_size;
+        size = attr._a_stacksize;
+        stack = @ptrFromInt(attr._a_stackaddr & ~@as(usize, 15));
+        stack_limit = @ptrFromInt(attr._a_stackaddr - size);
+        // Use caller's stack for TLS only when need is small relative to
+        // the application's stack space.
+        if (need < size / 8 and need < 2048) {
+            tsd = stack.? - pthread_tsd_size;
+            stack = tsd.? - __libc.tls_size;
+            @memset(stack.?[0..need], 0);
+        } else {
+            size = roundPage(need);
+        }
+        guard = 0;
+    } else {
+        guard = roundPage(attr._a_guardsize);
+        size = guard + roundPage(attr._a_stacksize + __libc.tls_size + pthread_tsd_size);
+    }
+
+    if (tsd == null) {
+        if (guard != 0) {
+            const m_raw = __mmap_ext(null, size, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+            const m_addr: usize = @intFromPtr(m_raw);
+            if (m_addr == MAP_FAILED or m_raw == null) {
+                __release_ptc_fn();
+                return eint(.AGAIN);
+            }
+            map = @ptrCast(m_raw);
+            const errno_loc = std.c._errno();
+            if (__mprotect_ext(@ptrCast(map.? + guard), size - guard, PROT_READ | PROT_WRITE) != 0 and errno_loc.* != eint(.NOSYS)) {
+                _ = linux.syscall2(.munmap, @intFromPtr(map.?), size);
+                __release_ptc_fn();
+                return eint(.AGAIN);
+            }
+        } else {
+            const m_raw = __mmap_ext(null, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+            const m_addr: usize = @intFromPtr(m_raw);
+            if (m_addr == MAP_FAILED or m_raw == null) {
+                __release_ptc_fn();
+                return eint(.AGAIN);
+            }
+            map = @ptrCast(m_raw);
+        }
+        tsd = map.? + size - pthread_tsd_size;
+        if (stack == null) {
+            stack = tsd.? - __libc.tls_size;
+            stack_limit = map.? + guard;
+        }
+    }
+
+    // __copy_tls writes the new struct pthread inside the TLS area and
+    // returns the pthread base.
+    const new_addr: usize = @intFromPtr(__copy_tls(tsd.? - __libc.tls_size));
+
+    @as(*?[*]u8, @ptrFromInt(new_addr + off_map_base)).* = map;
+    @as(*usize, @ptrFromInt(new_addr + off_map_size)).* = if (map != null) size else 0;
+    @as(*?[*]u8, @ptrFromInt(new_addr + off_stack)).* = stack;
+    @as(*usize, @ptrFromInt(new_addr + off_stack_size)).* = @intFromPtr(stack.?) - @intFromPtr(stack_limit.?);
+    @as(*usize, @ptrFromInt(new_addr + off_guard_size)).* = guard;
+    @as(*?*anyopaque, @ptrFromInt(new_addr + off_self)).* = @ptrFromInt(new_addr);
+    @as(*?[*]u8, @ptrFromInt(new_addr + off_tsd)).* = tsd;
+    @as(*?*anyopaque, @ptrFromInt(new_addr + off_locale)).* = @ptrCast(&__libc.global_locale);
+
+    const new_ds_ptr: *c_int = @ptrFromInt(new_addr + off_detach_state);
+    new_ds_ptr.* = if (attr._a_detach != 0) DT_DETACHED else DT_JOINABLE;
+
+    // robust_list.head -> &robust_list.head (empty list sentinel)
+    const new_robust_head_ptr: *?*volatile anyopaque = @ptrFromInt(new_addr + off_robust_head);
+    new_robust_head_ptr.* = @ptrCast(new_robust_head_ptr);
+
+    // Inherit canary and sysinfo from the calling thread.
+    @as(*usize, @ptrFromInt(new_addr + off_canary)).* = @as(*const usize, @ptrFromInt(self + off_canary)).*;
+    @as(*usize, @ptrFromInt(new_addr + off_sysinfo)).* = @as(*const usize, @ptrFromInt(self + off_sysinfo)).*;
+
+    // Build start_args at top of stack.
+    var sp: usize = @intFromPtr(stack.?);
+    sp -= sp % @alignOf(usize);
+    sp -= @sizeOf(StartArgsCreate);
+    const args: *StartArgsCreate = @ptrFromInt(sp);
+    args.start_func = @ptrCast(@alignCast(entry));
+    args.start_arg = arg;
+    args.control = if (attr._a_sched != 0) 1 else 0;
+
+    // Application signals must be blocked before the thread-list lock can
+    // be taken (the lock is AS-safe only when app sigs are blocked).
+    var set: [128]u8 = undefined;
+    __block_app_sigs_ext(@ptrCast(&set));
+
+    // Ensure SIGCANCEL is unblocked in the new thread by computing the
+    // child's mask from a copy of `set` with the SIGCANCEL bit cleared.
+    @memcpy(@as([*]u8, @ptrCast(&args.sig_mask))[0..@sizeOf(@TypeOf(args.sig_mask))], @as([*]const u8, @ptrCast(&set))[0..@sizeOf(@TypeOf(args.sig_mask))]);
+    const sigcancel_idx = (SIGCANCEL - 1) / 8 / @sizeOf(c_long);
+    const sigcancel_bit: c_ulong = @as(c_ulong, 1) << @intCast((SIGCANCEL - 1) % (8 * @sizeOf(c_long)));
+    args.sig_mask[sigcancel_idx] &= ~sigcancel_bit;
+
+    __tl_lock_fn();
+    const tm1: *volatile c_int = @ptrCast(&__libc.threads_minus_1);
+    const nl: *volatile i8 = @ptrCast(&__libc.need_locks);
+    if (tm1.* == 0) {
+        tm1.* = 1;
+        nl.* = 1;
+    } else {
+        tm1.* +%= 1;
+    }
+
+    const new_tid_ptr: *c_int = @ptrFromInt(new_addr + off_tid);
+    const tls_for_child: *anyopaque = if (tls_above_tp)
+        @ptrFromInt(new_addr + sizeof_pthread + tp_offset)
+    else
+        @ptrFromInt(new_addr);
+
+    var ret: c_int = __clone(
+        if (c11) start_c11 else start,
+        @ptrFromInt(sp),
+        pthread_create_flags,
+        @ptrCast(args),
+        new_tid_ptr,
+        tls_for_child,
+        @ptrCast(&__thread_list_lock),
+    );
+
+    if (ret < 0) {
+        ret = -eint(.AGAIN);
+    } else if (attr._a_sched != 0) {
+        var prio_val = attr._a_prio;
+        const rc: isize = @bitCast(linux.syscall3(.sched_setscheduler, @as(usize, @intCast(new_tid_ptr.*)), @as(usize, @bitCast(@as(isize, attr._a_policy))), @intFromPtr(&prio_val)));
+        ret = @intCast(rc);
+        const swap_val: c_int = if (ret != 0) 3 else 0;
+        if (@atomicRmw(c_int, &args.control, .Xchg, swap_val, .seq_cst) == 2)
+            wake(@ptrCast(&args.control), 1, 1);
+        if (ret != 0)
+            __wait_fn(@ptrCast(&args.control), null, 3, 0);
+    }
+
+    if (ret >= 0) {
+        // Insert `new` into the circularly linked thread list, right
+        // after `self`.
+        const self_next_ptr: *usize = @ptrFromInt(self + off_next);
+        const new_next_ptr: *usize = @ptrFromInt(new_addr + off_next);
+        const new_prev_ptr: *usize = @ptrFromInt(new_addr + off_prev);
+        new_next_ptr.* = self_next_ptr.*;
+        new_prev_ptr.* = self;
+        const new_next_addr = new_next_ptr.*;
+        const new_next_prev_ptr: *usize = @ptrFromInt(new_next_addr + off_prev);
+        new_next_prev_ptr.* = new_addr;
+        self_next_ptr.* = new_addr;
+    } else {
+        if (tm1.* == 1) {
+            tm1.* = 0;
+            nl.* = 0;
+        } else {
+            tm1.* -%= 1;
+        }
+    }
+    __tl_unlock_fn();
+    __restore_sigs_ext(@ptrCast(&set));
+    __release_ptc_fn();
+
+    if (ret < 0) {
+        if (map) |m| _ = linux.syscall2(.munmap, @intFromPtr(m), size);
+        return -ret;
+    }
+
+    const res_ptr: *?*anyopaque = @ptrCast(@alignCast(res));
+    res_ptr.* = @ptrFromInt(new_addr);
+    return 0;
+}
+
+// ── __pthread_join / __pthread_timedjoin_np / __pthread_tryjoin_np ────
+
+fn __pthread_timedjoin_np_fn(
+    t: std.c.pthread_t,
+    res: ?*?*anyopaque,
+    at: ?*const linux.timespec,
+) callconv(.c) c_int {
+    pthread_testcancel_fn();
+    var cs: c_int = undefined;
+    _ = pthread_setcancelstate_fn(PTHREAD_CANCEL_DISABLE, &cs);
+    if (cs == PTHREAD_CANCEL_ENABLE) _ = pthread_setcancelstate_fn(cs, null);
+
+    const ds_ptr: *volatile c_int = @ptrFromInt(@intFromPtr(t) + off_detach_state);
+    var r: c_int = 0;
+    while (true) {
+        const state = ds_ptr.*;
+        if (state == 0) break;
+        if (r == eint(.TIMEDOUT) or r == eint(.INVAL)) break;
+        if (state >= DT_DETACHED) @trap();
+        r = timedwait_cp_fn(ds_ptr, state, CLOCK_REALTIME, at, 1);
+    }
+    _ = pthread_setcancelstate_fn(cs, null);
+    if (r == eint(.TIMEDOUT) or r == eint(.INVAL)) return r;
+
+    __tl_sync_fn(t);
+    if (res) |out| {
+        const result_ptr: *const ?*anyopaque = @ptrFromInt(@intFromPtr(t) + off_result);
+        out.* = result_ptr.*;
+    }
+    const map_base_ptr: *const ?[*]u8 = @ptrFromInt(@intFromPtr(t) + off_map_base);
+    const map_size_ptr: *const usize = @ptrFromInt(@intFromPtr(t) + off_map_size);
+    if (map_base_ptr.*) |m| {
+        _ = linux.syscall2(.munmap, @intFromPtr(m), map_size_ptr.*);
+    }
+    return 0;
+}
+
+fn __pthread_join_fn(t: std.c.pthread_t, res: ?*?*anyopaque) callconv(.c) c_int {
+    return __pthread_timedjoin_np_fn(t, res, null);
+}
+
+fn __pthread_tryjoin_np_fn(t: std.c.pthread_t, res: ?*?*anyopaque) callconv(.c) c_int {
+    const ds_ptr: *const volatile c_int = @ptrFromInt(@intFromPtr(t) + off_detach_state);
+    if (ds_ptr.* == DT_JOINABLE) return eint(.BUSY);
+    return __pthread_join_fn(t, res);
 }

@@ -329,10 +329,10 @@ fn childImpl(args: *Args) noreturn {
     // multi-threaded synchronised id change that would trash parent state.
     if ((attr.__flags & POSIX_SPAWN_RESETIDS) != 0) {
         const gid_ret: isize = @bitCast(linux.syscall0(.getgid));
-        ret = @bitCast(linux.syscall1(.setgid, @bitCast(gid_ret)));
+        ret = @bitCast(linux.syscall1(.setgid, @as(usize, @bitCast(gid_ret))));
         if (ret == 0) {
             const uid_ret: isize = @bitCast(linux.syscall0(.getuid));
-            ret = @bitCast(linux.syscall1(.setuid, @bitCast(uid_ret)));
+            ret = @bitCast(linux.syscall1(.setuid, @as(usize, @bitCast(uid_ret))));
         }
         if (ret != 0) {
             failExit(p, ret);

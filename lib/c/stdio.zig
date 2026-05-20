@@ -90,7 +90,9 @@ const SwCookie = extern struct {
 };
 const strerror_fn = @extern(*const fn (c_int) callconv(.c) [*:0]const u8, .{ .name = "strerror" });
 // vfprintf is implemented in Zig below as `vfprintf_impl`.
-const vfwprintf_fn = @extern(*const fn (?*FILE, [*:0]const wchar_t, VaList) callconv(.c) c_int, .{ .name = "vfwprintf" });
+// vfwprintf is implemented in Zig below as `vfwprintf_impl`.
+const btowc_fn = @extern(*const fn (c_int) callconv(.c) wint_t, .{ .name = "btowc" });
+const wcsnlen_fn = @extern(*const fn ([*:0]const wchar_t, usize) callconv(.c) usize, .{ .name = "wcsnlen" });
 const memchr_fn = @extern(*const fn (?[*]const u8, c_int, usize) callconv(.c) ?[*]u8, .{ .name = "memchr" });
 const lseek_fn = @extern(*const fn (c_int, i64, c_int) callconv(.c) i64, .{ .name = "__lseek" });
 const malloc_fn = @extern(*const fn (usize) callconv(.c) ?*anyopaque, .{ .name = "malloc" });
@@ -282,6 +284,7 @@ comptime {
         // #243 fix enables by-value VaList; all v-prefix stdio wrappers now migrated.
         symbol(&vprintf_impl, "vprintf");
         symbol(&vfprintf_impl, "vfprintf");
+        symbol(&vfwprintf_impl, "vfwprintf");
         symbol(&vfscanf_impl, "vfscanf");
         symbol(&vfscanf_impl, "__isoc99_vfscanf");
         symbol(&vscanf_impl, "vscanf");
@@ -3072,6 +3075,418 @@ fn vfprintf_impl(f_opt: ?*FILE, fmt: [*:0]const u8, ap: VaList) callconv(.c) c_i
 
 // === end of vfprintf ===
 
+// === vfwprintf (from musl src/stdio/vfwprintf.c) ========================
+// Reuses all the printf state machinery from above (FLAGMASK, PF_* constants,
+// pf_states, PrintfArg, pop_arg, vaArgLongDouble, NL_ARGMAX). Only the
+// wide-char output path and the per-conversion handlers are new; numeric
+// conversions delegate to fprintf_impl after building a narrow charfmt.
+
+/// musl: const char sizeprefix['y'-'a'] for wprintf_core's "%*.*<sp><t>"
+/// path: long-double "L" for floats, intmax "j" for ints/pointers.
+const wfp_sizeprefix: [25]u8 = blk: {
+    var t = [_]u8{0} ** 25;
+    t['a' - 'a'] = 'L';
+    t['e' - 'a'] = 'L';
+    t['f' - 'a'] = 'L';
+    t['g' - 'a'] = 'L';
+    t['d' - 'a'] = 'j';
+    t['i' - 'a'] = 'j';
+    t['o' - 'a'] = 'j';
+    t['u' - 'a'] = 'j';
+    t['x' - 'a'] = 'j';
+    t['p' - 'a'] = 'j';
+    break :blk t;
+};
+
+/// musl: static void out(FILE *f, const wchar_t *s, size_t l) — emit `l` wide
+/// chars while the stream is not in error state.
+inline fn wfp_out(f: *FILE, s: [*]const wchar_t, l: usize) void {
+    var i: usize = 0;
+    while (i < l and f.flags & F_ERR == 0) : (i += 1) {
+        _ = fputwc_impl(s[i], f);
+    }
+}
+
+/// musl: static void pad(FILE *f, int n, int fl) — pad with spaces via
+/// fprintf("%*s", n, ""). LEFT_ADJ / non-positive widths / error state skip.
+fn wfp_pad(f: *FILE, n: c_int, fl: c_uint) void {
+    if ((fl & LEFT_ADJ_BIT) != 0 or n <= 0 or f.flags & F_ERR != 0) return;
+    _ = fprintf_impl(f, "%*s", n, @as([*:0]const u8, ""));
+}
+
+/// musl: static int getint(wchar_t **s) — parse a wide-digit run as c_int,
+/// return -1 on overflow.
+fn wfp_getint(sp: *[*]const wchar_t) c_int {
+    var i: c_int = 0;
+    while (iswdigit_local(sp.*[0])) : (sp.* += 1) {
+        const d: c_int = @intCast(wcharAsU32(sp.*[0]) - '0');
+        if (i > @as(c_int, std.math.maxInt(c_int) / 10) or d > std.math.maxInt(c_int) - 10 * i) {
+            i = -1;
+        } else {
+            i = 10 * i + d;
+        }
+    }
+    return i;
+}
+
+fn wprintf_core(
+    f_opt: ?*FILE,
+    fmt: [*:0]const wchar_t,
+    ap: *VaList,
+    nl_arg: *[NL_ARGMAX + 1]PrintfArg,
+    nl_type: *[NL_ARGMAX + 1]c_int,
+) callconv(.c) c_int {
+    var s: [*:0]const wchar_t = fmt;
+    var l10n: c_uint = 0;
+    var fl: c_uint = undefined;
+    var w: c_int = undefined;
+    var p: c_int = undefined;
+    var xp: c_int = undefined;
+    var arg: PrintfArg = std.mem.zeroes(PrintfArg);
+    var argpos: c_int = undefined;
+    var st: u8 = undefined;
+    var ps: u8 = undefined;
+    var cnt: c_int = 0;
+    var l: c_int = 0;
+    var i: c_int = undefined;
+    var t: c_int = undefined;
+    var bs: [*]const u8 = undefined;
+    var charfmt: [16]u8 = undefined;
+    var wc: wchar_t = undefined;
+    var single_wc: [1]wchar_t = undefined;
+
+    while (true) {
+        // Detect output count overflow.
+        if (l > std.math.maxInt(c_int) - cnt) {
+            setErrno(.OVERFLOW);
+            return -1;
+        }
+        cnt += l;
+        if (s[0] == 0) break;
+
+        // Handle literal text and %% format specifiers.
+        const a_lit = s;
+        while (s[0] != 0 and wcharAsU32(s[0]) != '%') s += 1;
+        var z_lit = s;
+        while (wcharAsU32(s[0]) == '%' and wcharAsU32(s[1]) == '%') {
+            z_lit += 1;
+            s += 2;
+        }
+        const lit_bytes: isize = @intCast(@intFromPtr(z_lit) - @intFromPtr(a_lit));
+        const lit_wchars: isize = @divExact(lit_bytes, @sizeOf(wchar_t));
+        if (lit_wchars > std.math.maxInt(c_int) - cnt) {
+            setErrno(.OVERFLOW);
+            return -1;
+        }
+        l = @intCast(lit_wchars);
+        if (f_opt) |ff| wfp_out(ff, a_lit, @intCast(l));
+        if (l != 0) continue;
+
+        if (iswdigit_local(s[1]) and wcharAsU32(s[2]) == '$') {
+            l10n = 1;
+            argpos = @intCast(wcharAsU32(s[1]) - '0');
+            s += 3;
+        } else {
+            argpos = -1;
+            s += 1;
+        }
+
+        // Read modifier flags.
+        fl = 0;
+        while (true) {
+            const c: u32 = wcharAsU32(s[0]);
+            const bit: c_uint = @as(c_uint, @intCast(c)) -% ' ';
+            if (bit >= 32) break;
+            if ((FLAGMASK & (@as(c_uint, 1) << @as(u5, @intCast(bit)))) == 0) break;
+            fl |= @as(c_uint, 1) << @as(u5, @intCast(bit));
+            s += 1;
+        }
+
+        // Read field width.
+        if (wcharAsU32(s[0]) == '*') {
+            if (iswdigit_local(s[1]) and wcharAsU32(s[2]) == '$') {
+                l10n = 1;
+                nl_type[@as(usize, @intCast(wcharAsU32(s[1]) - '0'))] = PF_INT;
+                w = @intCast(nl_arg[@as(usize, @intCast(wcharAsU32(s[1]) - '0'))].i);
+                s += 3;
+            } else if (l10n == 0) {
+                w = if (f_opt != null) @cVaArg(ap, c_int) else 0;
+                s += 1;
+            } else {
+                setErrno(.INVAL);
+                return -1;
+            }
+            if (w < 0) {
+                fl |= LEFT_ADJ_BIT;
+                w = -w;
+            }
+        } else {
+            w = wfp_getint(@ptrCast(&s));
+            if (w < 0) {
+                setErrno(.OVERFLOW);
+                return -1;
+            }
+        }
+
+        // Read precision.
+        if (wcharAsU32(s[0]) == '.' and wcharAsU32(s[1]) == '*') {
+            if (iswdigit_local(s[2]) and wcharAsU32(s[3]) == '$') {
+                nl_type[@as(usize, @intCast(wcharAsU32(s[2]) - '0'))] = PF_INT;
+                p = @intCast(nl_arg[@as(usize, @intCast(wcharAsU32(s[2]) - '0'))].i);
+                s += 4;
+            } else if (l10n == 0) {
+                p = if (f_opt != null) @cVaArg(ap, c_int) else 0;
+                s += 2;
+            } else {
+                setErrno(.INVAL);
+                return -1;
+            }
+            xp = @intFromBool(p >= 0);
+        } else if (wcharAsU32(s[0]) == '.') {
+            s += 1;
+            p = wfp_getint(@ptrCast(&s));
+            xp = 1;
+        } else {
+            p = -1;
+            xp = 0;
+        }
+
+        // Format specifier state machine.
+        st = 0;
+        while (true) {
+            const sc: u32 = wcharAsU32(s[0]);
+            if (sc > 127 or pf_oob(@intCast(sc))) {
+                setErrno(.INVAL);
+                return -1;
+            }
+            ps = st;
+            const idx: usize = @as(usize, @intCast(sc)) - 'A';
+            s += 1;
+            st = pf_states[st][idx];
+            if (st - 1 >= PF_STOP) break;
+        }
+        if (st == 0) {
+            setErrno(.INVAL);
+            return -1;
+        }
+
+        // Check validity of argument type (nl/normal).
+        if (st == PF_NOARG) {
+            if (argpos >= 0) {
+                setErrno(.INVAL);
+                return -1;
+            }
+        } else {
+            if (argpos >= 0) {
+                nl_type[@as(usize, @intCast(argpos))] = st;
+                arg = nl_arg[@as(usize, @intCast(argpos))];
+            } else if (f_opt != null) {
+                pop_arg(&arg, st, ap);
+            } else {
+                return 0;
+            }
+        }
+
+        if (f_opt == null) continue;
+        const ff = f_opt.?;
+
+        // Do not process any new directives once in error state.
+        if (ff.flags & F_ERR != 0) return -1;
+
+        t = @intCast(wcharAsU32((s - 1)[0]));
+        // Transform ls,lc -> S,C.
+        if (ps != 0 and (t & 15) == 3) t &= ~@as(c_int, 32);
+
+        // Specials: n / c / C / S / m / s — handled directly without the
+        // narrow-charfmt detour. Fall through (default break) for d/i/o/u/x/p/a/e/f/g.
+        switch (t) {
+            'n' => {
+                const p_dest: ?*anyopaque = arg.p;
+                if (p_dest) |pd| {
+                    switch (ps) {
+                        PF_BARE => @as(*c_int, @ptrCast(@alignCast(pd))).* = cnt,
+                        PF_LPRE => @as(*c_long, @ptrCast(@alignCast(pd))).* = cnt,
+                        PF_LLPRE => @as(*c_longlong, @ptrCast(@alignCast(pd))).* = cnt,
+                        PF_HPRE => @as(*c_ushort, @ptrCast(@alignCast(pd))).* = @truncate(@as(c_uint, @bitCast(cnt))),
+                        PF_HHPRE => @as(*u8, @ptrCast(@alignCast(pd))).* = @truncate(@as(c_uint, @bitCast(cnt))),
+                        PF_ZTPRE => @as(*usize, @ptrCast(@alignCast(pd))).* = @intCast(cnt),
+                        PF_JPRE => @as(*c_ulonglong, @ptrCast(@alignCast(pd))).* = @intCast(cnt),
+                        else => {},
+                    }
+                }
+                continue;
+            },
+            'c', 'C' => {
+                if (w < 1) w = 1;
+                wfp_pad(ff, w - 1, fl);
+                const ch_u32: u32 = if (t == 'C')
+                    @intCast(arg.i & 0xFFFFFFFF)
+                else
+                    @as(u32, @intCast(wintAsU32(@bitCast(btowc_fn(@as(c_int, @intCast(arg.i & 0xFF)))))));
+                single_wc[0] = @bitCast(ch_u32);
+                wfp_out(ff, &single_wc, 1);
+                wfp_pad(ff, w - 1, fl ^ LEFT_ADJ_BIT);
+                l = w;
+                continue;
+            },
+            'S' => {
+                const ws: [*:0]const wchar_t = @ptrCast(@alignCast(arg.p));
+                const limit: usize = if (p < 0) std.math.maxInt(c_int) else @as(usize, @intCast(p));
+                const wlen: usize = wcsnlen_fn(ws, limit);
+                if (p < 0 and ws[wlen] != 0) {
+                    setErrno(.OVERFLOW);
+                    return -1;
+                }
+                if (wlen > std.math.maxInt(c_int)) {
+                    setErrno(.OVERFLOW);
+                    return -1;
+                }
+                p = @intCast(wlen);
+                if (w < p) w = p;
+                wfp_pad(ff, w - p, fl);
+                wfp_out(ff, ws, @intCast(p));
+                wfp_pad(ff, w - p, fl ^ LEFT_ADJ_BIT);
+                l = w;
+                continue;
+            },
+            'm', 's' => {
+                if (t == 'm') arg.p = @ptrCast(@constCast(strerror_fn(std.c._errno().*)));
+                if (arg.p == null) arg.p = @ptrCast(@constCast(@as([*]const u8, "(null)")));
+                bs = @ptrCast(@alignCast(arg.p));
+                i = 0;
+                l = 0;
+                const cap: c_int = if (p < 0) std.math.maxInt(c_int) else p;
+                while (l < cap) {
+                    i = mbtowc_fn(&wc, bs, MB_LEN_MAX);
+                    if (i <= 0) break;
+                    bs += @as(usize, @intCast(i));
+                    l += 1;
+                }
+                if (i < 0) return -1;
+                if (p < 0 and bs[0] != 0) {
+                    setErrno(.OVERFLOW);
+                    return -1;
+                }
+                p = l;
+                if (w < p) w = p;
+                wfp_pad(ff, w - p, fl);
+                bs = @ptrCast(@alignCast(arg.p.?));
+                while (l != 0) : (l -= 1) {
+                    i = mbtowc_fn(&wc, bs, MB_LEN_MAX);
+                    bs += @as(usize, @intCast(i));
+                    single_wc[0] = wc;
+                    wfp_out(ff, &single_wc, 1);
+                }
+                wfp_pad(ff, w - p, fl ^ LEFT_ADJ_BIT);
+                l = w;
+                continue;
+            },
+            else => {},
+        }
+
+        if (xp != 0 and p < 0) {
+            setErrno(.OVERFLOW);
+            return -1;
+        }
+
+        // Build narrow charfmt = "%[flags]*.*[sizeprefix]<t>" then delegate
+        // numeric conversion to fprintf_impl.
+        {
+            var ci: usize = 0;
+            charfmt[ci] = '%';
+            ci += 1;
+            if ((fl & ALT_FORM_BIT) != 0) {
+                charfmt[ci] = '#';
+                ci += 1;
+            }
+            if ((fl & MARK_POS_BIT) != 0) {
+                charfmt[ci] = '+';
+                ci += 1;
+            }
+            if ((fl & LEFT_ADJ_BIT) != 0) {
+                charfmt[ci] = '-';
+                ci += 1;
+            }
+            if ((fl & PAD_POS_BIT) != 0) {
+                charfmt[ci] = ' ';
+                ci += 1;
+            }
+            if ((fl & ZERO_PAD_BIT) != 0) {
+                charfmt[ci] = '0';
+                ci += 1;
+            }
+            charfmt[ci] = '*';
+            ci += 1;
+            charfmt[ci] = '.';
+            ci += 1;
+            charfmt[ci] = '*';
+            ci += 1;
+            const sp_idx: c_int = (t | 32) - 'a';
+            if (sp_idx >= 0 and sp_idx < @as(c_int, wfp_sizeprefix.len)) {
+                const sp_ch: u8 = wfp_sizeprefix[@as(usize, @intCast(sp_idx))];
+                if (sp_ch != 0) {
+                    charfmt[ci] = sp_ch;
+                    ci += 1;
+                }
+            }
+            charfmt[ci] = @intCast(t);
+            ci += 1;
+            charfmt[ci] = 0;
+        }
+
+        switch (t | 32) {
+            'a', 'e', 'f', 'g' => {
+                l = fprintf_impl(ff, @ptrCast(&charfmt), w, p, arg.f);
+            },
+            'd', 'i', 'o', 'u', 'x', 'p' => {
+                l = fprintf_impl(ff, @ptrCast(&charfmt), w, p, arg.i);
+            },
+            else => {},
+        }
+    }
+
+    if (f_opt != null) return cnt;
+    if (l10n == 0) return 0;
+
+    var ii: usize = 1;
+    while (ii <= NL_ARGMAX and nl_type[ii] != 0) : (ii += 1) {
+        pop_arg(&nl_arg[ii], @intCast(nl_type[ii]), ap);
+    }
+    while (ii <= NL_ARGMAX and nl_type[ii] == 0) : (ii += 1) {}
+    if (ii <= NL_ARGMAX) {
+        setErrno(.INVAL);
+        return -1;
+    }
+    return 1;
+}
+
+fn vfwprintf_impl(f_opt: ?*FILE, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
+    const f = f_opt.?;
+    var ap_src = ap;
+    var ap2 = @cVaCopy(&ap_src);
+    var nl_type: [NL_ARGMAX + 1]c_int = [_]c_int{0} ** (NL_ARGMAX + 1);
+    var nl_arg: [NL_ARGMAX + 1]PrintfArg = undefined;
+    var ret: c_int = undefined;
+
+    if (wprintf_core(null, fmt, &ap2, &nl_arg, &nl_type) < 0) {
+        @cVaEnd(&ap2);
+        return -1;
+    }
+
+    const need_unlock = flock(f);
+    _ = fwide_impl(f, 1);
+    const olderr: c_uint = f.flags & F_ERR;
+    f.flags &= ~F_ERR;
+    ret = wprintf_core(f, fmt, &ap2, &nl_arg, &nl_type);
+    if (f.flags & F_ERR != 0) ret = -1;
+    f.flags |= olderr;
+    funlock(f, need_unlock);
+    @cVaEnd(&ap2);
+    return ret;
+}
+
+// === end of vfwprintf ===
+
 fn sn_write(f: *FILE, s: [*]const u8, l: usize) callconv(.c) usize {
     const c: *SnCookie = @ptrCast(@alignCast(f.cookie.?));
     const wbase = f.wbase orelse @as([*]u8, @ptrCast(@constCast(s)));
@@ -3562,7 +3977,7 @@ fn vswprintf_impl(s: [*]wchar_t, n: usize, fmt: [*:0]const wchar_t, ap: VaList) 
     f.buf_size = buf.len;
     f.cookie = @ptrCast(&c);
     if (n == 0) return -1;
-    const r = vfwprintf_fn(@ptrCast(&f), fmt, ap);
+    const r = vfwprintf_impl(@ptrCast(&f), fmt, ap);
     _ = sw_write(&f, @ptrCast(&f), 0);
     return if (r >= @as(c_int, @intCast(n))) @as(c_int, -1) else r;
 }
@@ -3987,7 +4402,7 @@ fn vfwscanf_impl(f_raw: ?*FILE, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c
 /// swscanf.c: int swscanf(const wchar_t *restrict s, const wchar_t *restrict fmt, ...)
 /// vwprintf.c: int vwprintf(const wchar_t *restrict fmt, va_list ap)
 fn vwprintf_impl(fmt: [*:0]const wchar_t, ap: VaList) callconv(.c) c_int {
-    return vfwprintf_fn(stdout_ext.*, fmt, ap);
+    return vfwprintf_impl(stdout_ext.*, fmt, ap);
 }
 
 /// vwscanf.c: int vwscanf(const wchar_t *restrict fmt, va_list ap)
@@ -4053,14 +4468,14 @@ fn asprintf_impl(s: *?[*]u8, fmt: [*:0]const u8, ...) callconv(.c) c_int {
 fn wprintf_impl(fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfwprintf_fn(stdout_ext.*, fmt, ap);
+    return vfwprintf_impl(stdout_ext.*, fmt, ap);
 }
 
 /// fwprintf.c
 fn fwprintf_impl(f: ?*FILE, fmt: [*:0]const wchar_t, ...) callconv(.c) c_int {
     var ap = @cVaStart();
     defer @cVaEnd(&ap);
-    return vfwprintf_fn(f, fmt, ap);
+    return vfwprintf_impl(f, fmt, ap);
 }
 
 /// swprintf.c

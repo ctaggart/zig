@@ -2392,9 +2392,13 @@ fn fmt_fp(f: ?*FILE, y_in: c_longdouble, w: c_int, p_in: c_int, fl_in: c_uint, t
     {
         const z_r_minus_one: c_int = @intCast(@as(isize, @bitCast(@intFromPtr(z) -% @intFromPtr(r))) >> 2);
         if (j < 9 * (z_r_minus_one - 1)) {
-            // We avoid C's broken division of negative numbers
+            // We avoid C's broken division of negative numbers.
+            // j_off can be negative: musl's `r + 1 + j_off` is signed
+            // pointer arithmetic, so do the same in Zig (offset r as isize).
             const j_off: c_int = @divTrunc(j + 9 * @as(c_int, LDBL_MAX_EXP), 9) - @as(c_int, LDBL_MAX_EXP);
-            d = r + 1 + @as(usize, @intCast(j_off));
+            const d_addr: isize = @as(isize, @bitCast(@intFromPtr(r))) +
+                (@as(isize, 1) + @as(isize, j_off)) * @sizeOf(u32);
+            d = @ptrFromInt(@as(usize, @bitCast(d_addr)));
             var jj: c_int = j + 9 * @as(c_int, LDBL_MAX_EXP);
             jj = @mod(jj, 9);
             i = 10;

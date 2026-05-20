@@ -2066,6 +2066,36 @@ inline fn pf_oob(c: u8) bool {
     return @as(c_uint, c) -% 'A' > 'z' - 'A';
 }
 
+/// Manual `va_arg(*ap, long double)` for x86_64 SysV. Zig's self-hosted
+/// x86_64 backend does not yet implement c_va_arg for the X87+X87UP class
+/// combination that c_longdouble (x86_fp80) falls into on SysV; see
+/// `src/codegen/x86_64/CodeGen.zig::airVaArg` ("TODO implement c_va_arg
+/// for c_longdouble on SysV"). On SysV, long double is MEMORY class and
+/// always passed via the overflow_arg_area in 16-byte aligned, 16-byte
+/// slots, so we open-code the load and pointer bump here.
+fn vaArgLongDoubleX86_64SysV(ap: *VaList) c_longdouble {
+    const va: *std.builtin.VaListX86_64 = ap;
+    const raw = @intFromPtr(va.overflow_arg_area);
+    const aligned = std.mem.alignForward(usize, raw, 16);
+    const v = @as(*c_longdouble, @ptrFromInt(aligned)).*;
+    va.overflow_arg_area = @ptrFromInt(aligned + 16);
+    return v;
+}
+
+fn vaArgLongDoubleBuiltin(ap: *VaList) c_longdouble {
+    return @cVaArg(ap, c_longdouble);
+}
+
+const vaArgLongDouble: fn (ap: *VaList) c_longdouble = blk: {
+    if (builtin.cpu.arch == .x86_64 and
+        builtin.os.tag != .windows and
+        builtin.os.tag != .uefi)
+    {
+        break :blk vaArgLongDoubleX86_64SysV;
+    }
+    break :blk vaArgLongDoubleBuiltin;
+};
+
 fn pop_arg(arg: *PrintfArg, ty: u8, ap: *VaList) callconv(.c) void {
     switch (ty) {
         PF_PTR => arg.p = @cVaArg(ap, ?*anyopaque),
@@ -2085,7 +2115,7 @@ fn pop_arg(arg: *PrintfArg, ty: u8, ap: *VaList) callconv(.c) void {
         PF_PDIFF => arg.i = @bitCast(@as(c_longlong, @cVaArg(ap, isize))),
         PF_UIPTR => arg.i = @intFromPtr(@cVaArg(ap, ?*anyopaque)),
         PF_DBL => arg.f = @floatCast(@cVaArg(ap, f64)),
-        PF_LDBL => arg.f = @cVaArg(ap, c_longdouble),
+        PF_LDBL => arg.f = vaArgLongDouble(ap),
         else => {},
     }
 }
@@ -2808,9 +2838,10 @@ fn printf_core(
                     p = -1;
                 }
                 if (t == 'c' or arg.i == 0) {
-                    zp -= 1;
+                    // musl: *(a = z - (p = 1)) = arg.i;
+                    // Do NOT mutate zp so the common tail's `a_len = zp - a` is 1.
                     p = 1;
-                    a = zp;
+                    a = zp - 1;
                     a[0] = @truncate(arg.i);
                     fl &= ~ZERO_PAD_BIT;
                 } else {

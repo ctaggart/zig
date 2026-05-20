@@ -510,11 +510,11 @@ const src_files = [_][]const u8{
     "musl/src/ldso/x32/dlsym.s",
     "musl/src/ldso/x86_64/dlsym.s",
     "musl/src/ldso/x86_64/tlsdesc.s",
-    "musl/src/math/j0.c",
-    "musl/src/math/j0f.c",
-    "musl/src/math/j1.c",
-    "musl/src/math/j1f.c",
-    "musl/src/math/lgammal.c",
+    //"musl/src/math/j0.c", // migrated to lib/c/math.zig; exports: j0,y0
+    //"musl/src/math/j0f.c", // migrated to lib/c/math.zig; exports: j0f,y0f
+    //"musl/src/math/j1.c", // migrated to lib/c/math.zig; exports: j1,y1
+    //"musl/src/math/j1f.c", // migrated to lib/c/math.zig; exports: j1f,y1f
+    //"musl/src/math/lgammal.c", // migrated to lib/c/math.zig; exports: lgammal,lgammal_r
     //"musl/src/math/erfl.c", // migrated to lib/c/math.zig
     //"musl/src/math/exp10l.c", // migrated to lib/c/math.zig
     //"musl/src/math/expm1.c", // migrated to lib/c/math.zig

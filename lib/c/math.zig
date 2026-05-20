@@ -3701,7 +3701,7 @@ fn lgammal80_sin_pi(x_: f80) f80 {
     x *= 0.5;
     x = 2.0 * (x - @floor(x));
     var n: c_int = @intFromFloat(x * 4.0);
-    n = (n + 1) / 2;
+    n = @divTrunc(n + 1, 2);
     x -= @as(f80, @floatFromInt(n)) * 0.5;
     x *= lgammal80_pi;
     return switch (n) {

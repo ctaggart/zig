@@ -463,8 +463,6 @@ jobs:
             regression.mkstemp-failure
             regression.printf-
             regression.putenv-doublefree
-            regression.regex-
-            regression.regexec-nosub
             regression.rewind-clear-error
             regression.rlimit-open-files
             regression.scanf-

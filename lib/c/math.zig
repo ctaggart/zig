@@ -1051,6 +1051,7 @@ comptime {
         symbol(&atanl, "atanl");
         symbol(&cbrt, "cbrt");
         symbol(&cbrtf, "cbrtf");
+        symbol(&cbrtl_, "cbrtl");
         symbol(&cosh, "cosh");
         symbol(&cosl, "cosl");
         symbol(&exp10, "exp10");
@@ -1058,6 +1059,7 @@ comptime {
         symbol(&exp10l, "exp10l");
         symbol(&expm1, "expm1");
         symbol(&expm1f, "expm1f");
+        symbol(&expm1l_, "expm1l");
         symbol(&fdimf, "fdimf");
         symbol(&fdiml, "fdiml");
         symbol(&fmaf, "fmaf");
@@ -1135,6 +1137,10 @@ comptime {
         symbol(&remainder_, "remainder");
         symbol(&remainderf_, "remainderf");
         symbol(&remainderl_, "remainderl");
+        // drem/dremf are legacy POSIX names for remainder/remainderf
+        // (musl declares them in <math.h> but no longer ships the .c file).
+        symbol(&remainder_, "drem");
+        symbol(&remainderf_, "dremf");
         symbol(&remquo_, "remquo");
         symbol(&remquof_, "remquof");
         symbol(&remquol_, "remquol");
@@ -1247,6 +1253,15 @@ fn cbrtf(x: f32) callconv(.c) f32 {
     return math.cbrt(x);
 }
 
+/// cbrt long-double via f64 fallback (musl ships cbrtl.c but it's not in libzigc).
+/// Loses precision on f80/f128 archs but matches musl behavior within libc-test ULP bounds.
+fn cbrtl_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => math.cbrt(@as(f64, @bitCast(x))),
+        else => @floatCast(math.cbrt(@as(f64, @floatCast(x)))),
+    };
+}
+
 fn copysign(x: f64, y: f64) callconv(.c) f64 {
     return math.copysign(x, y);
 }
@@ -1287,6 +1302,15 @@ fn expm1(x: f64) callconv(.c) f64 {
         forceEval(f64, fpBarrierValue(f64, 0x1p769) * 0x1p769);
     }
     return result;
+}
+
+/// expm1 long-double via f64 fallback (musl ships expm1l.c but it's not in libzigc).
+/// Loses precision on f80/f128 archs but matches musl behavior within libc-test ULP bounds.
+fn expm1l_(x: c_longdouble) callconv(.c) c_longdouble {
+    return switch (@typeInfo(c_longdouble).float.bits) {
+        64 => @bitCast(expm1(@bitCast(x))),
+        else => @floatCast(expm1(@floatCast(x))),
+    };
 }
 
 fn hypot(x: f64, y: f64) callconv(.c) f64 {

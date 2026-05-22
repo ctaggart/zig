@@ -116,7 +116,8 @@ const posix_spawn_file_actions_addclose_fn = @extern(*const fn (*posix_spawn_fil
 const posix_spawn_file_actions_adddup2_fn = @extern(*const fn (*posix_spawn_file_actions_t, c_int, c_int) callconv(.c) c_int, .{ .name = "posix_spawn_file_actions_adddup2" });
 const posix_spawn_file_actions_destroy_fn = @extern(*const fn (*posix_spawn_file_actions_t) callconv(.c) c_int, .{ .name = "posix_spawn_file_actions_destroy" });
 const posix_spawn_fn = @extern(*const fn (*linux.pid_t, [*:0]const u8, ?*const posix_spawn_file_actions_t, ?*const anyopaque, [*:null]const ?[*:0]u8, [*:null]const ?[*:0]u8) callconv(.c) c_int, .{ .name = "posix_spawn" });
-extern "c" var __environ: [*:null]?[*:0]u8;
+extern "c" var __environ: ?[*:null]?[*:0]u8;
+var empty_env = [_:null]?[*:0]u8{null};
 const wctomb_fn = @extern(*const fn (?[*]u8, wchar_t) callconv(.c) c_int, .{ .name = "wctomb" });
 const ungetwc_fn = @extern(*const fn (wint_t, ?*FILE) callconv(.c) wint_t, .{ .name = "ungetwc" });
 const wcrtomb_fn = @extern(*const fn (?[*]u8, wchar_t, ?*mbstate_t) callconv(.c) usize, .{ .name = "wcrtomb" });
@@ -5285,7 +5286,8 @@ fn popen_impl(cmd: [*:0]const u8, mode: [*:0]const u8) callconv(.c) ?*FILE {
                 @constCast("-c"),
                 @constCast(cmd),
             };
-            e = posix_spawn_fn(&pid, "/bin/sh", &fa, null, @ptrCast(&argv), @ptrCast(&__environ));
+            const envp: [*:null]?[*:0]u8 = if (__environ) |env| env else @ptrCast(&empty_env);
+            e = posix_spawn_fn(&pid, "/bin/sh", &fa, null, @ptrCast(&argv[0]), envp);
             if (e == 0) {
                 _ = posix_spawn_file_actions_destroy_fn(&fa);
                 f.pipe_pid = pid;

@@ -762,6 +762,11 @@ fn scanExponentSuffix(
             popFloatScan(len);
             return true;
         }
+        // scanf (pok=0): mirror musl's scanexp — push back only the non-digit
+        // so the file position points at it. The sign (if any) and the marker
+        // stay consumed; the caller will shlim(f, 0) which makes vfscanf
+        // report nomatch (shcnt < 1) for the whole conversion field.
+        if (ch >= 0) shunget(f);
         return false;
     }
     while (isDigit(ch)) : (ch = shgetc(f)) appendFloatScan(buf, len, ch);

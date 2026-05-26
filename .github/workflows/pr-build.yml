@@ -357,6 +357,8 @@ jobs:
             functional.fcntl
             functional.fdopen
             functional.fnmatch
+            functional.fscanf
+            functional.fwscanf
             functional.inet_pton
             functional.mbc
             functional.memstream
@@ -368,6 +370,7 @@ jobs:
             functional.setjmp
             functional.snprintf
             functional.socket
+            functional.sscanf
             functional.stat
             functional.str
             functional.swprintf

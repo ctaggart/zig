@@ -39,7 +39,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ZIG_VERSION: "0.16.0-dev.3061+9b1eaad13"
+  ZIG_VERSION: "0.16.0"
+  # Zig's official minisign public key, used by `ghr install` to verify the
+  # `zig-aarch64-linux-*.tar.xz.minisig` sidecar on every download.
+  ZIG_MINISIGN_PUBKEY: "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
   LLVM_VERSION: "21.1.8"
   TARGET: aarch64-linux-musl
   MCPU: baseline
@@ -100,47 +103,43 @@ jobs:
       - name: Setup release Zig (aarch64) + LLVM prefix (cached, atomic)
         run: |
           set -euo pipefail
-          zig_marker="$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}/.complete"
-          llvm_marker="$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux/.complete"
+          # `ghr` (cataggar/ghr — `pipx install ghr-bin`) is provided by the
+          # self-hosted runner image and installs the release Zig with
+          # built-in minisign + sha256 verification.
+          if ! command -v ghr >/dev/null; then
+              echo "ERROR: 'ghr' not found on PATH. Install with 'pipx install ghr-bin'." >&2
+              exit 1
+          fi
 
-          fetch_extract() {
-              local url="$1" final="$2" marker="$3"
-              if [ -f "$marker" ]; then
-                  return 0
-              fi
-              local staging
+          # ---- Zig: ghr handles caching, verification, and PATH ----
+          ghr install "ctaggart/zig@v${ZIG_VERSION}" "$ZIG_MINISIGN_PUBKEY"
+          ghr_bin="$(ghr path bin)"
+          "$ghr_bin/zig" version
+          echo "$ghr_bin" >> "$GITHUB_PATH"
+
+          # ---- LLVM prefix: cached extract under CACHE_ROOT, atomic publish ----
+          llvm_top="llvm-zig-${LLVM_VERSION}-aarch64-linux"
+          llvm_final="$CACHE_ROOT/$llvm_top"
+          llvm_marker="$llvm_final/.complete"
+          if [ ! -f "$llvm_marker" ]; then
               staging="$(mktemp -d -p "$CACHE_ROOT" .stage-XXXXXX)"
-              echo "Fetching $url"
-              curl --fail --show-error --location --silent \
-                  --retry 5 --retry-delay 5 --retry-connrefused --retry-all-errors \
-                  "$url" | xz -d | tar x -C "$staging"
-              # Tarball top-level dir name = basename of $final
-              local top
-              top="$(basename "$final")"
-              if [ ! -d "$staging/$top" ]; then
-                  echo "ERROR: tarball did not contain expected top-level dir '$top'" >&2
+              # ghr download writes the archive to cwd, so stage in $staging.
+              ( cd "$staging" && ghr download \
+                  "ctaggart/llvm-project/${llvm_top}.tar.xz@llvmorg-${LLVM_VERSION}" \
+                  --extract "$staging" )
+              if [ ! -d "$staging/$llvm_top" ]; then
+                  echo "ERROR: LLVM tarball did not contain expected top-level dir '$llvm_top'" >&2
                   ls -la "$staging" >&2
                   rm -rf "$staging"
                   exit 1
               fi
-              # Atomic publish: rm any stale partial, then mv staging into place.
-              rm -rf "$final"
-              mv "$staging/$top" "$final"
+              # Atomic publish.
+              rm -rf "$llvm_final"
+              mv "$staging/$llvm_top" "$llvm_final"
               rm -rf "$staging"
-              touch "$marker"
-          }
-
-          fetch_extract \
-              "https://github.com/ctaggart/zig/releases/download/v${ZIG_VERSION}/zig-aarch64-linux-${ZIG_VERSION}.tar.xz" \
-              "$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}" \
-              "$zig_marker"
-          fetch_extract \
-              "https://github.com/ctaggart/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/llvm-zig-${LLVM_VERSION}-aarch64-linux.tar.xz" \
-              "$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux" \
-              "$llvm_marker"
-
-          echo "$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
-          echo "LLVM_PREFIX=$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux" >> "$GITHUB_ENV"
+              touch "$llvm_marker"
+          fi
+          echo "LLVM_PREFIX=$llvm_final" >> "$GITHUB_ENV"
 
       - name: zig version
         run: zig version
@@ -269,45 +268,36 @@ jobs:
       - name: Setup release Zig (aarch64) + LLVM prefix (cached, atomic)
         run: |
           set -euo pipefail
-          zig_marker="$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}/.complete"
-          llvm_marker="$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux/.complete"
+          if ! command -v ghr >/dev/null; then
+              echo "ERROR: 'ghr' not found on PATH. Install with 'pipx install ghr-bin'." >&2
+              exit 1
+          fi
 
-          fetch_extract() {
-              local url="$1" final="$2" marker="$3"
-              if [ -f "$marker" ]; then
-                  return 0
-              fi
-              local staging
+          ghr install "ctaggart/zig@v${ZIG_VERSION}" "$ZIG_MINISIGN_PUBKEY"
+          ghr_bin="$(ghr path bin)"
+          "$ghr_bin/zig" version
+          echo "$ghr_bin" >> "$GITHUB_PATH"
+
+          llvm_top="llvm-zig-${LLVM_VERSION}-aarch64-linux"
+          llvm_final="$CACHE_ROOT/$llvm_top"
+          llvm_marker="$llvm_final/.complete"
+          if [ ! -f "$llvm_marker" ]; then
               staging="$(mktemp -d -p "$CACHE_ROOT" .stage-XXXXXX)"
-              echo "Fetching $url"
-              curl --fail --show-error --location --silent \
-                  --retry 5 --retry-delay 5 --retry-connrefused --retry-all-errors \
-                  "$url" | xz -d | tar x -C "$staging"
-              local top
-              top="$(basename "$final")"
-              if [ ! -d "$staging/$top" ]; then
-                  echo "ERROR: tarball did not contain expected top-level dir '$top'" >&2
+              ( cd "$staging" && ghr download \
+                  "ctaggart/llvm-project/${llvm_top}.tar.xz@llvmorg-${LLVM_VERSION}" \
+                  --extract "$staging" )
+              if [ ! -d "$staging/$llvm_top" ]; then
+                  echo "ERROR: LLVM tarball did not contain expected top-level dir '$llvm_top'" >&2
                   ls -la "$staging" >&2
                   rm -rf "$staging"
                   exit 1
               fi
-              rm -rf "$final"
-              mv "$staging/$top" "$final"
+              rm -rf "$llvm_final"
+              mv "$staging/$llvm_top" "$llvm_final"
               rm -rf "$staging"
-              touch "$marker"
-          }
-
-          fetch_extract \
-              "https://github.com/ctaggart/zig/releases/download/v${ZIG_VERSION}/zig-aarch64-linux-${ZIG_VERSION}.tar.xz" \
-              "$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}" \
-              "$zig_marker"
-          fetch_extract \
-              "https://github.com/ctaggart/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/llvm-zig-${LLVM_VERSION}-aarch64-linux.tar.xz" \
-              "$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux" \
-              "$llvm_marker"
-
-          echo "$CACHE_ROOT/zig-aarch64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
-          echo "LLVM_PREFIX=$CACHE_ROOT/llvm-zig-${LLVM_VERSION}-aarch64-linux" >> "$GITHUB_ENV"
+              touch "$llvm_marker"
+          fi
+          echo "LLVM_PREFIX=$llvm_final" >> "$GITHUB_ENV"
 
       - name: Locate stage4 from build job (key=${{ needs.build.outputs.stage4_key }})
         run: |

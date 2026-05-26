@@ -311,7 +311,7 @@ fn __nscd_query(req: int32_t, key: [*:0]const u8, buf: [*]int32_t, len: usize, s
             .iov_len = @sizeOf(@TypeOf(req_buf)),
         },
         .{
-            .iov_base = @constCast(@ptrCast(key)),
+            .iov_base = @ptrCast(@constCast(key)),
             .iov_len = key_len,
         },
     };
@@ -458,14 +458,24 @@ fn __getpwent_a(f: *FILE, pw: *passwd, line: *?[*:0]u8, size: *usize, res: *?*pa
     var cs: c_int = 0;
     _ = pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cs);
 
-    const pw_local: *passwd = pw;
+    // Track success/EOF via local nullable: on EOF (or read error) we set
+    // pw_local = null so the final `res.* = pw_local;` correctly signals
+    // end-of-iteration to the caller. The previous `const pw_local: *passwd`
+    // could not be cleared, so the post-loop assignment unconditionally wrote
+    // a non-null pointer back into res.*, overwriting the EOF branch's
+    // res.* = null. That made __getpw_a's caller loop infinite-loop on a
+    // lookup that walks /etc/passwd to EOF without matching (e.g.
+    // getpwnam_r("nonsensical_user", ...)). See issue #431. Matches musl's
+    // src/passwd/getpwent_a.c (local `pw` zeroed on EOF, then *res = pw).
+    var pw_local: ?*passwd = pw;
     while (true) {
         const l = getline(line, size, f);
         if (l < 0) {
             rv = if (ferror(f) != 0) errno_val().* else 0;
             free(@ptrCast(line.*));
             line.* = null;
-            res.* = null; break;
+            pw_local = null;
+            break;
         }
         var s: [*:0]u8 = line.*.?;
         s[@intCast(l - 1)] = 0;
@@ -526,7 +536,8 @@ fn __getgrent_a(f: *FILE, gr: *group, line: *?[*:0]u8, size: *usize, mem: *?[*]?
             rv = if (ferror(f) != 0) errno_val().* else 0;
             free(@ptrCast(line.*));
             line.* = null;
-            res.* = null; break;
+            res.* = null;
+            break;
         }
         var s: [*:0]u8 = line.*.?;
         s[@intCast(l - 1)] = 0;

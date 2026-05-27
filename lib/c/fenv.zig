@@ -62,9 +62,23 @@ const isArmHardFloat = switch (builtin.abi) {
     else => false,
 };
 
+const isAarch64 = switch (builtin.cpu.arch) {
+    .aarch64, .aarch64_be => true,
+    else => false,
+};
+
 const ARM_FE_ALL_EXCEPT: c_int = 0x1f;
 const ARM_FE_ROUND_MASK: c_uint = 0xc00000;
 const ARM_FE_DFL_ENV = @as(usize, std.math.maxInt(usize));
+
+const AARCH64_FE_ALL_EXCEPT: c_uint = 0x1f;
+const AARCH64_FE_ROUND_MASK: c_uint = 0xc00000;
+const AARCH64_FE_DFL_ENV = @as(usize, std.math.maxInt(usize));
+
+const aarch64_fenv_t = extern struct {
+    __fpcr: c_uint,
+    __fpsr: c_uint,
+};
 
 const FE_ALL_EXCEPT: c_int = switch (builtin.cpu.arch) {
     .x86_64, .x86, .hexagon => 0x3f,
@@ -148,7 +162,15 @@ const FE_DOWNWARD: ?c_int = switch (builtin.cpu.arch) {
 
 comptime {
     if (builtin.link_libc) {
-        if (isArmHardFloat) {
+        if (isAarch64) {
+            symbol(&aarch64_feclearexcept, "feclearexcept");
+            symbol(&aarch64_feraiseexcept, "feraiseexcept");
+            symbol(&aarch64_fetestexcept, "fetestexcept");
+            symbol(&aarch64_fegetround, "fegetround");
+            symbol(&aarch64___fesetround, "__fesetround");
+            symbol(&aarch64_fegetenv, "fegetenv");
+            symbol(&aarch64_fesetenv, "fesetenv");
+        } else if (isArmHardFloat) {
             symbol(&arm_feclearexcept, "feclearexcept");
             symbol(&arm_feraiseexcept, "feraiseexcept");
             symbol(&arm_fetestexcept, "fetestexcept");
@@ -468,6 +490,84 @@ fn arm_fesetenv(envp: *const c_ulong) callconv(.c) c_int {
     return 0;
 }
 
+fn aarch64_get_fpcr() c_uint {
+    var fpcr: u64 = undefined;
+    asm volatile ("mrs %[fpcr], fpcr"
+        : [fpcr] "=r" (fpcr),
+    );
+    return @truncate(fpcr);
+}
+
+fn aarch64_set_fpcr(fpcr: c_uint) void {
+    asm volatile ("msr fpcr, %[fpcr]"
+        :
+        : [fpcr] "r" (@as(u64, fpcr)),
+    );
+}
+
+fn aarch64_get_fpsr() c_uint {
+    var fpsr: u64 = undefined;
+    asm volatile ("mrs %[fpsr], fpsr"
+        : [fpsr] "=r" (fpsr),
+    );
+    return @truncate(fpsr);
+}
+
+fn aarch64_set_fpsr(fpsr: c_uint) void {
+    asm volatile ("msr fpsr, %[fpsr]"
+        :
+        : [fpsr] "r" (@as(u64, fpsr)),
+    );
+}
+
+fn aarch64_feclearexcept(mask: c_int) callconv(.c) c_int {
+    const exceptions = @as(c_uint, @bitCast(mask)) & AARCH64_FE_ALL_EXCEPT;
+    aarch64_set_fpsr(aarch64_get_fpsr() & ~exceptions);
+    return 0;
+}
+
+fn aarch64_feraiseexcept(mask: c_int) callconv(.c) c_int {
+    const exceptions = @as(c_uint, @bitCast(mask)) & AARCH64_FE_ALL_EXCEPT;
+    aarch64_set_fpsr(aarch64_get_fpsr() | exceptions);
+    return 0;
+}
+
+fn aarch64_fetestexcept(mask: c_int) callconv(.c) c_int {
+    const exceptions = @as(c_uint, @bitCast(mask)) & AARCH64_FE_ALL_EXCEPT;
+    return @intCast(aarch64_get_fpsr() & exceptions);
+}
+
+fn aarch64_fegetround() callconv(.c) c_int {
+    return @intCast(aarch64_get_fpcr() & AARCH64_FE_ROUND_MASK);
+}
+
+fn aarch64___fesetround(r: c_int) callconv(.c) c_int {
+    var fpcr = aarch64_get_fpcr();
+    fpcr &= ~AARCH64_FE_ROUND_MASK;
+    fpcr |= @as(c_uint, @bitCast(r)) & AARCH64_FE_ROUND_MASK;
+    aarch64_set_fpcr(fpcr);
+    return 0;
+}
+
+fn aarch64_fegetenv(envp: *aarch64_fenv_t) callconv(.c) c_int {
+    envp.* = .{
+        .__fpcr = aarch64_get_fpcr(),
+        .__fpsr = aarch64_get_fpsr(),
+    };
+    return 0;
+}
+
+fn aarch64_fesetenv(envp: *const aarch64_fenv_t) callconv(.c) c_int {
+    if (@intFromPtr(envp) == AARCH64_FE_DFL_ENV) {
+        aarch64_set_fpcr(0);
+        aarch64_set_fpsr(0);
+    } else {
+        aarch64_set_fpcr(envp.__fpcr);
+        aarch64_set_fpsr(envp.__fpsr);
+    }
+    return 0;
+}
+
 fn riscv_sf_feclearexcept(mask: c_int) callconv(.c) c_int {
     _ = mask;
     return 0;
@@ -507,36 +607,43 @@ fn riscv_sf_fesetenv(envp: *const anyopaque) callconv(.c) c_int {
 // strong definitions that override these at link time.
 
 fn feclearexcept(mask: c_int) callconv(.c) c_int {
+    if (isAarch64) return aarch64_feclearexcept(mask);
     if (isArmHardFloat) return arm_feclearexcept(mask);
     return 0;
 }
 
 fn feraiseexcept(mask: c_int) callconv(.c) c_int {
+    if (isAarch64) return aarch64_feraiseexcept(mask);
     if (isArmHardFloat) return arm_feraiseexcept(mask);
     return 0;
 }
 
 fn fetestexcept(mask: c_int) callconv(.c) c_int {
+    if (isAarch64) return aarch64_fetestexcept(mask);
     if (isArmHardFloat) return arm_fetestexcept(mask);
     return 0;
 }
 
 fn fegetround() callconv(.c) c_int {
+    if (isAarch64) return aarch64_fegetround();
     if (isArmHardFloat) return arm_fegetround();
     return FE_TONEAREST;
 }
 
 fn __fesetround(r: c_int) callconv(.c) c_int {
+    if (isAarch64) return aarch64___fesetround(r);
     if (isArmHardFloat) return arm___fesetround(r);
     return 0;
 }
 
 fn fegetenv(envp: *anyopaque) callconv(.c) c_int {
+    if (isAarch64) return aarch64_fegetenv(@ptrCast(@alignCast(envp)));
     if (isArmHardFloat) return arm_fegetenv(@ptrCast(@alignCast(envp)));
     return 0;
 }
 
 fn fesetenv(envp: *const anyopaque) callconv(.c) c_int {
+    if (isAarch64) return aarch64_fesetenv(@ptrCast(@alignCast(envp)));
     if (isArmHardFloat) return arm_fesetenv(@ptrCast(@alignCast(envp)));
     return 0;
 }

@@ -1531,9 +1531,11 @@ fn expm1f(x: f32) callconv(.c) f32 {
 }
 
 fn fdimGeneric(comptime T: type, x: T, y: T) T {
-    if (math.isNan(x)) return math.nan(T);
-    if (math.isNan(y)) return math.nan(T);
-    return if (x > y) x - y else 0;
+    @setFloatMode(.strict);
+    if (math.isNan(x)) return x;
+    if (math.isNan(y)) return y;
+    if (x > y) return x - y;
+    return 0;
 }
 
 fn fdimf(x: f32, y: f32) callconv(.c) f32 {
@@ -1809,16 +1811,7 @@ fn scalbnl(x: c_longdouble, n: c_int) callconv(.c) c_longdouble {
 }
 
 fn fdim(x: f64, y: f64) callconv(.c) f64 {
-    if (math.isNan(x)) {
-        return x;
-    }
-    if (math.isNan(y)) {
-        return y;
-    }
-    if (x > y) {
-        return x - y;
-    }
-    return 0;
+    return fdimGeneric(f64, x, y);
 }
 
 /// Port of musl powf — IEEE 754 conformant single-precision power function.

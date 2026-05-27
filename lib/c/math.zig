@@ -1613,8 +1613,9 @@ fn log1p(x: f64) callconv(.c) f64 {
     if (x < -1.0) return (x - x) / (x - x); // raise FE_INVALID
     const result = math.log1p(x);
     if (result != 0 and result == x) {
-        // tiny x: result is x itself, force INEXACT evaluation
-        forceEval(f64, fpBarrierValue(f64, x) * fpBarrierValue(f64, x));
+        // tiny x: result is x itself, force INEXACT evaluation.
+        // Use 1 + x rather than x * x so tiny normal x does not underflow.
+        forceEval(f64, 1.0 + fpBarrierValue(f64, x));
     }
     return result;
 }
@@ -1624,7 +1625,9 @@ fn log1pf(x: f32) callconv(.c) f32 {
     if (x < -1.0) return (x - x) / (x - x); // raise FE_INVALID
     const result = math.log1p(x);
     if (result != 0 and result == x) {
-        forceEval(f32, fpBarrierValue(f32, x) * fpBarrierValue(f32, x));
+        // tiny x: result is x itself, force INEXACT evaluation.
+        // Use 1 + x rather than x * x so tiny normal x does not underflow.
+        forceEval(f32, 1.0 + fpBarrierValue(f32, x));
     }
     return result;
 }

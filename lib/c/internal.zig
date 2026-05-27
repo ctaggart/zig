@@ -695,6 +695,15 @@ fn invalidFloatScan(f: *FILE) c_longdouble {
     return 0;
 }
 
+// scanf-mode (pok=0) signal that a started conversion failed to complete a
+// valid form (e.g. exponent marker without digits). musl writes
+// `shlim(f, 0); return 0;` without touching errno; vfscanf's
+// `pos = shcnt(f); if (pos < 1) goto match_fail;` then reports nomatch.
+fn nomatchFloatScan(f: *FILE) c_longdouble {
+    shlim(f, 0);
+    return 0;
+}
+
 fn parseScannedFloat(comptime T: type, s: []const u8, saw_nonzero: bool) c_longdouble {
     const parsed = std.fmt.parseFloat(T, s) catch {
         setErrno(EINVAL);
@@ -724,7 +733,17 @@ fn finishScannedFloat(s: []const u8, prec: c_int, saw_nonzero: bool) c_longdoubl
     };
 }
 
-fn scanExponentSuffix(f: *FILE, buf: *[4096]u8, len: *usize, marker: c_int) void {
+// Returns false in scanf mode (pok=0) when the exponent body has no digits;
+// the caller must propagate the nomatch (shlim(f, 0); return 0) to vfscanf.
+// In strtod mode (pok=1) trailing garbage is pushed back and `true` is
+// returned, leaving the buffer rolled back to the pre-marker state.
+fn scanExponentSuffix(
+    f: *FILE,
+    buf: *[4096]u8,
+    len: *usize,
+    marker: c_int,
+    pok: c_int,
+) bool {
     appendFloatScan(buf, len, marker);
     var ch = shgetc(f);
     var had_sign = false;
@@ -734,16 +753,25 @@ fn scanExponentSuffix(f: *FILE, buf: *[4096]u8, len: *usize, marker: c_int) void
         ch = shgetc(f);
     }
     if (!isDigit(ch)) {
-        shunget(f);
-        if (had_sign) {
-            shunget(f);
+        if (pok != 0) {
+            if (ch >= 0) shunget(f);
+            if (had_sign) {
+                shunget(f);
+                popFloatScan(len);
+            }
             popFloatScan(len);
+            return true;
         }
-        popFloatScan(len);
-        return;
+        // scanf (pok=0): mirror musl's scanexp — push back only the non-digit
+        // so the file position points at it. The sign (if any) and the marker
+        // stay consumed; the caller will shlim(f, 0) which makes vfscanf
+        // report nomatch (shcnt < 1) for the whole conversion field.
+        if (ch >= 0) shunget(f);
+        return false;
     }
     while (isDigit(ch)) : (ch = shgetc(f)) appendFloatScan(buf, len, ch);
     if (ch >= 0) shunget(f);
+    return true;
 }
 
 fn scanInfTail(f: *FILE, buf: *[4096]u8, len: *usize) void {
@@ -765,7 +793,6 @@ fn scanInfTail(f: *FILE, buf: *[4096]u8, len: *usize) void {
 }
 
 fn floatscan(f: *FILE, prec: c_int, pok: c_int) callconv(.c) c_longdouble {
-    _ = pok;
     var buf: [4096]u8 = undefined;
     var len: usize = 0;
     var saw_nonzero = false;
@@ -845,7 +872,9 @@ fn floatscan(f: *FILE, prec: c_int, pok: c_int) callconv(.c) c_longdouble {
                 popFloatScan(&len);
                 return finishScannedFloat(buf[0..len], prec, false);
             }
-            if (asciiLower(ch) == 'p') scanExponentSuffix(f, &buf, &len, ch) else if (ch >= 0) shunget(f);
+            if (asciiLower(ch) == 'p') {
+                if (!scanExponentSuffix(f, &buf, &len, ch, pok)) return nomatchFloatScan(f);
+            } else if (ch >= 0) shunget(f);
             return finishScannedFloat(buf[0..len], prec, saw_nonzero);
         }
     }
@@ -866,7 +895,9 @@ fn floatscan(f: *FILE, prec: c_int, pok: c_int) callconv(.c) c_longdouble {
     }
 
     if (!gotdig) return invalidFloatScan(f);
-    if (asciiLower(ch) == 'e') scanExponentSuffix(f, &buf, &len, ch) else if (ch >= 0) shunget(f);
+    if (asciiLower(ch) == 'e') {
+        if (!scanExponentSuffix(f, &buf, &len, ch, pok)) return nomatchFloatScan(f);
+    } else if (ch >= 0) shunget(f);
     return finishScannedFloat(buf[0..len], prec, saw_nonzero);
 }
 

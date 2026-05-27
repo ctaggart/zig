@@ -135,8 +135,9 @@ fn log1p_64(x: f64) f64 {
         }
         // |x| < 2^(-53)
         if ((hx << 1) < (0x3CA00000 << 1)) {
+            // underflow if subnormal; no flag for x == 0
             if ((hx & 0x7FF00000) == 0) {
-                math.raiseUnderflow();
+                mem.doNotOptimizeAway(x * x);
             }
             return x;
         }

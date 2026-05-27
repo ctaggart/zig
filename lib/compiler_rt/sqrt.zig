@@ -27,6 +27,7 @@ comptime {
 }
 
 pub fn __sqrth(x: f16) callconv(.c) f16 {
+    @setFloatMode(.strict);
     var ix: u16 = @bitCast(x);
     var top = ix >> 10;
 
@@ -92,6 +93,11 @@ pub fn __sqrth(x: f16) callconv(.c) f16 {
 }
 
 pub fn sqrtf(x: f32) callconv(.c) f32 {
+    // The "y + t" step below depends on strict IEEE-754 add semantics so that the
+    // current rounding mode (FE_UPWARD/FE_DOWNWARD/FE_TOWARDZERO) can adjust
+    // the round-to-nearest result `y` by adding a sub-ULP value `t`.
+    // Without strict mode, optimized builds collapse `y + t` to `y`.
+    @setFloatMode(.strict);
     var ix: u32 = @bitCast(x);
 
     if (ix < @as(u32, @bitCast(@as(f32, 0x1p-126))) or @as(u32, @bitCast(std.math.inf(f32))) <= ix) {
@@ -146,6 +152,11 @@ pub fn sqrtf(x: f32) callconv(.c) f32 {
 }
 
 pub fn sqrt(x: f64) callconv(.c) f64 {
+    // The "y + t" step below depends on strict IEEE-754 add semantics so that the
+    // current rounding mode (FE_UPWARD/FE_DOWNWARD/FE_TOWARDZERO) can adjust
+    // the round-to-nearest result `y` by adding a sub-ULP value `t`.
+    // Without strict mode, optimized builds collapse `y + t` to `y`.
+    @setFloatMode(.strict);
     var ix: u64 = @bitCast(x);
     var top = ix >> 52;
 
@@ -283,6 +294,7 @@ pub fn sqrt(x: f64) callconv(.c) f64 {
 }
 
 pub fn __sqrtx(x: f80) callconv(.c) f80 {
+    @setFloatMode(.strict);
     var ix: u80 = @bitCast(x);
     var top = ix >> 64;
 
@@ -380,6 +392,7 @@ pub fn __sqrtx(x: f80) callconv(.c) f80 {
 }
 
 pub fn sqrtq(x: f128) callconv(.c) f128 {
+    @setFloatMode(.strict);
     var ix: u128 = @bitCast(x);
     var top = ix >> 112;
 

@@ -1445,6 +1445,7 @@ fn pow10f(x: f32) callconv(.c) f32 {
 }
 
 fn rint(x: f64) callconv(.c) f64 {
+    @setFloatMode(.strict);
     const toint: f64 = 1.0 / @as(f64, math.floatEps(f64));
     const a: u64 = @bitCast(x);
     const e = a >> 52 & 0x7ff;
@@ -1659,6 +1660,7 @@ fn nexttowardl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
 
 /// Generic rint for any IEEE 754 float type.
 fn rintGeneric(comptime T: type, x: T) T {
+    @setFloatMode(.strict);
     const toint: T = 1.0 / math.floatEps(T);
     const FloatBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
     const mant_bits = math.floatMantissaBits(T);
@@ -1911,6 +1913,7 @@ fn significandf_(x: f32) callconv(.c) f32 {
 }
 
 fn rintf(x: f32) callconv(.c) f32 {
+    @setFloatMode(.strict);
     const toint: f32 = 1.0 / @as(f32, math.floatEps(f32));
     const a: u32 = @bitCast(x);
     const e = a >> 23 & 0xff;
@@ -1932,6 +1935,7 @@ fn rintf(x: f32) callconv(.c) f32 {
 }
 
 fn rintl(x: c_longdouble) callconv(.c) c_longdouble {
+    @setFloatMode(.strict);
     const toint: c_longdouble = 1.0 / @as(c_longdouble, math.floatEps(c_longdouble));
 
     // NaN or already-integer (includes Inf since Inf >= toint)

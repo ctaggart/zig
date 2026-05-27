@@ -22,6 +22,9 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     if (math.isNan(x) or !math.isFinite(x))
         return x;
 
+    if (x == 0)
+        return x;
+
     var exponent: i32 = @as(i32, @intCast((repr << 1) >> (mantissa_bits + 1)));
     if (exponent == 0)
         exponent += (@as(i32, exponent_bits) + @intFromBool(T == f80)) - @clz(repr << 1);
@@ -135,6 +138,12 @@ test ldexp {
         try expect(ldexp(math.inf(T), min_exponent) == math.inf(T));
         try expect(ldexp(-math.inf(T), math.maxInt(i32)) == -math.inf(T));
         try expect(ldexp(-math.inf(T), math.minInt(i32)) == -math.inf(T));
+
+        // zero -> zero (regardless of n)
+        try expect(ldexp(@as(T, 0.0), math.maxInt(i32)) == 0.0);
+        try expect(ldexp(@as(T, 0.0), math.minInt(i32)) == 0.0);
+        try expect(@as(std.meta.Int(.unsigned, @bitSizeOf(T)), @bitCast(ldexp(@as(T, -0.0), math.maxInt(i32)))) ==
+            @as(std.meta.Int(.unsigned, @bitSizeOf(T)), @bitCast(@as(T, -0.0))));
 
         // extremely large n
         try expect(ldexp(math.floatMax(T), math.maxInt(i32)) == math.inf(T));

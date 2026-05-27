@@ -1991,6 +1991,11 @@ fn log1p_wide(comptime T: type, x: T) T {
 /// Compute log(x) for x > 0 using frexp range reduction + log1p_wide.
 /// Uses only basic arithmetic — no @log.
 fn log_pure(comptime T: type, x: T) T {
+    // log(+inf) = +inf, log(nan) = nan. Without this guard, frexp(inf) yields
+    // a non-finite significand, the |x|>0.5 branch in log1p_wide re-enters
+    // log_pure(+inf), and the two helpers recurse until the stack overflows
+    // (issue #526: asinh(±inf) SEGV).
+    if (!math.isFinite(x)) return x;
     const fr = math.frexp(x);
     var sig = fr.significand;
     var exp_val = fr.exponent;

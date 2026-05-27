@@ -4142,6 +4142,12 @@ fn vfwscanf_impl(f_raw: ?*FILE, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c
     const need_unlock = flock(f);
     _ = fwide_fn(f, 1);
 
+    // Mutable copy of the va_list shared across loop iterations so that
+    // @cVaArg correctly advances state from one conversion to the next.
+    // (Declaring this inside the loop would reset to the first vararg on every
+    // iteration — see vfscanf_impl which uses the same ap_src pattern.)
+    var ap_src = ap;
+
     while (p[0] != 0) : (p += 1) {
         var alloc = false;
 
@@ -4179,7 +4185,6 @@ fn vfwscanf_impl(f_raw: ?*FILE, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c
         }
 
         p += 1;
-        var ap_mut = ap;
         if (wcharAsU32(p[0]) == '*') {
             dest = null;
             p += 1;
@@ -4187,7 +4192,7 @@ fn vfwscanf_impl(f_raw: ?*FILE, fmt: [*:0]const wchar_t, ap: VaList) callconv(.c
             dest = vfwscanfArgN(ap, wcharAsU32(p[0]) - '0');
             p += 2;
         } else {
-            dest = @cVaArg(&ap_mut, ?*anyopaque);
+            dest = @cVaArg(&ap_src, ?*anyopaque);
         }
 
         var width: c_int = 0;

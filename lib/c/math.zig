@@ -953,8 +953,8 @@ fn scalbnWithFlags(comptime T: type, x: T, n: i32) T {
             const mant_bits = math.floatMantissaBits(T);
             const repr: TBits = @bitCast(result);
             const exp_field = (repr << 1) >> (mant_bits + 1);
-            if (exp_field == 0 and result != x) {
-                // subnormal result, force UNDERFLOW|INEXACT
+            if (exp_field == 0 and result != x and scalbnSubnormalInexact(T, x, n)) {
+                // inexact subnormal result, force UNDERFLOW|INEXACT
                 const bits = @typeInfo(T).float.bits;
                 const tiny: T = if (bits <= 32) 0x1p-95 else if (bits <= 64) 0x1p-767 else 0x1p-16382;
                 forceEval(T, fpBarrierValue(T, tiny) * tiny);
@@ -962,6 +962,39 @@ fn scalbnWithFlags(comptime T: type, x: T, n: i32) T {
         }
     }
     return result;
+}
+
+// Returns true if scalbn(x, n) lost precision producing a subnormal result.
+// Caller guarantees x is finite nonzero and result is subnormal.
+// IEEE 754 only raises the underflow flag when a tiny result is inexact.
+fn scalbnSubnormalInexact(comptime T: type, x: T, n: i32) bool {
+    const TBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
+    const total_bits = @typeInfo(T).float.bits;
+    const mant_bits = math.floatMantissaBits(T);
+    const fract_bits = math.floatFractionalBits(T);
+    const exp_bits: u16 = total_bits - mant_bits - 1;
+    const exp_bias: i32 = (@as(i32, 1) << @as(u5, @intCast(exp_bits - 1))) - 1;
+    const exp_min: i32 = 1 - exp_bias;
+    const fract_mask: TBits = (@as(TBits, 1) << fract_bits) - 1;
+    const exp_mask: TBits = (@as(TBits, 1) << exp_bits) - 1;
+
+    const repr_x: TBits = @bitCast(x);
+    const exp_x_biased: i32 = @intCast((repr_x >> mant_bits) & exp_mask);
+    const frac_x: TBits = repr_x & fract_mask;
+
+    // Build the full significand. For f80 the integer bit is explicit (bit
+    // `fract_bits`); for other IEEE binary formats it is implicit.
+    const significand: TBits = if (exp_x_biased == 0)
+        frac_x
+    else
+        (@as(TBits, 1) << fract_bits) | frac_x;
+
+    const ctz_sig: i32 = @intCast(@ctz(significand));
+    // Right shift applied to the significand to fit into the subnormal mantissa.
+    // For normal x: shift = exp_min - e_x - n  where e_x = exp_x_biased - exp_bias.
+    // For subnormal x: shift = -n (both x and result share the subnormal exponent).
+    const shift: i32 = if (exp_x_biased == 0) -n else exp_min - (exp_x_biased - exp_bias) - n;
+    return shift > ctz_sig;
 }
 
 fn __math_divzero(sign: u32) callconv(.c) f64 {

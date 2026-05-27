@@ -29,6 +29,8 @@ pub fn expm1(x: anytype) @TypeOf(x) {
 }
 
 fn expm1_32(x_: f32) f32 {
+    @setFloatMode(.strict);
+
     if (math.isNan(x_))
         return math.nan(f32);
 
@@ -138,14 +140,11 @@ fn expm1_32(x_: f32) f32 {
     const twopk = @as(f32, @bitCast(@as(u32, @intCast((0x7F +% k) << 23))));
 
     if (k < 0 or k > 56) {
-        var y = x - e + 1.0;
+        const y = x - e + 1.0;
         if (k == 128) {
-            y = y * 2.0 * 0x1.0p127;
-        } else {
-            y = y * twopk;
+            return (y * 2.0 * 0x1.0p127) - 1.0;
         }
-
-        return y - 1.0;
+        return (y * twopk) - 1.0;
     }
 
     const uf: f32 = @bitCast(@as(u32, @intCast(0x7F -% k)) << 23);
@@ -157,6 +156,8 @@ fn expm1_32(x_: f32) f32 {
 }
 
 fn expm1_64(x_: f64) f64 {
+    @setFloatMode(.strict);
+
     if (math.isNan(x_))
         return math.nan(f64);
 
@@ -188,6 +189,10 @@ fn expm1_64(x_: f64) f64 {
         // exp1md(-ve) = -1
         if (sign != 0) {
             return -1;
+        }
+        // exp1md(+inf) = +inf without raising OVERFLOW
+        if (math.isPositiveInf(x)) {
+            return x;
         }
         if (x > o_threshold) {
             math.raiseOverflow();
@@ -269,14 +274,11 @@ fn expm1_64(x_: f64) f64 {
     const twopk = @as(f64, @bitCast(@as(u64, @intCast(0x3FF +% k)) << 52));
 
     if (k < 0 or k > 56) {
-        var y = x - e + 1.0;
+        const y = x - e + 1.0;
         if (k == 1024) {
-            y = y * 2.0 * 0x1.0p1023;
-        } else {
-            y = y * twopk;
+            return (y * 2.0 * 0x1.0p1023) - 1.0;
         }
-
-        return y - 1.0;
+        return (y * twopk) - 1.0;
     }
 
     const uf = @as(f64, @bitCast(@as(u64, @intCast(0x3FF -% k)) << 52));

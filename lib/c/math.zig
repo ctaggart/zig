@@ -1661,11 +1661,41 @@ fn nearbyintl(x: c_longdouble) callconv(.c) c_longdouble {
 }
 
 fn nextafterf(x: f32, y: f32) callconv(.c) f32 {
-    return math.nextAfter(f32, x, y);
+    return nextafterWithFlags(f32, x, y);
 }
 
 fn nextafterl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {
-    return math.nextAfter(c_longdouble, x, y);
+    return nextafterWithFlags(c_longdouble, x, y);
+}
+
+// Wraps math.nextAfter and injects IEEE 754 exception flags. std.math.nextAfter
+// is pure bit-manipulation and never raises flags, so callers from libc must
+// add OVERFLOW|INEXACT (step from finite to infinity) and UNDERFLOW|INEXACT
+// (result is subnormal or zero) themselves.
+fn nextafterWithFlags(comptime T: type, x: T, y: T) T {
+    @setFloatMode(.strict);
+    if (math.isNan(x) or math.isNan(y)) return x + y;
+    if (x == y) return y;
+
+    const result = math.nextAfter(T, x, y);
+
+    const bits = @typeInfo(T).float.bits;
+
+    if (math.isInf(result)) {
+        const huge: T = if (bits <= 32) 0x1p97 else if (bits <= 64) 0x1p769 else 0x1p16383;
+        forceEval(T, fpBarrierValue(T, huge) * huge);
+        return result;
+    }
+
+    const TBits = std.meta.Int(.unsigned, bits);
+    const mant_bits = math.floatMantissaBits(T);
+    const repr: TBits = @bitCast(result);
+    const exp_field = (repr << 1) >> (mant_bits + 1);
+    if (exp_field == 0) {
+        const tiny: T = if (bits <= 32) 0x1p-95 else if (bits <= 64) 0x1p-767 else 0x1p-16382;
+        forceEval(T, fpBarrierValue(T, tiny) * tiny);
+    }
+    return result;
 }
 
 fn nexttowardf(x: f32, y: c_longdouble) callconv(.c) f32 {
@@ -3045,33 +3075,7 @@ fn __signbitl(x: c_longdouble) callconv(.c) c_int {
 }
 
 fn nextafter(x: f64, y: f64) callconv(.c) f64 {
-    var ux: u64 = @bitCast(x);
-    const uy: u64 = @bitCast(y);
-
-    if (math.isNan(x) or math.isNan(y)) return x + y;
-    if (ux == uy) return y;
-
-    const ax = ux & (math.maxInt(u64) >> 1);
-    const ay = uy & (math.maxInt(u64) >> 1);
-    if (ax == 0) {
-        if (ay == 0) return y;
-        ux = (uy & (@as(u64, 1) << 63)) | 1;
-    } else if (ax > ay or ((ux ^ uy) & (@as(u64, 1) << 63)) != 0) {
-        ux -= 1;
-    } else {
-        ux += 1;
-    }
-    const e: u32 = @truncate((ux >> 52) & 0x7ff);
-    // raise overflow if ux is infinite and x is finite
-    if (e == 0x7ff) {
-        mem.doNotOptimizeAway(x + x);
-    }
-    // raise underflow if ux is subnormal or zero
-    if (e == 0) {
-        const val: f64 = @bitCast(ux);
-        mem.doNotOptimizeAway(val * val);
-    }
-    return @bitCast(ux);
+    return nextafterWithFlags(f64, x, y);
 }
 
 fn nexttoward(x: f64, y: c_longdouble) callconv(.c) f64 {

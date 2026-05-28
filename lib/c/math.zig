@@ -1837,7 +1837,23 @@ fn sincosl(x: c_longdouble, sin_ptr: *c_longdouble, cos_ptr: *c_longdouble) call
 }
 
 fn sinhf(x: f32) callconv(.c) f32 {
-    return math.sinh(x);
+    @setFloatMode(.strict);
+    const u: u32 = @bitCast(x);
+    const ux = u & 0x7fffffff;
+    // |x| < log(FLT_MAX) ≈ 88.7228, or NaN/Inf: delegate to std.
+    // 0x42b17217 is the bit pattern of log(FLT_MAX); 0x7f800000 is +inf.
+    if (ux < 0x42b17218 or ux >= 0x7f800000) return math.sinh(x);
+    // |x| in [log(FLT_MAX), inf): compute in f128 so the result is correctly
+    // rounded across all rounding modes, and detect IEEE 754 overflow
+    // (mathematical |sinh(x)| >= 2^128).
+    const absx: f128 = @abs(@as(f128, @floatCast(x)));
+    var h: f128 = 0.5;
+    if (u >> 31 != 0) h = -h;
+    const t: f128 = exp_pure(f128, absx);
+    const big: f128 = h * t;
+    const result: f32 = @floatCast(big);
+    if (@abs(big) >= 0x1p128) math.raiseOverflow();
+    return result;
 }
 
 fn sinl(x: c_longdouble) callconv(.c) c_longdouble {
@@ -2320,8 +2336,14 @@ fn sinh_(x_: f64) callconv(.c) f64 {
     if (w < 0x40862e42) {
         const t: f128 = expm1_wide(f128, absx);
         if (w < 0x3ff00000) {
-            if (w < 0x3ff00000 - (26 << 20))
+            if (w < 0x3ff00000 - (26 << 20)) {
+                // For subnormal nonzero |x|, sinh(x) ≈ x is subnormal and
+                // mathematically inexact; raise UNDERFLOW|INEXACT.
+                if (absu != 0 and absu < (@as(u64, 1) << 52)) {
+                    math.raiseUnderflow();
+                }
                 return x_;
+            }
             return @floatCast(h * (2 * t - t * t / (t + 1)));
         }
         return @floatCast(h * (t + t / (t + 1)));
@@ -2329,7 +2351,14 @@ fn sinh_(x_: f64) callconv(.c) f64 {
 
     // |x| > log(DBL_MAX) or nan: f128 exp won't overflow here
     const t: f128 = exp_pure(f128, absx);
-    return @floatCast(h * t);
+    const big: f128 = h * t;
+    const result: f64 = @floatCast(big);
+    // Raise OVERFLOW|INEXACT for finite x whose true sinh value cannot fit as a
+    // finite f64. 0x1p1024 is the IEEE-754 binary64 overflow boundary; values
+    // with magnitude at or above it round to ±inf or saturate to ±floatMax per
+    // the rounding mode, with OVERFLOW set. Excludes nan/inf inputs.
+    if (w < 0x7ff00000 and @abs(big) >= 0x1p1024) math.raiseOverflow();
+    return result;
 }
 
 fn sinhl_(x: c_longdouble) callconv(.c) c_longdouble {

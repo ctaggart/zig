@@ -1,0 +1,42 @@
+# Curated subset of regression libc-test sources used by pr-build.yml and
+# post-merge-libc.yml on libc/0.16.x. Each non-blank, non-comment line is a
+# substring filter passed as -Dtest-filter=<line> (see test/src/Libc.zig).
+#
+# Mirrors the functional-subset exclusion list (pthread/sem/tls/raise-race/
+# iconv/spawn/popen/vfork).
+regression.daemon-failure
+regression.dn_expand-
+regression.execle-env
+regression.fflush-exit
+regression.fgets-eof
+regression.fgetwc-buffering
+regression.flockfile-list
+regression.fpclassify-invalid-ld80
+regression.ftello-unflushed-append
+regression.getpwnam_r-
+regression.inet_
+regression.iswspace-null
+regression.lrand48-signextend
+regression.lseek-large
+regression.malloc-
+regression.mbsrtowcs-overflow
+regression.memmem-
+regression.mkdtemp-failure
+regression.mkstemp-failure
+regression.printf-
+regression.putenv-doublefree
+regression.rewind-clear-error
+regression.rlimit-open-files
+regression.scanf-
+regression.setenv-oom
+regression.setvbuf-unget
+regression.sigaltstack
+regression.sigprocmask-internal
+regression.sigreturn
+regression.sscanf-eof
+regression.statvfs
+regression.strverscmp
+regression.syscall-sign-extend
+regression.uselocale-0
+regression.wcsncpy-read-overflow
+regression.wcsstr-false-negative

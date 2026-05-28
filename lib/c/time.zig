@@ -48,7 +48,22 @@ var old_tz: ?[*]u8 = &old_tz_buf;
 var old_tz_size: usize = 32;
 var timezone_lock: c_int = 0;
 var __timezone_lockptr: *volatile c_int = &timezone_lock;
-const LibC = extern struct {
+const LibC = if (builtin.target.isWasiLibC()) extern struct {
+    envp: ?*anyopaque,
+    stack: ?*anyopaque,
+    tls_head: ?*anyopaque,
+    tls_size: usize,
+    tls_align: usize,
+    tls_cnt: usize,
+    page_size: usize,
+    threads_minus_1: c_int,
+    ofl_lock: c_int,
+    ofl_head: ?*anyopaque,
+    dlerror_lock: c_int,
+    dlerror_buf: ?[*]u8,
+    global_locale: locale_struct,
+    current_locale: ?*locale_struct,
+} else extern struct {
     can_do_threads: u8,
     threaded: u8,
     secure: u8,
@@ -92,7 +107,6 @@ var tmbuf: tm = undefined;
 comptime {
     if (builtin.target.isMuslLibC()) {
         symbol(&ftimeLinux, "ftime");
-        symbol(&__localtime_r, "localtime_r");
         symbol(&nanosleepLinux, "nanosleep");
         symbol(&clock_nanosleepLinux, "clock_nanosleep");
         symbol(&clock_nanosleepLinux, "__clock_nanosleep");
@@ -112,17 +126,8 @@ comptime {
         symbol(&timer_createLinux, "timer_create");
         symbol(&timer_settimeLinux, "timer_settime");
         symbol(&__map_file, "__map_file");
-        symbol(&strftimeFmt1, "__strftime_fmt_1");
-        symbol(&__strftime_l, "__strftime_l");
-        symbol(&strftimeImpl, "strftime");
-        symbol(&__strftime_l, "strftime_l");
-        symbol(&__wcsftime_l, "__wcsftime_l");
-        symbol(&wcsftimeImpl, "wcsftime");
-        symbol(&__wcsftime_l, "wcsftime_l");
-        symbol(&__secs_to_zone, "__secs_to_zone");
         symbol(&__tzset, "__tzset");
         symbol(&__tzset, "tzset");
-        symbol(&__tm_to_tzname, "__tm_to_tzname");
         symbol(&__timezone, "__timezone");
         symbol(&__timezone, "timezone");
         symbol(&__daylight, "__daylight");
@@ -147,6 +152,16 @@ comptime {
         symbol(&__utc, "__utc");
         symbol(&__asctime_r, "__asctime_r");
         symbol(&asctimeImpl, "asctime");
+        symbol(&__localtime_r, "localtime_r");
+        symbol(&strftimeFmt1, "__strftime_fmt_1");
+        symbol(&__strftime_l, "__strftime_l");
+        symbol(&strftimeImpl, "strftime");
+        symbol(&__strftime_l, "strftime_l");
+        symbol(&__wcsftime_l, "__wcsftime_l");
+        symbol(&wcsftimeImpl, "wcsftime");
+        symbol(&__wcsftime_l, "wcsftime_l");
+        symbol(&__secs_to_zone, "__secs_to_zone");
+        symbol(&__tm_to_tzname, "__tm_to_tzname");
     }
     if (builtin.target.isMuslLibC() and builtin.link_libc) {
         symbol(&ctimeImpl, "ctime");
@@ -832,6 +847,14 @@ fn ruleToSecs(rule: *const [5]c_int, year: c_longlong) c_longlong {
 }
 
 fn __secs_to_zone(t: c_longlong, local: c_int, isdst: *c_int, offset: *c_long, oppoff: ?*c_long, zonename: *?[*:0]const u8) callconv(.c) void {
+    if (comptime builtin.target.isWasiLibC()) {
+        isdst.* = 0;
+        offset.* = 0;
+        if (oppoff) |op| op.* = 0;
+        zonename.* = &__utc;
+        return;
+    }
+
     lockTimezone();
     doTzset();
     if (zi != null) {
@@ -888,6 +911,10 @@ fn __tzset() callconv(.c) void {
 }
 
 fn __tm_to_tzname(t: *const tm) callconv(.c) [*:0]const u8 {
+    if (comptime builtin.target.isWasiLibC()) {
+        return &__utc;
+    }
+
     var p = t.__tm_zone orelse return "";
     lockTimezone();
     doTzset();
@@ -1243,11 +1270,15 @@ fn parseNumericDigits(dest: *c_int, s: *[*:0]const u8, width: c_int, adj: c_int)
 fn getdateImpl(s: [*:0]const u8) callconv(.c) ?*tm {
     var ret: ?*tm = null;
     var cs: c_int = undefined;
-    _ = pthread_setcancelstate(PTHREAD_CANCEL_DEFERRED, &cs);
+    if (comptime !builtin.target.isWasiLibC()) {
+        _ = pthread_setcancelstate(PTHREAD_CANCEL_DEFERRED, &cs);
+    }
 
     const datemsk = getenv("DATEMSK") orelse {
         getdate_err = 1;
-        _ = pthread_setcancelstate(cs, null);
+        if (comptime !builtin.target.isWasiLibC()) {
+            _ = pthread_setcancelstate(cs, null);
+        }
         return null;
     };
 
@@ -1256,7 +1287,9 @@ fn getdateImpl(s: [*:0]const u8) callconv(.c) ?*tm {
             getdate_err = 6
         else
             getdate_err = 2;
-        _ = pthread_setcancelstate(cs, null);
+        if (comptime !builtin.target.isWasiLibC()) {
+            _ = pthread_setcancelstate(cs, null);
+        }
         return null;
     };
 
@@ -1277,11 +1310,13 @@ fn getdateImpl(s: [*:0]const u8) callconv(.c) ?*tm {
     }
 
     _ = fclose(f);
-    _ = pthread_setcancelstate(cs, null);
+    if (comptime !builtin.target.isWasiLibC()) {
+        _ = pthread_setcancelstate(cs, null);
+    }
     return ret;
 }
 
-const locale_t = *opaque {};
+const locale_t = ?*opaque {};
 const nl_item = c_int;
 const wchar_t = std.c.wchar_t;
 
@@ -1331,6 +1366,12 @@ const pthread = extern struct {
 };
 
 fn currentLocale() locale_t {
+    if (comptime builtin.target.isWasiLibC()) {
+        return if (__libc.current_locale != null or __libc.global_locale.cat[0] == null)
+            @ptrCast(__libc.current_locale)
+        else
+            @ptrCast(&__libc.global_locale);
+    }
     return @ptrCast(pthread_self().locale);
 }
 

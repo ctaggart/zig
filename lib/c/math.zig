@@ -1653,11 +1653,59 @@ fn lroundl(x: c_longdouble) callconv(.c) c_long {
 }
 
 fn nearbyintf(x: f32) callconv(.c) f32 {
-    return rintGeneric(f32, x);
+    return nearbyintWithFlags(f32, x);
 }
 
 fn nearbyintl(x: c_longdouble) callconv(.c) c_longdouble {
-    return rintGeneric(c_longdouble, x);
+    return nearbyintWithFlags(c_longdouble, x);
+}
+
+/// Like rint, but per C99 §7.12.9.3 must not raise FE_INEXACT.
+/// rint and friends use a `x + toint - toint` round-trip that raises INEXACT
+/// when the input has fractional bits, so we snapshot the FE_INEXACT flag
+/// before the call and clear it afterwards if it was originally clear.
+/// `fpBarrierValue` is used around the rint result to keep the optimizer
+/// from hoisting FP ops past the FPSR read/clear asm.
+fn nearbyintWithFlags(comptime T: type, x: T) T {
+    @setFloatMode(.strict);
+    const saved_inexact = readInexactFlag();
+    const result = fpBarrierValue(T, rintGeneric(T, fpBarrierValue(T, x)));
+    if (!saved_inexact) clearInexactFlag();
+    return result;
+}
+
+/// FE_INEXACT bit in the architecture status register, or null on
+/// architectures where we have no direct access. On unsupported targets the
+/// nearbyint family falls back to plain rint behavior (which may leak
+/// INEXACT — same as the previous behavior).
+inline fn readInexactFlag() bool {
+    switch (builtin.cpu.arch) {
+        .aarch64, .aarch64_be => {
+            var fpsr: u64 = undefined;
+            asm volatile ("mrs %[fpsr], fpsr"
+                : [fpsr] "=r" (fpsr),
+            );
+            return (fpsr & 0x10) != 0;
+        },
+        else => return true, // pretend it was set so we don't clobber unknown state
+    }
+}
+
+inline fn clearInexactFlag() void {
+    switch (builtin.cpu.arch) {
+        .aarch64, .aarch64_be => {
+            var fpsr: u64 = undefined;
+            asm volatile ("mrs %[fpsr], fpsr"
+                : [fpsr] "=r" (fpsr),
+            );
+            fpsr &= ~@as(u64, 0x10);
+            asm volatile ("msr fpsr, %[fpsr]"
+                :
+                : [fpsr] "r" (fpsr),
+            );
+        },
+        else => {},
+    }
 }
 
 fn nextafterf(x: f32, y: f32) callconv(.c) f32 {
@@ -3146,7 +3194,7 @@ fn lrint(x: f64) callconv(.c) c_long {
 }
 
 fn nearbyint(x: f64) callconv(.c) f64 {
-    return rint(x);
+    return nearbyintWithFlags(f64, x);
 }
 
 fn powl(x: c_longdouble, y: c_longdouble) callconv(.c) c_longdouble {

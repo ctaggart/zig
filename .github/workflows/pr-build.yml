@@ -8,8 +8,10 @@ name: pr-build
 # Jobs:
 #   - pr-build: ast-check + migration claims + Build stage4.
 #   - pr-libc-test: runs libc-test on the stage4 produced by pr-build.
-#     The native functional/regression slices are temporarily skipped because
-#     they hang on libc/0.16.x; math and api are required.
+#     api, math and the curated functional/regression subsets
+#     (.github/libc-test-subsets/) are all required. Tests outside those
+#     subsets (pthread/sem/tls/raise-race/iconv/spawn/popen/vfork) are still
+#     excluded while the underlying libzigc migrations are in flight.
 #   - pr-cross-compile: cross-compiles a tiny hello.c against libzigc + musl
 #     libc.a for every target in the post-merge QEMU matrix. Catches
 #     arch-specific libzigc compile errors (missing syscall fields,
@@ -329,60 +331,18 @@ jobs:
 
       - name: Run libc-test — functional subset (aarch64-linux-musl, native)
         timeout-minutes: 30
-        continue-on-error: true
         run: |
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
           if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
           ulimit -c 0 2>/dev/null || true
-          # Curated subset of functional libc-test sources to avoid known-hanging
-          # areas while libzigc migration is in flight. Excluded by category:
-          #   - pthread_*    (mutex/cond/cancel/rwlock/tsd/robust still in flux)
-          #   - sem_*        (POSIX semaphores depend on pthread internals)
-          #   - ipc_*        (SysV msg/sem/shm need kernel + cleanup)
-          #   - dlopen*      (dynamic linking not exercised by static link)
-          #   - tls_*        (TLS migration tracked in #491)
-          #   - spawn, popen, vfork (fork/exec/vfork)
-          # Each filter is a substring match (see test/src/Libc.zig).
-          filters=(
-            functional.argv
-            functional.basename
-            functional.clocale_mbfuncs
-            functional.clock_gettime
-            functional.crypt
-            functional.dirent
-            functional.dirname
-            functional.env
-            functional.fcntl
-            functional.fdopen
-            functional.fnmatch
-            functional.fscanf
-            functional.fwscanf
-            functional.inet_pton
-            functional.mbc
-            functional.memstream
-            functional.mntent
-            functional.qsort
-            functional.random
-            functional.search
-            functional.scanf
-            functional.setjmp
-            functional.snprintf
-            functional.socket
-            functional.sscanf
-            functional.stat
-            functional.str
-            functional.swprintf
-            functional.tgmath
-            functional.time
-            functional.udiv
-            functional.ungetc
-            functional.utime
-            functional.wcsstr
-            functional.wcstol
-          )
+          # Curated subset filters live in .github/libc-test-subsets/functional.txt
+          # so pr-build and post-merge-libc share one source of truth.
           args=()
-          for f in "${filters[@]}"; do args+=("-Dtest-filter=$f"); done
+          while IFS= read -r f; do
+            case "$f" in ''|\#*) continue;; esac
+            args+=("-Dtest-filter=$f")
+          done < .github/libc-test-subsets/functional.txt
           "$STAGE4/bin/zig" build test-libc \
               --zig-lib-dir lib \
               -Dlibc-test-path="$CACHE_ROOT/libc-test" \
@@ -423,55 +383,18 @@ jobs:
 
       - name: Run libc-test — regression subset (aarch64-linux-musl, native)
         timeout-minutes: 30
-        continue-on-error: true
         run: |
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi
           if [ "$(ulimit -n)" -lt 32768 ]; then ulimit -n 32768 2>/dev/null || true; fi
           ulimit -c 0 2>/dev/null || true
-          # Curated subset of regression libc-test sources mirroring the
-          # functional-subset exclusion list (pthread/sem/tls/raise-race).
-          # Each filter is a substring match (see test/src/Libc.zig).
-          filters=(
-            regression.daemon-failure
-            regression.dn_expand-
-            regression.execle-env
-            regression.fflush-exit
-            regression.fgets-eof
-            regression.fgetwc-buffering
-            regression.flockfile-list
-            regression.fpclassify-invalid-ld80
-            regression.ftello-unflushed-append
-            regression.getpwnam_r-
-            regression.inet_
-            regression.iswspace-null
-            regression.lrand48-signextend
-            regression.lseek-large
-            regression.malloc-
-            regression.mbsrtowcs-overflow
-            regression.memmem-
-            regression.mkdtemp-failure
-            regression.mkstemp-failure
-            regression.printf-
-            regression.putenv-doublefree
-            regression.rewind-clear-error
-            regression.rlimit-open-files
-            regression.scanf-
-            regression.setenv-oom
-            regression.setvbuf-unget
-            regression.sigaltstack
-            regression.sigprocmask-internal
-            regression.sigreturn
-            regression.sscanf-eof
-            regression.statvfs
-            regression.strverscmp
-            regression.syscall-sign-extend
-            regression.uselocale-0
-            regression.wcsncpy-read-overflow
-            regression.wcsstr-false-negative
-          )
+          # Curated subset filters live in .github/libc-test-subsets/regression.txt
+          # so pr-build and post-merge-libc share one source of truth.
           args=()
-          for f in "${filters[@]}"; do args+=("-Dtest-filter=$f"); done
+          while IFS= read -r f; do
+            case "$f" in ''|\#*) continue;; esac
+            args+=("-Dtest-filter=$f")
+          done < .github/libc-test-subsets/regression.txt
           "$STAGE4/bin/zig" build test-libc \
               --zig-lib-dir lib \
               -Dlibc-test-path="$CACHE_ROOT/libc-test" \

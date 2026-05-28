@@ -31,16 +31,35 @@ jobs:
     uses: ./.github/workflows/test-libc.yml
     with:
       branch: ${{ github.sha }}
-      # The full libc-test suite currently has known-hanging functional and
-      # regression slices on libc/0.16.x. Keep post-merge validation bounded
-      # by running the API slice across the target matrix; broken targets stay
-      # advisory in test-libc.yml until fixed.
+      # api runs on the full target matrix (aarch64 + qemu fan-out).
       test-filter: api
       targets: all
 
+  test-functional-aarch64:
+    name: post-merge test-libc functional subset on libc/0.16.x HEAD
+    uses: ./.github/workflows/test-libc.yml
+    with:
+      branch: ${{ github.sha }}
+      # Curated functional subset from .github/libc-test-subsets/functional.txt.
+      # Triaged green on native aarch64 only (see #529); other targets are
+      # not validated under qemu yet.
+      test-filters-file: .github/libc-test-subsets/functional.txt
+      targets: aarch64
+
+  test-regression-aarch64:
+    name: post-merge test-libc regression subset on libc/0.16.x HEAD
+    uses: ./.github/workflows/test-libc.yml
+    with:
+      branch: ${{ github.sha }}
+      # Curated regression subset from .github/libc-test-subsets/regression.txt.
+      # Triaged green on native aarch64 only (see #529); other targets are
+      # not validated under qemu yet.
+      test-filters-file: .github/libc-test-subsets/regression.txt
+      targets: aarch64
+
   on-failure:
     name: notify on test failure
-    needs: test-api
+    needs: [test-api, test-functional-aarch64, test-regression-aarch64]
     if: failure()
     runs-on: ubuntu-latest
     steps:
@@ -54,6 +73,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           HEAD_SHA: ${{ github.sha }}
+          API_RESULT: ${{ needs.test-api.result }}
+          FUNC_RESULT: ${{ needs.test-functional-aarch64.result }}
+          REG_RESULT: ${{ needs.test-regression-aarch64.result }}
         run: |
           set -euo pipefail
           short_sha="${HEAD_SHA:0:12}"
@@ -61,10 +83,17 @@ jobs:
           author="$(git log -1 --pretty=%an "$HEAD_SHA")"
           merge_pr="$(printf '%s' "$subject" | sed -nE 's/.*\(#([0-9]+)\)$/\1/p')"
 
-          title="post-merge test-libc API failure on libc/0.16.x @ ${short_sha}"
-          body=$(cat <<EOF
-          The post-merge \`test-libc\` API matrix failed against \`libc/0.16.x\` after a merge.
+          failed_slices=()
+          [ "$API_RESULT"  = "failure" ] && failed_slices+=("api")
+          [ "$FUNC_RESULT" = "failure" ] && failed_slices+=("functional (aarch64)")
+          [ "$REG_RESULT"  = "failure" ] && failed_slices+=("regression (aarch64)")
+          slices_csv="$(IFS=, ; echo "${failed_slices[*]}")"
 
+          title="post-merge test-libc failure (${slices_csv:-unknown}) on libc/0.16.x @ ${short_sha}"
+          body=$(cat <<EOF
+          The post-merge \`test-libc\` run failed against \`libc/0.16.x\` after a merge.
+
+          - Failed slices: \`${slices_csv:-unknown}\`
           - Commit: [\`${short_sha}\`](${{ github.server_url }}/${{ github.repository }}/commit/${HEAD_SHA})
           - Subject: \`${subject}\`
           - Author: ${author}

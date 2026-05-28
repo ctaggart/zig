@@ -27,6 +27,15 @@ on:
         required: false
         default: ''
         type: string
+      test-filters-file:
+        description: |
+          Path (relative to the repo root) of a newline-delimited file of
+          substring filters. When set, each non-blank, non-comment line is
+          passed as its own -Dtest-filter=<line>; the scalar test-filter
+          input is ignored.
+        required: false
+        default: ''
+        type: string
       targets:
         description: 'Target groups to test (comma-separated, or "all")'
         required: false
@@ -115,7 +124,7 @@ jobs:
     needs: build-stage4
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    continue-on-error: ${{ matrix.allow_failure && inputs.test-filter != 'api' }}
+    continue-on-error: ${{ matrix.allow_failure && inputs.test-filter != 'api' && inputs.test-filters-file == '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -221,7 +230,10 @@ jobs:
 
           # Use -j1 for thread/pthread tests to avoid runner thread exhaustion
           FILTER="${{ inputs.test-filter }}"
-          if echo "$FILTER" | grep -qi "thread"; then
+          FILTERS_FILE="${{ inputs.test-filters-file }}"
+          if [ -n "$FILTERS_FILE" ] && echo "$FILTERS_FILE" | grep -qi "thread"; then
+            JOBS=1
+          elif echo "$FILTER" | grep -qi "thread"; then
             JOBS=1
           else
             JOBS=2
@@ -229,10 +241,22 @@ jobs:
 
           ARGS=(
             -Dlibc-test-path="$HOME/libc-test"
-            -Dtest-filter="$FILTER"
             -j$JOBS
             --summary all
           )
+
+          if [ -n "$FILTERS_FILE" ]; then
+            if [ ! -f "$FILTERS_FILE" ]; then
+              echo "ERROR: test-filters-file not found: $FILTERS_FILE" >&2
+              exit 1
+            fi
+            while IFS= read -r line; do
+              case "$line" in ''|\#*) continue;; esac
+              ARGS+=(-Dtest-filter="$line")
+            done < "$FILTERS_FILE"
+          else
+            ARGS+=(-Dtest-filter="$FILTER")
+          fi
 
           # Apply target filter
           TARGET_FILTER="${{ matrix.target-filter }}"

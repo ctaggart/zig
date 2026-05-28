@@ -1,0 +1,47 @@
+# Curated subset of functional libc-test sources used by pr-build.yml and
+# post-merge-libc.yml on libc/0.16.x. Each non-blank, non-comment line is a
+# substring filter passed as -Dtest-filter=<line> (see test/src/Libc.zig).
+#
+# Categories intentionally excluded while libzigc migration is in flight:
+#   - pthread_*    (mutex/cond/cancel/rwlock/tsd/robust still in flux)
+#   - sem_*        (POSIX semaphores depend on pthread internals)
+#   - ipc_*        (SysV msg/sem/shm need kernel + cleanup)
+#   - dlopen*      (dynamic linking not exercised by static link)
+#   - tls_*        (TLS migration tracked in #491)
+#   - spawn, popen, vfork (fork/exec/vfork)
+#   - iconv*       (iconv_open not exported from libzigc; tracked in #532)
+functional.argv
+functional.basename
+functional.clocale_mbfuncs
+functional.clock_gettime
+functional.crypt
+functional.dirent
+functional.dirname
+functional.env
+functional.fcntl
+functional.fdopen
+functional.fnmatch
+functional.fscanf
+functional.fwscanf
+functional.inet_pton
+functional.mbc
+functional.memstream
+functional.mntent
+functional.qsort
+functional.random
+functional.search
+functional.scanf
+functional.setjmp
+functional.snprintf
+functional.socket
+functional.sscanf
+functional.stat
+functional.str
+functional.swprintf
+functional.tgmath
+functional.time
+functional.udiv
+functional.ungetc
+functional.utime
+functional.wcsstr
+functional.wcstol

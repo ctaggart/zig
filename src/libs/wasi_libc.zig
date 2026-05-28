@@ -571,16 +571,6 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/libc-top-half/musl/src/stdio/vsscanf.c",
     "wasi/libc-top-half/musl/src/stdio/vswprintf.c",
     "wasi/libc-top-half/musl/src/stdio/vswscanf.c",
-    "wasi/libc-top-half/musl/src/thread/pthread_attr_get.c",
-    "wasi/libc-top-half/musl/src/thread/pthread_attr_setguardsize.c",
-    "wasi/libc-top-half/musl/src/thread/pthread_attr_setschedparam.c",
-    "wasi/libc-top-half/musl/src/thread/pthread_cancel.c",
-    "wasi/libc-top-half/musl/src/thread/pthread_condattr_setclock.c",
-    "wasi/libc-top-half/musl/src/thread/pthread_key_create.c",
-    "wasi/libc-top-half/musl/src/thread/pthread_mutexattr_setprotocol.c",
-    "wasi/libc-top-half/musl/src/thread/pthread_mutexattr_setrobust.c",
-    "wasi/libc-top-half/musl/src/thread/pthread_mutex_destroy.c",
-    "wasi/libc-top-half/musl/src/thread/pthread_self.c",
 };
 
 const crt1_command_src_file = "wasi/libc-bottom-half/crt/crt1-command.c";

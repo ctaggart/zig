@@ -1,18 +1,19 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const linux = std.os.linux;
+const wasi = std.os.wasi;
 const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
 const TZNAME_MAX = 6;
 const NAME_MAX = linux.NAME_MAX;
 const PATH_MAX = linux.PATH_MAX;
 const timeb = extern struct {
-    time: linux.time_t,
+    time: time_t,
     millitm: c_ushort,
     timezone: c_short,
     dstflag: c_short,
 };
-const time_t = linux.time_t;
+const time_t = std.c.time_t;
 const tm = extern struct {
     tm_sec: c_int,
     tm_min: c_int,
@@ -130,6 +131,10 @@ comptime {
         symbol(&__tzname, "tzname");
         @export(&__timezone_lockptr, .{ .name = "__timezone_lockptr", .linkage = .weak, .visibility = .hidden });
     }
+    if (builtin.target.isWasiLibC()) {
+        symbol(&ftimeWasi, "ftime");
+        symbol(&timespec_getWasi, "timespec_get");
+    }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&difftimeImpl, "difftime");
         symbol(&__month_to_secs, "__month_to_secs");
@@ -143,7 +148,7 @@ comptime {
         symbol(&__asctime_r, "__asctime_r");
         symbol(&asctimeImpl, "asctime");
     }
-    if (builtin.link_libc) {
+    if (builtin.target.isMuslLibC() and builtin.link_libc) {
         symbol(&ctimeImpl, "ctime");
         symbol(&ctime_rImpl, "ctime_r");
         symbol(&__localtime_r, "__localtime_r");
@@ -152,6 +157,9 @@ comptime {
         symbol(&strptimeImpl, "strptime");
         symbol(&getdate_err, "getdate_err");
         symbol(&getdateImpl, "getdate");
+    }
+    if (builtin.target.isWasiLibC() and builtin.link_libc) {
+        symbol(&strptimeImpl, "strptime");
     }
 }
 
@@ -264,7 +272,7 @@ fn clock_getcpuclockidLinux(pid: linux.pid_t, clk: *linux.clockid_t) callconv(.c
     return 0;
 }
 
-fn difftimeImpl(t1: linux.time_t, t0: linux.time_t) callconv(.c) f64 {
+fn difftimeImpl(t1: time_t, t0: time_t) callconv(.c) f64 {
     return @floatFromInt(t1 -% t0);
 }
 
@@ -281,6 +289,24 @@ fn ftimeLinux(tp: *timeb) callconv(.c) c_int {
 fn timespec_getLinux(ts: *linux.timespec, base: c_int) callconv(.c) c_int {
     if (base != 1) return 0; // TIME_UTC = 1
     if (errno(linux.clock_gettime(.REALTIME, ts)) < 0) return 0;
+    return base;
+}
+
+fn ftimeWasi(tp: *timeb) callconv(.c) c_int {
+    var ts: wasi.timestamp_t = 0;
+    _ = wasi.clock_time_get(.REALTIME, 1, &ts);
+    tp.time = @intCast(ts / std.time.ns_per_s);
+    tp.millitm = @intCast((ts % std.time.ns_per_s) / std.time.ns_per_ms);
+    tp.timezone = 0;
+    tp.dstflag = 0;
+    return 0;
+}
+
+fn timespec_getWasi(ts: *std.c.timespec, base: c_int) callconv(.c) c_int {
+    if (base != 1) return 0; // TIME_UTC = 1
+    var now: wasi.timestamp_t = 0;
+    if (wasi.clock_time_get(.REALTIME, 1, &now) != .SUCCESS) return 0;
+    ts.* = std.c.timespec.fromTimestamp(now);
     return base;
 }
 

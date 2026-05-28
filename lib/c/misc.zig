@@ -265,7 +265,9 @@ comptime {
         symbol(&ioctlImpl, "ioctl");
         symbol(&syscall_fn, "syscall");
     }
-    if (builtin.target.isWasiLibC()) {}
+    if (builtin.target.isWasiLibC()) {
+        symbol(&getdomainnameWasi, "getdomainname");
+    }
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         symbol(&basename, "basename");
         symbol(&dirname, "dirname");
@@ -273,7 +275,7 @@ comptime {
         symbol(&l64a, "l64a");
         symbol(&getsubopt, "getsubopt");
     }
-    if (builtin.link_libc) {
+    if (builtin.target.isMuslLibC() and builtin.link_libc) {
         symbol(&initgroups, "initgroups");
         symbol(&lockf, "lockf");
         symbol(&ptsname, "ptsname");
@@ -362,6 +364,15 @@ fn __getauxval(item: c_ulong) callconv(.c) c_ulong {
         if (auxv[0] == item) return @intCast(auxv[1]);
     }
     std.c._errno().* = @intFromEnum(linux.E.NOENT);
+    return 0;
+}
+
+fn getdomainnameWasi(name: [*]u8, len: usize) callconv(.c) c_int {
+    if (len == 0) {
+        std.c._errno().* = @intFromEnum(std.os.wasi.errno_t.INVAL);
+        return -1;
+    }
+    name[0] = 0;
     return 0;
 }
 

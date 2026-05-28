@@ -44,6 +44,12 @@ comptime {
             symbol(&versionsort, "versionsort");
         }
     }
+    if (builtin.target.isWasiLibC() and builtin.link_libc) {
+        symbol(&alphasort, "alphasort");
+        symbol(&alphasort, "alphasort64");
+        symbol(&versionsort, "versionsort");
+        symbol(&versionsort, "versionsort64");
+    }
 }
 
 fn dirfd(dir: *DIR) callconv(.c) c_int {

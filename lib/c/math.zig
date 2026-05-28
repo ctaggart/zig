@@ -1241,17 +1241,29 @@ comptime {
 }
 
 fn acos(x: f64) callconv(.c) f64 {
-    if (@abs(x) > 1.0) return (x - x) / (x - x); // raise FE_INVALID
-    return math.acos(x);
+    return acosWithFlags(f64, x);
 }
 
 fn acosf(x: f32) callconv(.c) f32 {
-    if (@abs(x) > 1.0) return (x - x) / (x - x); // raise FE_INVALID
-    return math.acos(x);
+    return acosWithFlags(f32, x);
 }
 
 fn acoshf(x: f32) callconv(.c) f32 {
     return math.acosh(x);
+}
+
+/// libc semantics for acos: |x| > 1 raises FE_INVALID and returns NaN.
+/// Using `(x-x)/(x-x)` in a branch is risky because LLVM can speculate the
+/// 0/0 across the comparison via `select`, raising INVALID even for |x|<=1.
+/// Use the explicit `math.raiseInvalid()` helper which uses volatile loads.
+fn acosWithFlags(comptime T: type, x: T) T {
+    @setFloatMode(.strict);
+    if (math.isNan(x)) return x;
+    if (@abs(x) > 1.0) {
+        math.raiseInvalid();
+        return math.nan(T);
+    }
+    return math.acos(x);
 }
 
 fn asin(x: f64) callconv(.c) f64 {
@@ -2073,14 +2085,34 @@ fn rintl(x: c_longdouble) callconv(.c) c_longdouble {
 }
 
 fn acosh_(x: f64) callconv(.c) f64 {
-    return math.acosh(x);
+    return acoshWithBetterArg(x);
 }
 
 fn acoshl_(x: c_longdouble) callconv(.c) c_longdouble {
     return switch (@typeInfo(c_longdouble).float.bits) {
-        64 => math.acosh(@as(f64, @bitCast(x))),
-        else => @floatCast(math.acosh(@as(f64, @floatCast(x)))),
+        64 => acoshWithBetterArg(@as(f64, @bitCast(x))),
+        else => @floatCast(acoshWithBetterArg(@as(f64, @floatCast(x)))),
     };
+}
+
+/// acosh(x) for f64. For 1 <= x < 2 the standard formula
+/// `log1p(h + sqrt(h*h + 2*h))` has up to ~2 ULP error because the addition
+/// `h + sqrt(...)` rounds, and log1p amplifies that rounding error. Recover the
+/// dropped low bits with a Dekker 2-sum and apply the first-order correction
+/// `arg_lo / (1 + arg_hi)` to log1p, bringing the result within ~1 ULP.
+fn acoshWithBetterArg(x: f64) f64 {
+    @setFloatMode(.strict);
+    const u: u64 = @bitCast(x);
+    const e: u11 = @intCast((u >> 52) & 0x7FF);
+    if (e < 0x3FF + 1) {
+        const h = x - 1;
+        const s = @sqrt(h * h + 2 * h);
+        const arg_hi = h + s;
+        const bb = arg_hi - h;
+        const arg_lo = (h - (arg_hi - bb)) + (s - bb);
+        return math.log1p(arg_hi) + arg_lo / (1.0 + arg_hi);
+    }
+    return math.acosh(x);
 }
 
 fn asinhf_(x: f32) callconv(.c) f32 {

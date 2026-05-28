@@ -536,11 +536,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/stdio/wprintf.c",
     "musl/src/stdio/wscanf.c",
 
-    "wasi/libc-top-half/musl/src/internal/defsysinfo.c",
-    "wasi/libc-top-half/musl/src/internal/floatscan.c",
-    "wasi/libc-top-half/musl/src/internal/intscan.c",
-    "wasi/libc-top-half/musl/src/internal/libc.c",
-    "wasi/libc-top-half/musl/src/internal/shgetc.c",
     "wasi/libc-top-half/musl/src/stdio/__fdopen.c",
     "wasi/libc-top-half/musl/src/stdio/fgetc.c",
     "wasi/libc-top-half/musl/src/stdio/fgetpos.c",

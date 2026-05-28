@@ -8,24 +8,26 @@ const EOF = -1;
 const ULLONG_MAX: c_ulonglong = std.math.maxInt(c_ulonglong);
 const UINT_MAX: c_uint = std.math.maxInt(c_uint);
 
+const FILE = if (builtin.target.isWasiLibC()) WasiFILE else MuslFILE;
+
 /// Musl internal FILE struct layout (struct _IO_FILE from stdio_impl.h).
 /// Field order MUST match musl's struct _IO_FILE exactly.
-const FILE = extern struct {
+const MuslFILE = extern struct {
     flags: c_uint,
     rpos: ?[*]u8,
     rend: ?[*]u8,
-    close_fn: ?*const fn (*FILE) callconv(.c) c_int,
+    close_fn: ?*const fn (*MuslFILE) callconv(.c) c_int,
     wend: ?[*]u8,
     wpos: ?[*]u8,
     mustbezero_1: ?[*]u8,
     wbase: ?[*]u8,
-    read_fn: ?*const fn (*FILE, [*]u8, usize) callconv(.c) usize,
-    write_fn: ?*const fn (*FILE, [*]const u8, usize) callconv(.c) usize,
-    seek_fn: ?*const fn (*FILE, i64, c_int) callconv(.c) i64,
+    read_fn: ?*const fn (*MuslFILE, [*]u8, usize) callconv(.c) usize,
+    write_fn: ?*const fn (*MuslFILE, [*]const u8, usize) callconv(.c) usize,
+    seek_fn: ?*const fn (*MuslFILE, i64, c_int) callconv(.c) i64,
     buf: ?[*]u8,
     buf_size: usize,
-    prev: ?*FILE,
-    next: ?*FILE,
+    prev: ?*MuslFILE,
+    next: ?*MuslFILE,
     fd: c_int,
     pipe_pid: c_int,
     lockcount: c_long,
@@ -39,8 +41,36 @@ const FILE = extern struct {
     shend: ?[*]u8,
     shlim: off_t,
     shcnt: off_t,
-    prev_locked: ?*FILE,
-    next_locked: ?*FILE,
+    prev_locked: ?*MuslFILE,
+    next_locked: ?*MuslFILE,
+    locale: ?*anyopaque,
+};
+
+/// WASI libc-top-half FILE layout with its default single-threaded config.
+const WasiFILE = extern struct {
+    flags: c_uint,
+    rpos: ?[*]u8,
+    rend: ?[*]u8,
+    close_fn: ?*const fn (*WasiFILE) callconv(.c) c_int,
+    wend: ?[*]u8,
+    wpos: ?[*]u8,
+    wbase: ?[*]u8,
+    read_fn: ?*const fn (*WasiFILE, [*]u8, usize) callconv(.c) usize,
+    write_fn: ?*const fn (*WasiFILE, [*]const u8, usize) callconv(.c) usize,
+    seek_fn: ?*const fn (*WasiFILE, i64, c_int) callconv(.c) i64,
+    buf: ?[*]u8,
+    buf_size: usize,
+    prev: ?*WasiFILE,
+    next: ?*WasiFILE,
+    fd: c_int,
+    mode: c_int,
+    lbf: c_int,
+    cookie: ?*anyopaque,
+    off: i64,
+    getln_buf: ?[*]u8,
+    shend: ?[*]u8,
+    shlim: off_t,
+    shcnt: off_t,
     locale: ?*anyopaque,
 };
 
@@ -381,7 +411,7 @@ fn intscan(f: *FILE, base_arg: c_uint, pok: c_int, lim: c_ulonglong) callconv(.c
     var y: c_ulonglong = undefined;
 
     if (base > 36 or base == 1) {
-        std.c._errno().* = @intFromEnum(linux.E.INVAL);
+        std.c._errno().* = EINVAL;
         return 0;
     }
     while (true) {
@@ -410,7 +440,7 @@ fn intscan(f: *FILE, base_arg: c_uint, pok: c_int, lim: c_ulonglong) callconv(.c
         if (digitVal(c_ch) >= base) {
             shunget(f);
             shlim(f, 0);
-            std.c._errno().* = @intFromEnum(linux.E.INVAL);
+            std.c._errno().* = EINVAL;
             return 0;
         }
     }
@@ -447,7 +477,7 @@ fn intscan(f: *FILE, base_arg: c_uint, pok: c_int, lim: c_ulonglong) callconv(.c
     }
     if (digitVal(c_ch) < base) {
         while (digitVal(c_ch) < base) : (c_ch = shgetc(f)) {}
-        std.c._errno().* = @intFromEnum(linux.E.RANGE);
+        std.c._errno().* = ERANGE;
         y = lim;
         if ((lim & 1) != 0) neg = 0;
     }
@@ -458,10 +488,10 @@ fn intscanDone(f: *FILE, y: c_ulonglong, neg: c_ulonglong, lim: c_ulonglong) c_u
     shunget(f);
     if (y >= lim) {
         if ((lim & 1) == 0 and neg == 0) {
-            std.c._errno().* = @intFromEnum(linux.E.RANGE);
+            std.c._errno().* = ERANGE;
             return lim - 1;
         } else if (y > lim) {
-            std.c._errno().* = @intFromEnum(linux.E.RANGE);
+            std.c._errno().* = ERANGE;
             return lim;
         }
     }
@@ -630,7 +660,11 @@ fn __vdsosymLinux(vername: [*:0]const u8, name: [*:0]const u8) callconv(.c) ?*an
 }
 
 // libc.c — libc struct initialization and globals
-const LibcStruct = extern struct {
+const LocaleStruct = extern struct {
+    cat: [6]?*const anyopaque,
+};
+
+const MuslLibcStruct = extern struct {
     can_do_threads: u8,
     threaded: u8,
     secure: u8,
@@ -642,10 +676,15 @@ const LibcStruct = extern struct {
     tls_align: usize,
     tls_cnt: usize,
     page_size: usize,
-    global_locale: extern struct {
-        cat: [6]?*const anyopaque,
-    },
+    global_locale: LocaleStruct,
 };
+
+const WasiLibcStruct = extern struct {
+    global_locale: LocaleStruct,
+    current_locale: ?*LocaleStruct,
+};
+
+const LibcStruct = if (builtin.target.isWasiLibC()) WasiLibcStruct else MuslLibcStruct;
 
 var libc_struct: LibcStruct = std.mem.zeroes(LibcStruct);
 var hwcap: usize = 0;
@@ -955,14 +994,25 @@ fn __emulate_wait4Linux(
 }
 
 comptime {
-    if (builtin.target.isMuslLibC()) {
-        c.symbol(&syscall_retLinux, "__syscall_ret");
-        c.symbol(&procfdnameLinux, "__procfdname");
-        c.symbol(&__vdsosymLinux, "__vdsosym");
+    if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         c.symbol(&shlim, "__shlim");
         c.symbol(&shgetcSlow, "__shgetc");
         c.symbol(&intscan, "__intscan");
         c.symbol(&floatscan, "__floatscan");
+
+        @export(&sysinfo, .{ .name = "__sysinfo", .linkage = .weak, .visibility = .hidden });
+        @export(&libc_struct, .{ .name = "__libc", .linkage = .weak, .visibility = .hidden });
+        @export(&hwcap, .{ .name = "__hwcap", .linkage = .weak, .visibility = .hidden });
+        @export(&progname, .{ .name = "__progname", .linkage = .weak, .visibility = .default });
+        @export(&progname_full, .{ .name = "__progname_full", .linkage = .weak, .visibility = .default });
+        @export(&progname, .{ .name = "program_invocation_short_name", .linkage = .weak, .visibility = .default });
+        @export(&progname_full, .{ .name = "program_invocation_name", .linkage = .weak, .visibility = .default });
+    }
+
+    if (builtin.target.isMuslLibC()) {
+        c.symbol(&syscall_retLinux, "__syscall_ret");
+        c.symbol(&procfdnameLinux, "__procfdname");
+        c.symbol(&__vdsosymLinux, "__vdsosym");
 
         // Export __emulate_wait4 only on arches where musl needs it (i.e. those
         // lacking SYS_wait4). On other arches musl's `__sys_wait4` macro inlines
@@ -972,14 +1022,6 @@ comptime {
         }
 
         @export(&libc_version, .{ .name = "__libc_version", .linkage = .weak, .visibility = .hidden });
-        @export(&sysinfo, .{ .name = "__sysinfo", .linkage = .weak, .visibility = .hidden });
-
-        @export(&libc_struct, .{ .name = "__libc", .linkage = .weak, .visibility = .hidden });
-        @export(&hwcap, .{ .name = "__hwcap", .linkage = .weak, .visibility = .hidden });
-        @export(&progname, .{ .name = "__progname", .linkage = .weak, .visibility = .default });
-        @export(&progname_full, .{ .name = "__progname_full", .linkage = .weak, .visibility = .default });
-        @export(&progname, .{ .name = "program_invocation_short_name", .linkage = .weak, .visibility = .default });
-        @export(&progname_full, .{ .name = "program_invocation_name", .linkage = .weak, .visibility = .default });
     }
 }
 

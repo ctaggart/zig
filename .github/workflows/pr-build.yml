@@ -9,8 +9,7 @@ name: pr-build
 #   - pr-build: ast-check + migration claims + Build stage4.
 #   - pr-libc-test: runs libc-test on the stage4 produced by pr-build.
 #     The native functional/regression slices are temporarily skipped because
-#     they hang on libc/0.16.x; math is temporarily advisory; api remains
-#     required.
+#     they hang on libc/0.16.x; math and api are required.
 #   - pr-cross-compile: cross-compiles a tiny hello.c against libzigc + musl
 #     libc.a for every target in the post-merge QEMU matrix. Catches
 #     arch-specific libzigc compile errors (missing syscall fields,
@@ -409,7 +408,6 @@ jobs:
 
       - name: Run libc-test — math (aarch64-linux-musl, native)
         timeout-minutes: 30
-        continue-on-error: true
         run: |
           set -euo pipefail
           if [ "$(ulimit -u)" -lt 32768 ]; then ulimit -u 32768 2>/dev/null || true; fi

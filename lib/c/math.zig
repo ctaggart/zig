@@ -1514,7 +1514,24 @@ fn asinl(x: c_longdouble) callconv(.c) c_longdouble {
 }
 
 fn atanhf(x: f32) callconv(.c) f32 {
-    return math.atanh(x);
+    return atanhWithFlags(f32, x);
+}
+
+/// std.math.atanh doesn't raise IEEE 754 exception flags for its special cases.
+/// C99 §7.12.5.3 requires:
+///   - |x| > 1: result is NaN, must raise FE_INVALID
+///   - |x| == 1: result is ±inf, must raise FE_DIVBYZERO
+fn atanhWithFlags(comptime T: type, x: T) T {
+    @setFloatMode(.strict);
+    if (math.isNan(x)) return x;
+    const ax = @abs(x);
+    if (ax < 1.0) return math.atanh(x);
+    if (ax == 1.0) {
+        math.raiseDivByZero();
+        return math.copysign(math.inf(T), x);
+    }
+    math.raiseInvalid();
+    return math.nan(T);
 }
 
 fn cosl(x: c_longdouble) callconv(.c) c_longdouble {
@@ -2232,17 +2249,17 @@ fn asinhl_impl(comptime T: type, x_: T) T {
 }
 
 fn atanh_(x: f64) callconv(.c) f64 {
-    return math.atanh(x);
+    return atanhWithFlags(f64, x);
 }
 
 fn atanhf_(x: f32) callconv(.c) f32 {
-    return math.atanh(x);
+    return atanhWithFlags(f32, x);
 }
 
 fn atanhl_(x: c_longdouble) callconv(.c) c_longdouble {
     return switch (@typeInfo(c_longdouble).float.bits) {
-        64 => math.atanh(@as(f64, @bitCast(x))),
-        else => @floatCast(math.atanh(@as(f64, @floatCast(x)))),
+        64 => atanhWithFlags(f64, @as(f64, @bitCast(x))),
+        else => @floatCast(atanhWithFlags(f64, @as(f64, @floatCast(x)))),
     };
 }
 

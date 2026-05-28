@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const linux = std.os.linux;
+const wasi = std.os.wasi;
 
 const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
@@ -9,6 +10,10 @@ const SYS_statfs: linux.SYS = if (@hasField(linux.SYS, "statfs")) .statfs else .
 const SYS_fstatfs: linux.SYS = if (@hasField(linux.SYS, "fstatfs")) .fstatfs else .fstatfs64;
 
 comptime {
+    if (builtin.target.isWasiLibC()) {
+        symbol(&__futimesatWasi, "__futimesat");
+        symbol(&__futimesatWasi, "futimesat");
+    }
     if (builtin.target.isMuslLibC()) {
         symbol(&mkdirLinux, "mkdir");
         symbol(&mkdiratLinux, "mkdirat");
@@ -408,6 +413,27 @@ fn lchmodLinux(path: [*:0]const u8, mode: linux.mode_t) callconv(.c) c_int {
 }
 
 const timeval = extern struct { tv_sec: isize, tv_usec: isize };
+
+extern "c" fn utimensat(dirfd: c_int, pathname: [*:0]const u8, times: ?*const anyopaque, flags: c_int) callconv(.c) c_int;
+
+fn __futimesatWasi(dirfd: c_int, pathname: ?[*:0]const u8, times: ?*const [2]timeval) callconv(.c) c_int {
+    const path = pathname orelse {
+        std.c._errno().* = @intFromEnum(wasi.errno_t.INVAL);
+        return -1;
+    };
+    if (times) |tv| {
+        if (tv[0].tv_usec >= 1000000 or tv[1].tv_usec >= 1000000) {
+            std.c._errno().* = @intFromEnum(wasi.errno_t.INVAL);
+            return -1;
+        }
+        const ts = [2]std.c.timespec{
+            .{ .sec = @intCast(tv[0].tv_sec), .nsec = @intCast(tv[0].tv_usec * 1000) },
+            .{ .sec = @intCast(tv[1].tv_sec), .nsec = @intCast(tv[1].tv_usec * 1000) },
+        };
+        return utimensat(dirfd, path, &ts, 0);
+    }
+    return utimensat(dirfd, path, null, 0);
+}
 
 fn __futimesat(dirfd: c_int, pathname: ?[*:0]const u8, times: ?*const [2]timeval) callconv(.c) c_int {
     if (times) |tv| {

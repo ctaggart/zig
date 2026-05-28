@@ -279,6 +279,18 @@ const c = if (builtin.link_libc) struct {
 // ============================================================
 
 comptime {
+    if (builtin.target.isWasiLibC()) {
+        symbol(&htonl_impl, "htonl");
+        symbol(&htons_impl, "htons");
+        symbol(&ntohl_impl, "ntohl");
+        symbol(&ntohs_impl, "ntohs");
+        symbol(&in6addr_any, "in6addr_any");
+        symbol(&in6addr_loopback, "in6addr_loopback");
+        symbol(&inet_aton_impl, "__inet_aton");
+        symbol(&inet_aton_impl, "inet_aton");
+        symbol(&inet_ntop_impl, "inet_ntop");
+        symbol(&inet_pton_impl, "inet_pton");
+    }
     if (builtin.target.isMuslLibC()) {
         // socket.c / bind.c / listen.c / accept.c / accept4.c / connect.c / shutdown.c / socketpair.c
         symbol(&socket_impl, "socket");

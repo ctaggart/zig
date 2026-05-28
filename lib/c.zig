@@ -157,6 +157,12 @@ comptime {
     }
 
     if (builtin.target.isWasiLibC()) {
+        _ = @import("c/dirent.zig");
+        _ = @import("c/fcntl.zig");
+        _ = @import("c/misc.zig");
+        _ = @import("c/network.zig");
+        _ = @import("c/stat.zig");
+        _ = @import("c/time.zig");
         _ = @import("c/wasi_cloudlibc.zig");
         _ = @import("c/wasi_sources.zig");
         _ = @import("c/wasi_thread_stub.zig");

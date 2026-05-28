@@ -8,6 +8,10 @@ const symbol = @import("../c.zig").symbol;
 const errno = @import("../c.zig").errno;
 
 comptime {
+    if (builtin.target.isWasiLibC()) {
+        symbol(&creatWasi, "creat");
+        symbol(&creatWasi, "creat64");
+    }
     if (builtin.target.isMuslLibC()) {
         symbol(&creatLinux, "creat");
         symbol(&fcntlLinux, "fcntl");
@@ -22,6 +26,16 @@ comptime {
 
 fn creatLinux(path: [*:0]const c_char, mode: linux.mode_t) callconv(.c) c_int {
     return openLinux(path, @bitCast(@as(u32, @bitCast(std.c.O{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }))), mode);
+}
+
+extern "c" fn __wasilibc_open_nomode(path: [*:0]const c_char, flags: c_int) callconv(.c) c_int;
+
+fn creatWasi(path: [*:0]const c_char, mode: c_uint) callconv(.c) c_int {
+    _ = mode;
+    const O_CREAT: c_int = 1 << 12;
+    const O_TRUNC: c_int = 8 << 12;
+    const O_WRONLY: c_int = 0x10000000;
+    return __wasilibc_open_nomode(path, O_CREAT | O_WRONLY | O_TRUNC);
 }
 
 fn fcntlLinux(fd: c_int, cmd: c_int, arg: c_ulong) callconv(.c) c_int {

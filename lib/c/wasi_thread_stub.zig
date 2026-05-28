@@ -17,6 +17,9 @@ const PthreadRwlock = extern struct { __i: [if (@sizeOf(c_long) == 8) 14 else 8]
 const PthreadBarrier = extern struct { __i: [if (@sizeOf(c_long) == 8) 8 else 5]c_int };
 const PthreadAttr = extern struct { __i: [if (@sizeOf(c_long) == 8) 14 else 9]c_int };
 
+var __default_stacksize: c_uint = 131072;
+var __default_guardsize: c_uint = 8192;
+
 // musl field index: _a_detach = __u.__i[3*__SU+0] where __SU = sizeof(size_t)/sizeof(int)
 const a_detach_idx = 3 * (@sizeOf(usize) / @sizeOf(c_int));
 
@@ -32,6 +35,9 @@ const EINTR: c_int = 27;
 const PTHREAD_MUTEX_RECURSIVE: c_int = 1;
 const PTHREAD_BARRIER_SERIAL_THREAD: c_int = -1;
 const PTHREAD_CREATE_DETACHED: c_int = 1;
+const PTHREAD_STACK_MIN: usize = 2048;
+const SU = @sizeOf(usize) / @sizeOf(c_int);
+const attr_i_detach: usize = 3 * SU;
 
 const CLOCK_REALTIME: c_int = 0;
 const TIMER_ABSTIME: c_int = 1;
@@ -58,6 +64,22 @@ fn pthread_barrier_init(b: *PthreadBarrier, a: ?*const anyopaque, count: c_uint)
 fn pthread_barrier_wait(b: *PthreadBarrier) callconv(.c) c_int {
     if (b.__i[2] == 0) return PTHREAD_BARRIER_SERIAL_THREAD; // _b_limit
     @trap();
+}
+
+fn pthread_barrierattr_destroy(a: ?*anyopaque) callconv(.c) c_int {
+    _ = a;
+    return 0;
+}
+
+fn pthread_barrierattr_init(a: *c_int) callconv(.c) c_int {
+    a.* = 0;
+    return 0;
+}
+
+fn pthread_barrierattr_setpshared(a: *c_int, pshared: c_int) callconv(.c) c_int {
+    if (@as(c_uint, @bitCast(pshared)) > 1) return EINVAL;
+    a.* = if (pshared != 0) std.math.minInt(c_int) else 0;
+    return 0;
 }
 
 // --- Condition variable ---
@@ -97,6 +119,22 @@ fn pthread_cond_wait(cv: ?*anyopaque, m: ?*anyopaque) callconv(.c) c_int {
     @trap();
 }
 
+fn pthread_condattr_destroy(a: ?*anyopaque) callconv(.c) c_int {
+    _ = a;
+    return 0;
+}
+
+fn pthread_condattr_init(a: *c_uint) callconv(.c) c_int {
+    a.* = 0;
+    return 0;
+}
+
+fn pthread_condattr_setpshared(a: *c_uint, pshared: c_int) callconv(.c) c_int {
+    if (@as(c_uint, @bitCast(pshared)) > 1) return EINVAL;
+    a.* = (a.* & 0x7fffffff) | (@as(c_uint, @bitCast(pshared)) << 31);
+    return 0;
+}
+
 // --- Thread lifecycle ---
 
 fn dummy() callconv(.c) void {}
@@ -115,6 +153,41 @@ fn pthread_getattr_np(t: ?*anyopaque, a: *PthreadAttr) callconv(.c) c_int {
     _ = t;
     a.* = std.mem.zeroes(PthreadAttr);
     a.__i[a_detach_idx] = PTHREAD_CREATE_DETACHED;
+    return 0;
+}
+
+fn pthread_attr_destroy(a: ?*anyopaque) callconv(.c) c_int {
+    _ = a;
+    return 0;
+}
+
+fn pthread_attr_init(a: *PthreadAttr) callconv(.c) c_int {
+    a.* = std.mem.zeroes(PthreadAttr);
+    const a_s: [*]usize = @ptrCast(@alignCast(a));
+    a_s[0] = __default_stacksize;
+    a_s[1] = __default_guardsize;
+    return 0;
+}
+
+fn pthread_attr_setdetachstate(a: *PthreadAttr, state: c_int) callconv(.c) c_int {
+    if (@as(c_uint, @bitCast(state)) > 1) return EINVAL;
+    a.__i[attr_i_detach] = state;
+    return 0;
+}
+
+fn pthread_attr_setstack(a: *PthreadAttr, addr: usize, size: usize) callconv(.c) c_int {
+    if (size -% PTHREAD_STACK_MIN > std.math.maxInt(usize) / 4) return EINVAL;
+    const a_s: [*]usize = @ptrCast(@alignCast(a));
+    a_s[2] = addr +% size;
+    a_s[0] = size;
+    return 0;
+}
+
+fn pthread_attr_setstacksize(a: *PthreadAttr, size: usize) callconv(.c) c_int {
+    if (size -% PTHREAD_STACK_MIN > std.math.maxInt(usize) / 4) return EINVAL;
+    const a_s: [*]usize = @ptrCast(@alignCast(a));
+    a_s[2] = 0;
+    a_s[0] = size;
     return 0;
 }
 
@@ -138,6 +211,43 @@ fn pthread_join(t: ?*anyopaque, res: ?*?*anyopaque) callconv(.c) c_int {
 fn pthread_mutex_consistent(m: ?*anyopaque) callconv(.c) c_int {
     _ = m;
     return EINVAL;
+}
+
+fn pthread_equal(a: usize, b: usize) callconv(.c) c_int {
+    return @intFromBool(a == b);
+}
+
+fn pthread_mutexattr_destroy(a: ?*anyopaque) callconv(.c) c_int {
+    _ = a;
+    return 0;
+}
+
+fn pthread_mutexattr_init(a: *c_uint) callconv(.c) c_int {
+    a.* = 0;
+    return 0;
+}
+
+fn pthread_mutexattr_setpshared(a: *c_uint, pshared: c_int) callconv(.c) c_int {
+    if (@as(c_uint, @bitCast(pshared)) > 1) return EINVAL;
+    a.* = (a.* & ~@as(c_uint, 128)) | (@as(c_uint, @bitCast(pshared)) << 7);
+    return 0;
+}
+
+fn pthread_mutexattr_settype(a: *c_uint, t: c_int) callconv(.c) c_int {
+    if (@as(c_uint, @bitCast(t)) > 2) return EINVAL;
+    a.* = (a.* & ~@as(c_uint, 3)) | @as(c_uint, @bitCast(t));
+    return 0;
+}
+
+fn pthread_mutex_init(m: *PthreadMutex, a: ?*const c_uint) callconv(.c) c_int {
+    m.* = std.mem.zeroes(PthreadMutex);
+    if (a) |attr| m.__i[0] = @bitCast(attr.*);
+    return 0;
+}
+
+fn pthread_mutex_destroy(m: ?*anyopaque) callconv(.c) c_int {
+    _ = m;
+    return 0;
 }
 
 fn pthread_mutex_getprioceiling(m: ?*const anyopaque, ceiling: ?*c_int) callconv(.c) c_int {
@@ -235,6 +345,33 @@ fn pthread_rwlock_wrlock(rw: *PthreadRwlock) callconv(.c) c_int {
     return 0;
 }
 
+fn pthread_rwlock_destroy(rw: ?*anyopaque) callconv(.c) c_int {
+    _ = rw;
+    return 0;
+}
+
+fn pthread_rwlock_init(rw: *PthreadRwlock, a: ?*const anyopaque) callconv(.c) c_int {
+    _ = a;
+    rw.* = std.mem.zeroes(PthreadRwlock);
+    return 0;
+}
+
+fn pthread_rwlockattr_destroy(a: ?*anyopaque) callconv(.c) c_int {
+    _ = a;
+    return 0;
+}
+
+fn pthread_rwlockattr_init(a: *[2]c_int) callconv(.c) c_int {
+    a.* = .{ 0, 0 };
+    return 0;
+}
+
+fn pthread_rwlockattr_setpshared(a: *c_int, pshared: c_int) callconv(.c) c_int {
+    if (@as(c_uint, @bitCast(pshared)) > 1) return EINVAL;
+    a.* = pshared;
+    return 0;
+}
+
 // --- Spinlock ---
 
 fn pthread_spin_lock(s: *c_int) callconv(.c) c_int {
@@ -254,9 +391,40 @@ fn pthread_spin_unlock(s: *c_int) callconv(.c) c_int {
     return 0;
 }
 
+fn thrd_sleep(req: ?*const anyopaque, rem: ?*anyopaque) callconv(.c) c_int {
+    const request = req orelse return -2;
+    const ret = clock_nanosleep(CLOCK_REALTIME, 0, request, rem);
+    if (ret == 0) return 0;
+    if (ret == EINTR) return -1;
+    return -2;
+}
+
 // --- Symbol exports ---
 
 comptime {
+    @export(&__default_stacksize, .{ .name = "__default_stacksize", .linkage = .weak, .visibility = .hidden });
+    @export(&__default_guardsize, .{ .name = "__default_guardsize", .linkage = .weak, .visibility = .hidden });
+
+    // Attribute objects
+    symbol(&pthread_attr_destroy, "pthread_attr_destroy");
+    symbol(&pthread_attr_init, "pthread_attr_init");
+    symbol(&pthread_attr_setdetachstate, "pthread_attr_setdetachstate");
+    symbol(&pthread_attr_setstack, "pthread_attr_setstack");
+    symbol(&pthread_attr_setstacksize, "pthread_attr_setstacksize");
+    symbol(&pthread_barrierattr_destroy, "pthread_barrierattr_destroy");
+    symbol(&pthread_barrierattr_init, "pthread_barrierattr_init");
+    symbol(&pthread_barrierattr_setpshared, "pthread_barrierattr_setpshared");
+    symbol(&pthread_condattr_destroy, "pthread_condattr_destroy");
+    symbol(&pthread_condattr_init, "pthread_condattr_init");
+    symbol(&pthread_condattr_setpshared, "pthread_condattr_setpshared");
+    symbol(&pthread_mutexattr_destroy, "pthread_mutexattr_destroy");
+    symbol(&pthread_mutexattr_init, "pthread_mutexattr_init");
+    symbol(&pthread_mutexattr_setpshared, "pthread_mutexattr_setpshared");
+    symbol(&pthread_mutexattr_settype, "pthread_mutexattr_settype");
+    symbol(&pthread_rwlockattr_destroy, "pthread_rwlockattr_destroy");
+    symbol(&pthread_rwlockattr_init, "pthread_rwlockattr_init");
+    symbol(&pthread_rwlockattr_setpshared, "pthread_rwlockattr_setpshared");
+
     // Barrier
     symbol(&pthread_barrier_destroy, "pthread_barrier_destroy");
     symbol(&pthread_barrier_init, "pthread_barrier_init");
@@ -280,6 +448,9 @@ comptime {
     symbol(&pthread_join, "__pthread_join");
 
     // Mutex
+    symbol(&pthread_equal, "pthread_equal");
+    symbol(&pthread_mutex_init, "pthread_mutex_init");
+    symbol(&pthread_mutex_destroy, "pthread_mutex_destroy");
     symbol(&pthread_mutex_consistent, "pthread_mutex_consistent");
     symbol(&pthread_mutex_getprioceiling, "pthread_mutex_getprioceiling");
     symbol(&pthread_mutex_lock, "__pthread_mutex_lock");
@@ -291,6 +462,8 @@ comptime {
     symbol(&pthread_once, "__pthread_once");
 
     // Read-write lock
+    symbol(&pthread_rwlock_destroy, "pthread_rwlock_destroy");
+    symbol(&pthread_rwlock_init, "pthread_rwlock_init");
     symbol(&pthread_rwlock_rdlock, "__pthread_rwlock_rdlock");
     symbol(&pthread_rwlock_timedrdlock, "__pthread_rwlock_timedrdlock");
     symbol(&pthread_rwlock_timedwrlock, "__pthread_rwlock_timedwrlock");
@@ -298,6 +471,9 @@ comptime {
     symbol(&pthread_rwlock_trywrlock, "__pthread_rwlock_trywrlock");
     symbol(&pthread_rwlock_unlock, "__pthread_rwlock_unlock");
     symbol(&pthread_rwlock_wrlock, "__pthread_rwlock_wrlock");
+
+    // C11 threads
+    symbol(&thrd_sleep, "thrd_sleep");
 
     // Spinlock
     symbol(&pthread_spin_lock, "pthread_spin_lock");

@@ -1205,6 +1205,19 @@ comptime {
         symbol(&powl, "powl");
         symbol(&log1pl, "log1pl");
     }
+    if (builtin.target.isWasiLibC()) {
+        symbol(&__math_divzero, "__math_divzero");
+        symbol(&__math_divzerof, "__math_divzerof");
+        symbol(&__math_invalid, "__math_invalid");
+        symbol(&__math_invalidf, "__math_invalidf");
+        symbol(&__math_invalidl, "__math_invalidl");
+        symbol(&__math_oflow, "__math_oflow");
+        symbol(&__math_oflowf, "__math_oflowf");
+        symbol(&__math_uflow, "__math_uflow");
+        symbol(&__math_uflowf, "__math_uflowf");
+        symbol(&__math_xflow, "__math_xflow");
+        symbol(&__math_xflowf, "__math_xflowf");
+    }
     if (builtin.target.isMuslLibC()) {
         symbol(&__math_divzero, "__math_divzero");
         symbol(&__math_divzerof, "__math_divzerof");

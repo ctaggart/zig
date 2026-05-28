@@ -3122,11 +3122,18 @@ fn scalb(x: f64, fn_: f64) callconv(.c) f64 {
 }
 
 fn intFromFloat(comptime I: type, x: anytype) I {
+    @setFloatMode(.strict);
     const F = @TypeOf(x);
-    if (math.isNan(x) or !math.isFinite(x)) return math.minInt(I);
+    if (math.isNan(x) or !math.isFinite(x)) {
+        math.raiseInvalid();
+        return math.minInt(I);
+    }
     const upper: F = @floatFromInt(@as(comptime_int, math.maxInt(I)) + 1);
     const lower: F = @floatFromInt(math.minInt(I));
-    if (x >= upper or x < lower) return math.minInt(I);
+    if (x >= upper or x < lower) {
+        math.raiseInvalid();
+        return math.minInt(I);
+    }
     return @intFromFloat(x);
 }
 

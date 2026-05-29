@@ -162,6 +162,9 @@ comptime {
         _ = @import("c/fts.zig");
         _ = @import("c/internal.zig");
         _ = @import("c/misc.zig");
+        _ = @import("c/wasi_dl.zig");
+        _ = @import("c/wasi_process.zig");
+        _ = @import("c/wasi_setjmp.zig");
         _ = @import("c/network.zig");
         _ = @import("c/signal.zig");
         _ = @import("c/stat.zig");

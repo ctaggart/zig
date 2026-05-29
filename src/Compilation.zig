@@ -7534,6 +7534,7 @@ pub const CrtFileOptions = struct {
     no_builtin: ?bool = null,
 
     allow_lto: bool = true,
+    root_source_file: ?[]const u8 = null,
 };
 
 pub fn build_crt_file(
@@ -7562,11 +7563,13 @@ pub fn build_crt_file(
         .output_mode = output_mode,
     });
 
+    const have_zcu = options.root_source_file != null;
+
     const config = Config.resolve(.{
         .output_mode = output_mode,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
-        .have_zcu = false,
+        .have_zcu = have_zcu,
         .emit_bin = true,
         .root_optimize_mode = comp.compilerRtOptMode(),
         .root_strip = comp.compilerRtStrip(),
@@ -7583,7 +7586,7 @@ pub fn build_crt_file(
     const root_mod = Package.Module.create(arena, .{
         .paths = .{
             .root = .zig_lib_root,
-            .root_src_path = "",
+            .root_src_path = options.root_source_file orelse "",
         },
         .fully_qualified_name = "root",
         .inherited = .{

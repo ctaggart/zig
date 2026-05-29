@@ -163,6 +163,7 @@ comptime {
         _ = @import("c/internal.zig");
         _ = @import("c/misc.zig");
         _ = @import("c/network.zig");
+        _ = @import("c/signal.zig");
         _ = @import("c/stat.zig");
         _ = @import("c/time.zig");
         _ = @import("c/wasi_cloudlibc.zig");

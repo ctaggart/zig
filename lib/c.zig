@@ -166,6 +166,7 @@ comptime {
         _ = @import("c/time.zig");
         _ = @import("c/wasi_cloudlibc.zig");
         _ = @import("c/wasi_sources.zig");
+        _ = @import("c/wasi_stdio.zig");
         _ = @import("c/wasi_thread_stub.zig");
     }
 

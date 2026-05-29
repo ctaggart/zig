@@ -111,30 +111,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 }
             }
 
-            {
-                // Compile musl-fts.
-                var args = std.array_list.Managed([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-                try args.appendSlice(&[_][]const u8{
-                    "-I",
-                    try comp.dirs.zig_lib.join(arena, &.{
-                        "libc",
-                        "wasi",
-                        "fts",
-                    }),
-                });
-
-                for (fts_src_files) |file_path| {
-                    try libc_sources.append(.{
-                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                            "libc", try sanitize(arena, file_path),
-                        }),
-                        .extra_flags = args.items,
-                        .owner = undefined,
-                    });
-                }
-            }
-
             if (comp.getTarget().cpu.has(.wasm, .exception_handling)) {
                 // Compile libsetjmp.
                 var args = std.array_list.Managed([]const u8).init(arena);
@@ -468,10 +444,6 @@ const libc_top_half_src_files = [_][]const u8{};
 
 const crt1_command_src_file = "wasi/libc-bottom-half/crt/crt1-command.c";
 const crt1_reactor_src_file = "wasi/libc-bottom-half/crt/crt1-reactor.c";
-
-const fts_src_files = &[_][]const u8{
-    "wasi/fts/musl-fts/fts.c",
-};
 
 const setjmp_src_files = &[_][]const u8{
     "wasi/libc-top-half/musl/src/setjmp/wasm32/rt.c",

@@ -159,6 +159,7 @@ comptime {
     if (builtin.target.isWasiLibC()) {
         _ = @import("c/dirent.zig");
         _ = @import("c/fcntl.zig");
+        _ = @import("c/fts.zig");
         _ = @import("c/internal.zig");
         _ = @import("c/misc.zig");
         _ = @import("c/network.zig");

@@ -41,38 +41,18 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
     switch (crt_file) {
         .crt1_reactor_o => {
-            var args = std.array_list.Managed([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, .{});
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            var files = [_]Compilation.CSourceFile{
-                .{
-                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                        "libc", try sanitize(arena, crt1_reactor_src_file),
-                    }),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                },
-            };
-
-            return comp.build_crt_file("crt1-reactor", .Obj, .@"wasi crt1-reactor.o", prog_node, &files, .{});
+            var files: [0]Compilation.CSourceFile = .{};
+            return comp.build_crt_file("crt1-reactor", .Obj, .@"wasi crt1-reactor.o", prog_node, &files, .{
+                .root_source_file = "c/wasi_crt1_reactor.zig",
+                .no_builtin = true,
+            });
         },
         .crt1_command_o => {
-            var args = std.array_list.Managed([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, .{});
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            var files = [_]Compilation.CSourceFile{
-                .{
-                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                        "libc", try sanitize(arena, crt1_command_src_file),
-                    }),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                },
-            };
-
-            return comp.build_crt_file("crt1-command", .Obj, .@"wasi crt1-command.o", prog_node, &files, .{});
+            var files: [0]Compilation.CSourceFile = .{};
+            return comp.build_crt_file("crt1-command", .Obj, .@"wasi crt1-command.o", prog_node, &files, .{
+                .root_source_file = "c/wasi_crt1_command.zig",
+                .no_builtin = true,
+            });
         },
         .libc_a => {
             var libc_sources = std.array_list.Managed(Compilation.CSourceFile).init(arena);
@@ -101,72 +81,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 try addLibcTopHalfIncludes(comp, arena, &args);
 
                 for (libc_top_half_src_files) |file_path| {
-                    try libc_sources.append(.{
-                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                            "libc", try sanitize(arena, file_path),
-                        }),
-                        .extra_flags = args.items,
-                        .owner = undefined,
-                    });
-                }
-            }
-
-            if (comp.getTarget().cpu.has(.wasm, .exception_handling)) {
-                // Compile libsetjmp.
-                var args = std.array_list.Managed([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-                try addLibcTopHalfIncludes(comp, arena, &args);
-
-                for (setjmp_src_files) |file_path| {
-                    try libc_sources.append(.{
-                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                            "libc", try sanitize(arena, file_path),
-                        }),
-                        .extra_flags = args.items,
-                        .owner = undefined,
-                    });
-                }
-            }
-
-            {
-                // Compile libdl.
-                var args = std.array_list.Managed([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-                try addLibcTopHalfIncludes(comp, arena, &args);
-
-                for (emulated_dl_src_files) |file_path| {
-                    try libc_sources.append(.{
-                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                            "libc", try sanitize(arena, file_path),
-                        }),
-                        .extra_flags = args.items,
-                        .owner = undefined,
-                    });
-                }
-            }
-
-            {
-                // Compile libwasi-emulated-process-clocks.
-                var args = std.array_list.Managed([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-
-                for (emulated_process_clocks_src_files) |file_path| {
-                    try libc_sources.append(.{
-                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                            "libc", try sanitize(arena, file_path),
-                        }),
-                        .extra_flags = args.items,
-                        .owner = undefined,
-                    });
-                }
-            }
-
-            {
-                // Compile libwasi-emulated-getpid.
-                var args = std.array_list.Managed([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-
-                for (emulated_getpid_src_files) |file_path| {
                     try libc_sources.append(.{
                         .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
@@ -410,27 +324,6 @@ const libc_bottom_half_src_files = [_][]const u8{};
 // All remaining stdio top-half sources have been migrated to Zig in
 // lib/c/stdio.zig and imported for WASI by lib/c/wasi_stdio.zig.
 const libc_top_half_src_files = [_][]const u8{};
-
-const crt1_command_src_file = "wasi/libc-bottom-half/crt/crt1-command.c";
-const crt1_reactor_src_file = "wasi/libc-bottom-half/crt/crt1-reactor.c";
-
-const setjmp_src_files = &[_][]const u8{
-    "wasi/libc-top-half/musl/src/setjmp/wasm32/rt.c",
-};
-
-const emulated_dl_src_files = &[_][]const u8{
-    "wasi/libc-top-half/musl/src/misc/dl.c",
-};
-
-const emulated_process_clocks_src_files = &[_][]const u8{
-    "wasi/libc-bottom-half/clocks/clock.c",
-    "wasi/libc-bottom-half/clocks/getrusage.c",
-    "wasi/libc-bottom-half/clocks/times.c",
-};
-
-const emulated_getpid_src_files = &[_][]const u8{
-    "wasi/libc-bottom-half/getpid/getpid.c",
-};
 
 const emulated_mman_src_files = &[_][]const u8{
     "wasi/libc-bottom-half/mman/mman.c",

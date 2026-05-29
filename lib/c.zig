@@ -173,6 +173,7 @@ comptime {
         _ = @import("c/wasi_sources.zig");
         _ = @import("c/wasi_stdio.zig");
         _ = @import("c/wasi_thread_stub.zig");
+        _ = @import("c/wasi_mman.zig");
     }
 
     // Windows (MinGW) — libzigc Win32 port (issue #248). Replaces

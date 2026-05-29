@@ -619,6 +619,14 @@ fn thrd_sleep(req: ?*const anyopaque, rem: ?*anyopaque) callconv(.c) c_int {
     return -2;
 }
 
+fn __lock(l: *volatile c_int) callconv(.c) void {
+    _ = l;
+}
+
+fn __unlock(l: *volatile c_int) callconv(.c) void {
+    _ = l;
+}
+
 // --- Symbol exports ---
 
 comptime {
@@ -690,6 +698,8 @@ comptime {
     symbol(&pthread_tsd_run_dtors, "__pthread_tsd_run_dtors");
     symbol(&tlsNoop, "__tl_lock");
     symbol(&tlsNoop, "__tl_unlock");
+    symbol(&__lock, "__lock");
+    symbol(&__unlock, "__unlock");
     symbol(&pthread_getattr_np, "pthread_getattr_np");
     symbol(&pthread_tryjoin_np, "__pthread_tryjoin_np");
     symbol(&pthread_timedjoin_np, "__pthread_timedjoin_np");

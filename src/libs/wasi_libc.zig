@@ -193,37 +193,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 }
             }
 
-            {
-                // Compile libwasi-emulated-signal.
-                var bottom_args = std.array_list.Managed([]const u8).init(arena);
-                try addCCArgs(comp, arena, &bottom_args, .{ .want_O3 = true });
-
-                for (emulated_signal_bottom_half_src_files) |file_path| {
-                    try libc_sources.append(.{
-                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                            "libc", try sanitize(arena, file_path),
-                        }),
-                        .extra_flags = bottom_args.items,
-                        .owner = undefined,
-                    });
-                }
-
-                var top_args = std.array_list.Managed([]const u8).init(arena);
-                try addCCArgs(comp, arena, &top_args, .{ .want_O3 = true });
-                try addLibcTopHalfIncludes(comp, arena, &top_args);
-                try top_args.append("-D_WASI_EMULATED_SIGNAL");
-
-                for (emulated_signal_top_half_src_files) |file_path| {
-                    try libc_sources.append(.{
-                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
-                            "libc", try sanitize(arena, file_path),
-                        }),
-                        .extra_flags = top_args.items,
-                        .owner = undefined,
-                    });
-                }
-            }
-
             try comp.build_crt_file("c", .Lib, .@"wasi libc.a", prog_node, libc_sources.items, .{});
         },
     }
@@ -465,12 +434,4 @@ const emulated_getpid_src_files = &[_][]const u8{
 
 const emulated_mman_src_files = &[_][]const u8{
     "wasi/libc-bottom-half/mman/mman.c",
-};
-
-const emulated_signal_bottom_half_src_files = &[_][]const u8{
-    "wasi/libc-bottom-half/signal/signal.c",
-};
-
-const emulated_signal_top_half_src_files = &[_][]const u8{
-    "musl/src/signal/psignal.c",
 };

@@ -519,3 +519,167 @@ fn sigqueueImpl(pid: linux.pid_t, sig: c_int, value: usize) callconv(.c) c_int {
     _ = linux.sigprocmask(linux.SIG.SETMASK, &set, null);
     return ret;
 }
+
+const NSIG_WASI = 65;
+const SIGABRT_WASI = 6;
+const SIGKILL_WASI = 9;
+const SIGSTOP_WASI = 19;
+const wasi = std.os.wasi;
+const WasiSignalHandler = ?*align(1) const fn (c_int) callconv(.c) void;
+
+comptime {
+    if (builtin.target.isWasiLibC()) {
+        symbol(&raiseWasi, "raise");
+        symbol(&signalWasi, "signal");
+        symbol(&signalWasi, "bsd_signal");
+        symbol(&signalWasi, "__sysv_signal");
+        symbol(&__SIG_ERR, "__SIG_ERR");
+        symbol(&__SIG_IGN, "__SIG_IGN");
+        symbol(&psignalWasi, "psignal");
+    }
+}
+
+var wasi_signal_handlers: [NSIG_WASI]WasiSignalHandler = .{null} ** NSIG_WASI;
+const wasi_default_signal_handlers: [NSIG_WASI]WasiSignalHandler = blk: {
+    var handlers: [NSIG_WASI]WasiSignalHandler = .{null} ** NSIG_WASI;
+    handlers[1] = terminateHandlerWasi;
+    handlers[2] = terminateHandlerWasi;
+    handlers[3] = coreHandlerWasi;
+    handlers[4] = coreHandlerWasi;
+    handlers[5] = coreHandlerWasi;
+    handlers[6] = coreHandlerWasi;
+    handlers[7] = coreHandlerWasi;
+    handlers[8] = coreHandlerWasi;
+    handlers[10] = terminateHandlerWasi;
+    handlers[11] = coreHandlerWasi;
+    handlers[12] = terminateHandlerWasi;
+    handlers[13] = terminateHandlerWasi;
+    handlers[14] = terminateHandlerWasi;
+    handlers[15] = terminateHandlerWasi;
+    handlers[16] = terminateHandlerWasi;
+    handlers[17] = __SIG_IGN;
+    handlers[18] = continueHandlerWasi;
+    handlers[19] = stopHandlerWasi;
+    handlers[20] = stopHandlerWasi;
+    handlers[21] = stopHandlerWasi;
+    handlers[22] = stopHandlerWasi;
+    handlers[24] = coreHandlerWasi;
+    handlers[25] = coreHandlerWasi;
+    handlers[26] = terminateHandlerWasi;
+    handlers[27] = terminateHandlerWasi;
+    handlers[28] = __SIG_IGN;
+    handlers[29] = terminateHandlerWasi;
+    handlers[30] = terminateHandlerWasi;
+    handlers[31] = terminateHandlerWasi;
+    break :blk handlers;
+};
+
+fn setWasiSignalErrno(err: wasi.errno_t) void {
+    std.c._errno().* = @intFromEnum(err);
+}
+
+fn raiseWasi(sig: c_int) callconv(.c) c_int {
+    if (sig < 0 or sig >= NSIG_WASI) {
+        setWasiSignalErrno(.INVAL);
+        return -1;
+    }
+
+    const index: usize = @intCast(sig);
+    const handler = wasi_signal_handlers[index] orelse wasi_default_signal_handlers[index] orelse {
+        setWasiSignalErrno(.NOSYS);
+        return -1;
+    };
+    handler(sig);
+    return 0;
+}
+
+fn signalWasi(sig: c_int, handler: WasiSignalHandler) callconv(.c) WasiSignalHandler {
+    if (sig <= 0 or sig >= NSIG_WASI or sig == SIGKILL_WASI or sig == SIGSTOP_WASI) {
+        setWasiSignalErrno(.INVAL);
+        return __SIG_ERR;
+    }
+
+    const index: usize = @intCast(sig);
+    const previous = wasi_signal_handlers[index];
+    wasi_signal_handlers[index] = handler;
+    return previous;
+}
+
+fn __SIG_IGN(sig: c_int) callconv(.c) void {
+    _ = sig;
+}
+
+fn __SIG_ERR(sig: c_int) callconv(.c) void {
+    _ = sig;
+    @trap();
+}
+
+fn coreHandlerWasi(sig: c_int) callconv(.c) void {
+    if (sig == SIGABRT_WASI) wasi.proc_exit(@intCast(128 + sig));
+    writeFatalSignalWasi(sig);
+    @trap();
+}
+
+fn terminateHandlerWasi(sig: c_int) callconv(.c) void {
+    writeFatalSignalWasi(sig);
+    @trap();
+}
+
+fn stopHandlerWasi(sig: c_int) callconv(.c) void {
+    writeFatalSignalWasi(sig);
+    @trap();
+}
+
+fn continueHandlerWasi(sig: c_int) callconv(.c) void {
+    _ = sig;
+}
+
+fn writeFatalSignalWasi(sig: c_int) void {
+    const prefix = "Program received fatal signal: ";
+    const newline = "\n";
+    const old_errno = std.c._errno().*;
+    const f = stderr_ext.* orelse return;
+    const need_unlock = if (f.lock >= 0) lockfile_fn(f) else 0;
+    const old_mode = f.mode;
+    const old_locale = f.locale;
+
+    var ok = fwrite_fn(prefix, prefix.len, 1, f) == 1;
+    const s = strsignal_fn(sig);
+    ok = ok and fwrite_fn(s, std.mem.len(s), 1, f) == 1;
+    ok = ok and fwrite_fn(newline, newline.len, 1, f) == 1;
+    if (ok) std.c._errno().* = old_errno;
+    f.mode = old_mode;
+    f.locale = old_locale;
+
+    if (need_unlock != 0) unlockfile_fn(f);
+}
+
+fn psignalWasi(sig: c_int, msg: ?[*:0]const u8) callconv(.c) void {
+    const old_errno = std.c._errno().*;
+    const f = stderr_ext.* orelse return;
+    const need_unlock = if (f.lock >= 0) lockfile_fn(f) else 0;
+    const old_mode = f.mode;
+    const old_locale = f.locale;
+
+    var ok = true;
+    if (msg) |m| {
+        const len = std.mem.len(m);
+        ok = len == 0 or fwrite_fn(m, len, 1, f) == 1;
+        ok = ok and fputc_fn(':', f) >= 0;
+        ok = ok and fputc_fn(' ', f) >= 0;
+    }
+    const s = strsignal_fn(sig);
+    ok = ok and fwrite_fn(s, std.mem.len(s), 1, f) == 1;
+    ok = ok and fputc_fn('\n', f) >= 0;
+    if (ok) std.c._errno().* = old_errno;
+    f.mode = old_mode;
+    f.locale = old_locale;
+
+    if (need_unlock != 0) unlockfile_fn(f);
+}
+
+test "wasi signal raise SIGABRT" {
+    if (!builtin.target.isWasiLibC()) return error.SkipZigTest;
+    try std.testing.expect(@intFromPtr(&raiseWasi) != 0);
+    try std.testing.expect(SIGABRT_WASI == 6);
+}

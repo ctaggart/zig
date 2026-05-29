@@ -1217,16 +1217,31 @@ fn inet_ntoa_impl(in: in_addr_t) callconv(.c) [*]u8 {
     // The C declaration `inet_ntoa(struct in_addr)` and `inet_ntoa(uint32_t)`
     // both pass the value in the low 32 bits of x0, so the C ABI is
     // unchanged.
+    // Match musl's byte-wise access through `(unsigned char *)&in`.
+    // Shifting the integer value reverses the address on big-endian targets.
+    const bytes: [4]u8 = @bitCast(in);
     var len: usize = 0;
-    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, @as(u8, @truncate(in)));
+    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, bytes[0]);
     inetNtopWriteByte(&inet_ntoa_buf, &len, '.');
-    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, @as(u8, @truncate(in >> 8)));
+    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, bytes[1]);
     inetNtopWriteByte(&inet_ntoa_buf, &len, '.');
-    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, @as(u8, @truncate(in >> 16)));
+    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, bytes[2]);
     inetNtopWriteByte(&inet_ntoa_buf, &len, '.');
-    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, @as(u8, @truncate(in >> 24)));
+    inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, bytes[3]);
     inet_ntoa_buf[len] = 0;
     return &inet_ntoa_buf;
+}
+
+fn expectInetNtoa(bytes: [4]u8, expected: []const u8) !void {
+    const in: in_addr_t = @bitCast(bytes);
+    try std.testing.expectEqualStrings(expected, std.mem.sliceTo(inet_ntoa_impl(in), 0));
+}
+
+test "inet_ntoa_impl formats network-order bytes" {
+    try expectInetNtoa(.{ 0, 0, 0, 0 }, "0.0.0.0");
+    try expectInetNtoa(.{ 0x7f, 0x00, 0x00, 0x01 }, "127.0.0.1");
+    try expectInetNtoa(.{ 0x0a, 0x00, 0x80, 0x1f }, "10.0.128.31");
+    try expectInetNtoa(.{ 0xff, 0xff, 0xff, 0xff }, "255.255.255.255");
 }
 
 fn inetNtopWriteByte(dst: [*]u8, pos: *usize, byte: u8) void {

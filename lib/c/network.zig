@@ -1203,23 +1203,28 @@ fn inet_netof_impl(in: in_addr) callconv(.c) in_addr_t {
 var inet_ntoa_buf: [16]u8 = undefined;
 
 fn inet_ntoa_impl(in: in_addr_t) callconv(.c) [*]u8 {
+    const word: u32 = if (comptime builtin.cpu.arch == .aarch64_be) blk: {
+        const x0: u64 = asm volatile (""
+            : [ret] "={x0}" (-> u64),
+        );
+        break :blk @truncate(x0 >> 32);
+    } else in;
+
     // The previous version went through `snprintf("%d.%d.%d.%d", a[0],
     // a[1], a[2], a[3])`, but Zig does not apply C's default-argument
     // promotion to variadic args: each `u8` was passed in its natural
     // 1-byte width while libc's `snprintf` read 4 bytes per `%d`,
     // producing `0.0.0.0` for every nonzero address on aarch64.
     //
-    // Take the address as a plain `in_addr_t` (u32) rather than the
-    // `in_addr` extern struct wrapper. A struct{u32} value parameter
-    // is supposed to match the u32 ABI on aarch64, but the optimiser
-    // wasn't preserving the argument bits through the struct param
-    // (it folded `inet_ntoa_impl` to a constant `0.0.0.0` store).
-    // The C declaration `inet_ntoa(struct in_addr)` and `inet_ntoa(uint32_t)`
-    // both pass the value in the low 32 bits of x0, so the C ABI is
-    // unchanged.
-    // Match musl's byte-wise access through `(unsigned char *)&in`.
-    // Shifting the integer value reverses the address on big-endian targets.
-    const bytes: [4]u8 = @bitCast(in);
+    // C callers pass `struct in_addr` by value. AAPCS64 places small
+    // aggregates in one 64-bit register: on little-endian aarch64 the struct's
+    // bytes occupy the low 32 bits of x0, while on big-endian aarch64 they
+    // occupy the high 32 bits. Keep the Zig parameter as `in_addr_t` so the
+    // aarch64 little-endian path works around Zig 0.16.0's incorrect
+    // struct-by-value ABI for `extern struct { u32 }`; for aarch64_be, the asm
+    // above must be the first operation in this function so it can recover the
+    // original high half of x0 before anything can clobber it.
+    const bytes: [4]u8 = @bitCast(word);
     var len: usize = 0;
     inetNtopWriteUnsigned(&inet_ntoa_buf, &len, 10, bytes[0]);
     inetNtopWriteByte(&inet_ntoa_buf, &len, '.');

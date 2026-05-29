@@ -581,13 +581,6 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/libc-top-half/musl/src/thread/pthread_mutexattr_setrobust.c",
     "wasi/libc-top-half/musl/src/thread/pthread_mutex_destroy.c",
     "wasi/libc-top-half/musl/src/thread/pthread_self.c",
-    "wasi/libc-top-half/musl/src/time/getdate.c",
-    "wasi/libc-top-half/musl/src/time/localtime.c",
-    "wasi/libc-top-half/musl/src/time/localtime_r.c",
-    "wasi/libc-top-half/musl/src/time/mktime.c",
-    "wasi/libc-top-half/musl/src/time/strftime.c",
-    "wasi/libc-top-half/musl/src/time/__tz.c",
-    "wasi/libc-top-half/musl/src/time/wcsftime.c",
 };
 
 const crt1_command_src_file = "wasi/libc-bottom-half/crt/crt1-command.c";

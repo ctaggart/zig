@@ -424,6 +424,10 @@ jobs:
             allow_failure: false
           - target: x86_64-linux-musl
             allow_failure: false
+          - target: aarch64-linux-musl
+            allow_failure: false
+          - target: aarch64_be-linux-musl
+            allow_failure: false
           - target: arm-linux-musleabi
             allow_failure: false
           - target: arm-linux-musleabihf

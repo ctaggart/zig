@@ -76,7 +76,11 @@ const SEEK_CUR: c_int = 1;
 const SEEK_END: c_int = 2;
 const towrite_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__towrite" });
 const linux = std.os.linux;
+const wasi = std.os.wasi;
 const c_errno = @import("../c.zig").errno;
+const is_wasi_libc = builtin.target.isWasiLibC();
+const is_musl_libc = builtin.target.isMuslLibC();
+const is_musl_or_wasi_libc = is_musl_libc or is_wasi_libc;
 const uflow_fn = @extern(*const fn (*FILE) callconv(.c) c_int, .{ .name = "__uflow" });
 const overflow_fn = @extern(*const fn (*FILE, c_int) callconv(.c) c_int, .{ .name = "__overflow" });
 const VaList = std.builtin.VaList;
@@ -122,6 +126,21 @@ const wctomb_fn = @extern(*const fn (?[*]u8, wchar_t) callconv(.c) c_int, .{ .na
 const ungetwc_fn = @extern(*const fn (wint_t, ?*FILE) callconv(.c) wint_t, .{ .name = "ungetwc" });
 const wcrtomb_fn = @extern(*const fn (?[*]u8, wchar_t, ?*mbstate_t) callconv(.c) usize, .{ .name = "wcrtomb" });
 const fgetwc_fn = @extern(*const fn (?*FILE) callconv(.c) wint_t, .{ .name = "fgetwc" });
+
+const wasilibc_open_nomode_fn = @extern(*const fn ([*:0]const u8, c_int) callconv(.c) c_int, .{ .name = "__wasilibc_open_nomode" });
+
+const WASI_O_APPEND_U: u32 = 1;
+const WASI_O_CREAT_U: u32 = 1 << 12;
+const WASI_O_EXCL_U: u32 = 4 << 12;
+const WASI_O_TRUNC_U: u32 = 8 << 12;
+const WASI_O_CLOEXEC_U: u32 = 0;
+const WASI_O_RDONLY_U: u32 = 0x04000000;
+const WASI_O_WRONLY_U: u32 = 0x10000000;
+const WASI_O_RDWR_U: u32 = WASI_O_RDONLY_U | WASI_O_WRONLY_U;
+const WASI_F_SETFL: c_int = 4;
+const WASI_F_GETFL: c_int = 3;
+const WASI_F_SETFD: c_int = 2;
+const WASI_FD_CLOEXEC_U: usize = 1;
 
 var stdin_buf: [BUFSIZ + UNGET]u8 = undefined;
 var stdout_buf: [BUFSIZ + UNGET]u8 = undefined;
@@ -185,7 +204,7 @@ fn initStderrFile() FILE {
 }
 
 comptime {
-    if (builtin.link_libc and builtin.target.isMuslLibC()) {
+    if (builtin.link_libc and is_musl_or_wasi_libc) {
         @export(&__stdin_FILE, .{ .name = "__stdin_FILE", .linkage = .weak, .visibility = .hidden });
         @export(&__stdout_FILE, .{ .name = "__stdout_FILE", .linkage = .weak, .visibility = .hidden });
         @export(&__stderr_FILE, .{ .name = "__stderr_FILE", .linkage = .weak, .visibility = .hidden });
@@ -272,8 +291,10 @@ comptime {
         symbol(&__freadptr, "__freadptr");
         symbol(&__freadptrinc, "__freadptrinc");
         symbol(&__fseterr, "__fseterr");
-        symbol(&remove_fn, "remove");
-        symbol(&rename_fn, "rename");
+        if (is_musl_libc) {
+            symbol(&remove_fn, "remove");
+            symbol(&rename_fn, "rename");
+        }
         symbol(&getc_unlocked_impl, "getc_unlocked");
         symbol(&fgetc_impl, "fgetc");
         symbol(&fputc_impl, "fputc");
@@ -325,7 +346,7 @@ comptime {
         symbol(&freopen_impl, "freopen");
         symbol(&fdopen_impl, "__fdopen");
         symbol(&fdopen_impl, "fdopen");
-        symbol(&tmpfile_impl, "tmpfile");
+        if (is_musl_libc) symbol(&tmpfile_impl, "tmpfile");
 
         // Variadic entry points forwarding to v* implementations (unblocked by #243 fix).
         symbol(&printf_impl, "printf");
@@ -370,8 +391,10 @@ comptime {
         symbol(&fopencookie_impl, "fopencookie");
 
         // Pipe/process stdio (popen.c, pclose.c)
-        symbol(&popen_impl, "popen");
-        symbol(&pclose_impl, "pclose");
+        if (is_musl_libc) {
+            symbol(&popen_impl, "popen");
+            symbol(&pclose_impl, "pclose");
+        }
     }
 }
 
@@ -714,7 +737,7 @@ fn fileno(f: *FILE) callconv(.c) c_int {
     const fd = f.fd;
     funlock(f, need_unlock);
     if (fd < 0) {
-        std.c._errno().* = @intFromEnum(std.os.linux.E.BADF);
+        std.c._errno().* = @intFromEnum(std.c.E.BADF);
         return -1;
     }
     return fd;
@@ -833,7 +856,7 @@ fn __fseeko_unlocked(f: *FILE, off_arg: i64, whence: c_int) callconv(.c) c_int {
 
     // Fail immediately for invalid whence argument.
     if (whence != SEEK_CUR and whence != SEEK_SET and whence != SEEK_END) {
-        std.c._errno().* = @intFromEnum(std.os.linux.E.INVAL);
+        std.c._errno().* = @intFromEnum(std.c.E.INVAL);
         return -1;
     }
 
@@ -903,7 +926,7 @@ fn __ftello(f: *FILE) callconv(.c) i64 {
 fn ftell(f: *FILE) callconv(.c) c_long {
     const pos = __ftello(f);
     if (pos > std.math.maxInt(c_long)) {
-        std.c._errno().* = @intFromEnum(std.os.linux.E.OVERFLOW);
+        std.c._errno().* = @intFromEnum(std.c.E.OVERFLOW);
         return -1;
     }
     return @intCast(pos);
@@ -1116,7 +1139,7 @@ fn __fseterr(f: *FILE) callconv(.c) void {
 fn remove_fn(path: [*:0]const u8) callconv(.c) c_int {
     var r = linux.unlinkat(linux.AT.FDCWD, @ptrCast(path), 0);
     const signed: isize = @bitCast(r);
-    if (signed == -@as(isize, @intFromEnum(linux.E.ISDIR))) {
+    if (signed == -@as(isize, @intFromEnum(std.c.E.ISDIR))) {
         r = linux.unlinkat(linux.AT.FDCWD, @ptrCast(path), linux.AT.REMOVEDIR);
     }
     return c_errno(r);
@@ -1308,8 +1331,6 @@ fn perror_impl(msg: ?[*:0]const u8) callconv(.c) void {
 /// __fmodeflags.c: int __fmodeflags(const char *mode)
 /// Parse fopen-style mode string to O_* flags.
 fn fmodeflags_impl(mode: [*:0]const u8) callconv(.c) c_int {
-    const O = std.os.linux.O;
-    var o = O{};
     // Check for '+', 'x', 'e' anywhere in the mode string
     var has_plus = false;
     var has_x = false;
@@ -1325,6 +1346,19 @@ fn fmodeflags_impl(mode: [*:0]const u8) callconv(.c) c_int {
             }
         }
     }
+
+    if (is_wasi_libc) {
+        var flags: u32 = if (has_plus) WASI_O_RDWR_U else if (mode[0] == 'r') WASI_O_RDONLY_U else WASI_O_WRONLY_U;
+        if (has_x) flags |= WASI_O_EXCL_U;
+        if (has_e) flags |= WASI_O_CLOEXEC_U;
+        if (mode[0] != 'r') flags |= WASI_O_CREAT_U;
+        if (mode[0] == 'w') flags |= WASI_O_TRUNC_U;
+        if (mode[0] == 'a') flags |= WASI_O_APPEND_U;
+        return @bitCast(flags);
+    }
+
+    const O = std.os.linux.O;
+    var o = O{};
     if (has_plus)
         o.ACCMODE = .RDWR
     else if (mode[0] == 'r')
@@ -1350,15 +1384,18 @@ fn fclose_ca_impl(f: *FILE) callconv(.c) c_int {
 /// __fopen_rb_ca.c: FILE *__fopen_rb_ca(const char *filename, FILE *f, unsigned char *buf, size_t len)
 fn fopen_rb_ca_impl(filename: [*:0]const u8, f: *FILE, buf: [*]u8, len: usize) callconv(.c) ?*FILE {
     f.* = std.mem.zeroes(FILE);
-    const O = linux.O;
-    var o = O{};
-    o.ACCMODE = .RDONLY;
-    o.CLOEXEC = true;
-    if (@hasField(O, "LARGEFILE")) o.LARGEFILE = true;
-    const fd_raw: isize = @bitCast(linux.openat(linux.AT.FDCWD, @ptrCast(filename), o, 0));
-    if (fd_raw < 0) return null;
-    const fd: c_int = @intCast(fd_raw);
-    _ = linux.fcntl(fd, linux.F.SETFD, @as(usize, linux.FD_CLOEXEC));
+    const fd: c_int = if (comptime is_wasi_libc) wasilibc_open_nomode_fn(filename, @bitCast(WASI_O_RDONLY_U | WASI_O_CLOEXEC_U)) else blk: {
+        const O = linux.O;
+        var o = O{};
+        o.ACCMODE = .RDONLY;
+        o.CLOEXEC = true;
+        if (@hasField(O, "LARGEFILE")) o.LARGEFILE = true;
+        const fd_raw: isize = @bitCast(linux.openat(linux.AT.FDCWD, @ptrCast(filename), o, 0));
+        if (fd_raw < 0) return null;
+        break :blk @intCast(fd_raw);
+    };
+    if (fd < 0) return null;
+    setFdCloexec(fd);
     f.flags = F_NOWR | F_PERM;
     f.buf = buf + UNGET;
     f.buf_size = len - UNGET;
@@ -1370,14 +1407,14 @@ fn fopen_rb_ca_impl(filename: [*:0]const u8, f: *FILE, buf: [*]u8, len: usize) c
     return f;
 }
 
-const O_CREAT_U: u32 = @bitCast(linux.O{ .CREAT = true });
-const O_EXCL_U: u32 = @bitCast(linux.O{ .EXCL = true });
-const O_APPEND_U: u32 = @bitCast(linux.O{ .APPEND = true });
-const O_CLOEXEC_U: u32 = @bitCast(linux.O{ .CLOEXEC = true });
-const F_SETFL: c_int = linux.F.SETFL;
-const F_GETFL: c_int = linux.F.GETFL;
-const F_SETFD: c_int = linux.F.SETFD;
-const FD_CLOEXEC_U: usize = linux.FD_CLOEXEC;
+const O_CREAT_U: u32 = if (is_wasi_libc) WASI_O_CREAT_U else @bitCast(linux.O{ .CREAT = true });
+const O_EXCL_U: u32 = if (is_wasi_libc) WASI_O_EXCL_U else @bitCast(linux.O{ .EXCL = true });
+const O_APPEND_U: u32 = if (is_wasi_libc) WASI_O_APPEND_U else @bitCast(linux.O{ .APPEND = true });
+const O_CLOEXEC_U: u32 = if (is_wasi_libc) WASI_O_CLOEXEC_U else @bitCast(linux.O{ .CLOEXEC = true });
+const F_SETFL: c_int = if (is_wasi_libc) WASI_F_SETFL else linux.F.SETFL;
+const F_GETFL: c_int = if (is_wasi_libc) WASI_F_GETFL else linux.F.GETFL;
+const F_SETFD: c_int = if (is_wasi_libc) WASI_F_SETFD else linux.F.SETFD;
+const FD_CLOEXEC_U: usize = if (is_wasi_libc) WASI_FD_CLOEXEC_U else linux.FD_CLOEXEC;
 const MAX_TMPFILE_TRIES = 100;
 
 fn modeHas(mode: [*:0]const u8, ch: u8) bool {
@@ -1400,12 +1437,113 @@ fn flagsWithout(flags: c_int, mask: u32) c_int {
     return @bitCast(@as(u32, @bitCast(flags)) & ~mask);
 }
 
-fn flagsToOpen(flags: c_int) linux.O {
-    return @bitCast(@as(u32, @bitCast(flags)));
-}
-
 fn syscallArgInt(x: c_int) usize {
     return @bitCast(@as(isize, x));
+}
+
+fn setErrnoWasi(e: wasi.errno_t) void {
+    std.c._errno().* = @intCast(@intFromEnum(e));
+}
+
+fn openPath(filename: [*:0]const u8, flags: c_int) c_int {
+    if (comptime is_wasi_libc) return wasilibc_open_nomode_fn(filename, flags);
+    const linux_flags: linux.O = @bitCast(@as(u32, @bitCast(flags)));
+    return c_errno(linux.openat(linux.AT.FDCWD, filename, linux_flags, 0o666));
+}
+
+fn closeFd(fd: c_int) c_int {
+    if (fd < 0) return 0;
+    if (comptime is_wasi_libc) {
+        return switch (wasi.fd_close(fd)) {
+            .SUCCESS => 0,
+            else => |e| blk: {
+                setErrnoWasi(e);
+                break :blk -1;
+            },
+        };
+    }
+    return c_errno(linux.close(@bitCast(fd)));
+}
+
+fn setFdCloexec(fd: c_int) void {
+    if (comptime is_wasi_libc) return;
+    _ = linux.fcntl(fd, F_SETFD, FD_CLOEXEC_U);
+}
+
+fn setFdAppend(fd: c_int) bool {
+    if (comptime is_wasi_libc) {
+        var stat: wasi.fdstat_t = undefined;
+        switch (wasi.fd_fdstat_get(fd, &stat)) {
+            .SUCCESS => {},
+            else => |e| {
+                setErrnoWasi(e);
+                return false;
+            },
+        }
+        stat.fs_flags.APPEND = true;
+        switch (wasi.fd_fdstat_set_flags(fd, stat.fs_flags)) {
+            .SUCCESS => return true,
+            else => |e| {
+                setErrnoWasi(e);
+                return false;
+            },
+        }
+    }
+
+    const fl_raw: isize = @bitCast(linux.fcntl(fd, F_GETFL, 0));
+    if (fl_raw < 0) return false;
+    if ((@as(usize, @bitCast(fl_raw)) & O_APPEND_U) == 0) {
+        const rc: isize = @bitCast(linux.fcntl(fd, F_SETFL, @as(usize, @bitCast(fl_raw)) | O_APPEND_U));
+        if (rc < 0) return false;
+    }
+    return true;
+}
+
+fn setFdFlags(fd: c_int, flags: c_int) bool {
+    if (comptime is_wasi_libc) {
+        var stat: wasi.fdstat_t = undefined;
+        switch (wasi.fd_fdstat_get(fd, &stat)) {
+            .SUCCESS => {},
+            else => |e| {
+                setErrnoWasi(e);
+                return false;
+            },
+        }
+        stat.fs_flags.APPEND = flagsHas(flags, O_APPEND_U);
+        switch (wasi.fd_fdstat_set_flags(fd, stat.fs_flags)) {
+            .SUCCESS => return true,
+            else => |e| {
+                setErrnoWasi(e);
+                return false;
+            },
+        }
+    }
+    const rc: isize = @bitCast(linux.fcntl(fd, F_SETFL, syscallArgInt(flags)));
+    return rc >= 0;
+}
+
+fn dupTo(from: c_int, to: c_int, flags: c_int) c_int {
+    if (comptime is_wasi_libc) {
+        return switch (wasi.fd_renumber(from, to)) {
+            .SUCCESS => 0,
+            else => |e| blk: {
+                setErrnoWasi(e);
+                break :blk -1;
+            },
+        };
+    }
+    const rc: isize = @bitCast(linux.dup3(from, to, if (flagsHas(flags, O_CLOEXEC_U)) O_CLOEXEC_U else 0));
+    return if (rc < 0) -1 else 0;
+}
+
+fn isTerminalFd(fd: c_int) bool {
+    if (comptime is_wasi_libc) {
+        var stat: wasi.fdstat_t = undefined;
+        return wasi.fd_fdstat_get(fd, &stat) == .SUCCESS and stat.fs_filetype == .CHARACTER_DEVICE;
+    }
+    var wsz: [4]u16 = undefined;
+    const r: isize = @bitCast(linux.ioctl(@bitCast(fd), TIOCGWINSZ, @intFromPtr(&wsz)));
+    return r == 0;
 }
 
 fn fopen_impl(filename: [*:0]const u8, mode: [*:0]const u8) callconv(.c) ?*FILE {
@@ -1415,14 +1553,13 @@ fn fopen_impl(filename: [*:0]const u8, mode: [*:0]const u8) callconv(.c) ?*FILE 
     }
 
     const flags = fmodeflags_impl(mode);
-    const fd = c_errno(linux.openat(linux.AT.FDCWD, filename, flagsToOpen(flags), 0o666));
+    const fd = openPath(filename, flags);
     if (fd < 0) return null;
-    if (flagsHas(flags, O_CLOEXEC_U))
-        _ = linux.fcntl(fd, F_SETFD, FD_CLOEXEC_U);
+    if (flagsHas(flags, O_CLOEXEC_U)) setFdCloexec(fd);
 
     if (fdopen_impl(fd, mode)) |f| return f;
 
-    _ = linux.close(@bitCast(fd));
+    _ = closeFd(fd);
     return null;
 }
 
@@ -1438,13 +1575,10 @@ fn fdopen_impl(fd: c_int, mode: [*:0]const u8) callconv(.c) ?*FILE {
 
     if (!modeHas(mode, '+')) f.flags = if (mode[0] == 'r') F_NOWR else F_NORD;
 
-    if (modeHas(mode, 'e')) _ = linux.fcntl(fd, F_SETFD, FD_CLOEXEC_U);
+    if (modeHas(mode, 'e')) setFdCloexec(fd);
 
     if (mode[0] == 'a') {
-        const fl_raw: isize = @bitCast(linux.fcntl(fd, F_GETFL, 0));
-        if ((@as(usize, @bitCast(fl_raw)) & O_APPEND_U) == 0) {
-            _ = linux.fcntl(fd, F_SETFL, @as(usize, @bitCast(fl_raw)) | O_APPEND_U);
-        }
+        _ = setFdAppend(fd);
         f.flags |= F_APP;
     }
 
@@ -1453,11 +1587,7 @@ fn fdopen_impl(fd: c_int, mode: [*:0]const u8) callconv(.c) ?*FILE {
     f.buf_size = BUFSIZ;
 
     f.lbf = EOF;
-    if (f.flags & F_NOWR == 0) {
-        var wsz: [4]u16 = undefined;
-        const r: isize = @bitCast(linux.ioctl(@bitCast(fd), TIOCGWINSZ, @intFromPtr(&wsz)));
-        if (r == 0) f.lbf = '\n';
-    }
+    if (f.flags & F_NOWR == 0 and isTerminalFd(fd)) f.lbf = '\n';
 
     f.read_fn = &stdio_read_impl;
     f.write_fn = &stdio_write_impl;
@@ -1544,11 +1674,9 @@ fn freopen_impl(filename: ?[*:0]const u8, mode: [*:0]const u8, f: *FILE) callcon
     _ = fflush_impl(f);
 
     if (filename == null) {
-        if (flagsHas(fl, O_CLOEXEC_U))
-            _ = linux.fcntl(f.fd, F_SETFD, FD_CLOEXEC_U);
+        if (flagsHas(fl, O_CLOEXEC_U)) setFdCloexec(f.fd);
         fl = flagsWithout(fl, O_CREAT_U | O_EXCL_U | O_CLOEXEC_U);
-        const rc: isize = @bitCast(linux.fcntl(f.fd, F_SETFL, syscallArgInt(fl)));
-        if (rc < 0) {
+        if (!setFdFlags(f.fd, fl)) {
             funlock(f, need_unlock);
             _ = fclose_impl(f);
             return null;
@@ -1562,13 +1690,13 @@ fn freopen_impl(filename: ?[*:0]const u8, mode: [*:0]const u8, f: *FILE) callcon
         if (f2.fd == f.fd) {
             f2.fd = -1;
         } else {
-            const rc: isize = @bitCast(linux.dup3(f2.fd, f.fd, if (flagsHas(fl, O_CLOEXEC_U)) O_CLOEXEC_U else 0));
-            if (rc < 0) {
+            if (dupTo(f2.fd, f.fd, fl) < 0) {
                 _ = fclose_impl(f2);
                 funlock(f, need_unlock);
                 _ = fclose_impl(f);
                 return null;
             }
+            f2.fd = -1;
         }
 
         f.flags = (f.flags & F_PERM) | f2.flags;
@@ -1635,6 +1763,25 @@ fn fgetln_impl(f_opaque: ?*FILE, plen: *usize) callconv(.c) ?[*]u8 {
 
 /// __stdio_seek.c: off_t __stdio_seek(FILE *f, off_t off, int whence)
 fn stdio_seek_impl(f: *FILE, off: i64, whence: c_int) callconv(.c) i64 {
+    if (comptime is_wasi_libc) {
+        const wasi_whence: wasi.whence_t = switch (whence) {
+            SEEK_SET => .SET,
+            SEEK_CUR => .CUR,
+            SEEK_END => .END,
+            else => {
+                setErrno(.INVAL);
+                return -1;
+            },
+        };
+        var new_offset: wasi.filesize_t = undefined;
+        return switch (wasi.fd_seek(f.fd, off, wasi_whence, &new_offset)) {
+            .SUCCESS => @intCast(new_offset),
+            else => |e| blk: {
+                setErrnoWasi(e);
+                break :blk -1;
+            },
+        };
+    }
     return lseek_fn(f.fd, off, whence);
 }
 
@@ -1642,6 +1789,7 @@ fn stdio_seek_impl(f: *FILE, off: i64, whence: c_int) callconv(.c) i64 {
 
 /// __stdio_close.c: int __stdio_close(FILE *f)
 fn stdio_close_impl(f: *FILE) callconv(.c) c_int {
+    if (comptime is_wasi_libc) return closeFd(f.fd);
     const fd = aio_close_fn(f.fd);
     return c_errno(linux.close(@bitCast(fd)));
 }
@@ -1655,11 +1803,24 @@ fn stdio_read_impl(f: *FILE, buf: [*]u8, len: usize) callconv(.c) usize {
         .{ .base = buf, .len = len -| has_buf },
         .{ .base = f.buf orelse buf, .len = f.buf_size },
     };
-    const cnt_raw = if (iov[0].len != 0)
-        linux.readv(@bitCast(f.fd), &iov, 2)
-    else
-        linux.read(@bitCast(f.fd), iov[1].base, iov[1].len);
-    const cnt: isize = @bitCast(cnt_raw);
+    const cnt: isize = if (comptime is_wasi_libc) blk: {
+        var nread: usize = 0;
+        const iov_start: [*]const std.posix.iovec = if (iov[0].len != 0) &iov else @ptrCast(&iov[1]);
+        const iov_count: usize = if (iov[0].len != 0) 2 else 1;
+        switch (wasi.fd_read(f.fd, iov_start, iov_count, &nread)) {
+            .SUCCESS => break :blk @intCast(nread),
+            else => |e| {
+                setErrnoWasi(e);
+                break :blk -1;
+            },
+        }
+    } else blk: {
+        const cnt_raw = if (iov[0].len != 0)
+            linux.readv(@bitCast(f.fd), &iov, 2)
+        else
+            linux.read(@bitCast(f.fd), iov[1].base, iov[1].len);
+        break :blk @bitCast(cnt_raw);
+    };
     if (cnt <= 0) {
         f.flags |= if (cnt != 0) F_ERR else F_EOF;
         return 0;
@@ -1691,8 +1852,19 @@ fn stdio_write_impl(f: *FILE, buf: [*]const u8, len: usize) callconv(.c) usize {
     while (true) {
         const iov_slice: [*]const std.posix.iovec_const = @ptrCast(&iovs[iov_idx]);
         const iovcnt: u32 = @intCast(2 - iov_idx);
-        const cnt_raw = linux.writev(@bitCast(f.fd), iov_slice, iovcnt);
-        const cnt: isize = @bitCast(cnt_raw);
+        const cnt: isize = if (comptime is_wasi_libc) blk: {
+            var nwritten: usize = 0;
+            switch (wasi.fd_write(f.fd, iov_slice, iovcnt, &nwritten)) {
+                .SUCCESS => break :blk @intCast(nwritten),
+                else => |e| {
+                    setErrnoWasi(e);
+                    break :blk -1;
+                },
+            }
+        } else blk: {
+            const cnt_raw = linux.writev(@bitCast(f.fd), iov_slice, iovcnt);
+            break :blk @bitCast(cnt_raw);
+        };
         if (cnt == @as(isize, @intCast(rem))) {
             f.wend = f.buf.? + f.buf_size;
             f.wpos = f.buf;
@@ -1727,11 +1899,7 @@ const TIOCGWINSZ: u32 = 0x5413;
 /// __stdout_write.c: size_t __stdout_write(FILE *f, const unsigned char *buf, size_t len)
 fn stdout_write_impl(f: *FILE, buf: [*]const u8, len: usize) callconv(.c) usize {
     f.write_fn = &stdio_write_impl;
-    if (f.flags & F_SVB == 0) {
-        var wsz: [4]u16 = undefined; // struct winsize placeholder
-        const r: isize = @bitCast(linux.ioctl(@bitCast(f.fd), TIOCGWINSZ, @intFromPtr(&wsz)));
-        if (r != 0) f.lbf = -1;
-    }
+    if (f.flags & F_SVB == 0 and !isTerminalFd(f.fd)) f.lbf = -1;
     return stdio_write_impl(f, buf, len);
 }
 
@@ -1884,7 +2052,7 @@ fn setModeErr(f: *FILE) void {
     f.flags |= F_ERR;
 }
 
-fn setErrno(e: std.os.linux.E) void {
+fn setErrno(e: std.c.E) void {
     std.c._errno().* = @intCast(@intFromEnum(e));
 }
 
@@ -4685,11 +4853,13 @@ fn ftrylockfile_impl(f: *FILE) callconv(.c) c_int {
 }
 
 fn futex_wait(ptr: *const c_int, expected: c_int) void {
-    _ = linux.futex_4arg(@ptrCast(ptr), .{ .cmd = .WAIT, .private = true }, @bitCast(expected), null);
+    if (comptime !is_wasi_libc)
+        _ = linux.futex_4arg(@ptrCast(ptr), .{ .cmd = .WAIT, .private = true }, @bitCast(expected), null);
 }
 
 fn futex_wake(ptr: *const c_int, count: u32) void {
-    _ = linux.futex_3arg(@ptrCast(ptr), .{ .cmd = .WAKE, .private = true }, count);
+    if (comptime !is_wasi_libc)
+        _ = linux.futex_3arg(@ptrCast(ptr), .{ .cmd = .WAKE, .private = true }, count);
 }
 
 // --- Memory stream functions (fmemopen.c, open_memstream.c, open_wmemstream.c, fopencookie.c) ---
@@ -5271,7 +5441,7 @@ fn popen_impl(cmd: [*:0]const u8, mode: [*:0]const u8) callconv(.c) ?*FILE {
         return null;
     };
 
-    var e: c_int = @intFromEnum(linux.E.NOMEM);
+    var e: c_int = @intFromEnum(std.c.E.NOMEM);
     var fa: posix_spawn_file_actions_t = undefined;
     if (posix_spawn_file_actions_init_fn(&fa) == 0) {
         var fail = false;
@@ -5322,7 +5492,7 @@ fn pclose_impl(f: *FILE) callconv(.c) c_int {
     while (true) {
         const r_raw = linux.wait4(pid, @ptrCast(&status), 0, null);
         const r: isize = @bitCast(r_raw);
-        if (r == -@as(isize, @intFromEnum(linux.E.INTR))) continue;
+        if (r == -@as(isize, @intFromEnum(std.c.E.INTR))) continue;
         if (r < 0) return c_errno(r_raw);
         return status;
     }
